@@ -71,7 +71,7 @@ const SearchResults = () => {
         </div>
       </div>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );

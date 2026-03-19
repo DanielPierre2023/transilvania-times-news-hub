@@ -70,7 +70,7 @@ const Category = () => {
         </div>
       </main>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );

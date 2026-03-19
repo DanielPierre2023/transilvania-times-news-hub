@@ -112,7 +112,7 @@ const Article = () => {
         </div>
       </div>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );

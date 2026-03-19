@@ -70,7 +70,7 @@ const TermsConditions = () => {
         </div>
       </main>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );

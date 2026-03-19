@@ -70,7 +70,7 @@ const PrivacyPolicy = () => {
         </div>
       </main>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );

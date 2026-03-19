@@ -140,7 +140,7 @@ const Contact = () => {
         </div>
       </main>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );

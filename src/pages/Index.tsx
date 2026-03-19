@@ -48,7 +48,7 @@ const Index = () => {
         </div>
       </main>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );
