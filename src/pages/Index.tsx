@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
 import ArticleCard from "@/components/ArticleCard";
-import Newsletter from "@/components/Newsletter";
+
 import Footer from "@/components/Footer";
 import AdUnit from "@/components/AdUnit";
 import { featuredArticle, articles, t as tBi } from "@/data/articles";
