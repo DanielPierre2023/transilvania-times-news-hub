@@ -1,40 +1,31 @@
 
 
-## Analysis: Current State vs. Your Specifications
+## Plan: Mobile Optimization & Minor Refinements
 
-The existing codebase already implements nearly everything described:
+The user's message contains CSS enhancements for mobile and an AdBanner component. Most of the content repeats previously-implemented specs. Here's what's actually new and worth implementing:
 
-- **Design tokens** (paper, brandRed, espresso, clay, actionOrange) ✅
-- **Typography** (Lora serif, Inter sans-serif) ✅
-- **4-column responsive grid** with grayscale hover effect ✅
-- **Article page** with hero image, metadata, body, subheadings, "Go Back" button ✅
-- **Category page** with filtering ✅
-- **React Router** with `/article/:slug` and `/category/:name` routes ✅
-- **Header** with date, branding, Support Us CTA, category nav ✅
-- **Footer** with categories, contact, copyright ✅
-- **Newsletter** component ✅
+### Changes
 
-### Minor Gaps to Address
+**1. Update `src/index.css` — Add mobile optimizations**
+- Add `overflow-x: hidden`, `scroll-behavior: smooth`, `-webkit-tap-highlight-color: transparent` to `html`
+- Add `min-height: 100dvh` to `body` for iOS Safari address bar fix
+- Add component-layer utility classes: `.article-thumb-transition` (grayscale hover/active), `.min-h-dynamic`, `.safe-p-bottom`
 
-**1. Add "Beauty" to navigation categories**
-Your spec lists: Politics, Technology, Education, Sports, Showbiz, Health, Beauty, Travel. Current Header has all except "Beauty".
+**2. Update `src/components/Footer.tsx` — Expand categories list**
+- Add Sports, Showbiz, Health, Beauty to the Popular Categories list (currently only Politics, Technology, Education, Travel)
 
-**2. Update Footer category links to use router Links**
-Footer category links currently use `<a href="#...">` instead of `<Link to="/category/...">`, so they don't navigate properly.
+**3. Skip: AdBanner component**
+- Requires a real Google AdSense publisher ID to function — no value adding a placeholder with `ca-pub-XXXXXXXXXXXXXXXX`
+- Can be added later when the user has an actual AdSense account
 
-**3. Add footer accessibility links as router Links**
-Same issue — Contact Us, FAQ, Accessibility links in footer use anchor tags instead of proper routing.
+**4. Skip: Footer restructure to 4 columns with inline newsletter**
+- The current footer already has a separate Newsletter component above it — duplicating it inside the footer adds clutter
+- The current 3-column layout with router Links is clean and functional
 
 ### Files to Change
 
 | File | Change |
 |------|--------|
-| `src/components/Header.tsx` | Add "Beauty" to categories array |
-| `src/components/Footer.tsx` | Convert category `<a>` tags to `<Link>` components, import react-router-dom |
-
-### What We Won't Change
-
-- **No content.json / fetch approach**: The current `src/data/articles.ts` TypeScript module is superior — it provides type safety, tree-shaking, and avoids async loading for static content.
-- **No Framer CDN images**: We already have local image assets that work correctly.
-- **No custom breakpoints override**: The default Tailwind breakpoints (md:768px, lg:1024px) work well with the current grid and are industry standard.
+| `src/index.css` | Add mobile-first optimizations (dvh, smooth scroll, tap highlight, utility classes) |
+| `src/components/Footer.tsx` | Expand categories to full 8-category list |
 
