@@ -10,6 +10,7 @@ import Category from "./pages/Category.tsx";
 import SearchResults from "./pages/SearchResults.tsx";
 import TermsConditions from "./pages/TermsConditions.tsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
+import Contact from "./pages/Contact.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -25,6 +26,7 @@ const App = () => (
           <Route path="/article/:slug" element={<Article />} />
           <Route path="/category/:name" element={<Category />} />
           <Route path="/search" element={<SearchResults />} />
+          <Route path="/contact" element={<Contact />} />
           <Route path="/terms" element={<TermsConditions />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
