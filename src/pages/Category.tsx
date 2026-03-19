@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { getArticlesByCategory, articles, t as tBi } from "@/data/articles";
 import Header from "@/components/Header";
-import Newsletter from "@/components/Newsletter";
+
 import Footer from "@/components/Footer";
 import AdUnit from "@/components/AdUnit";
 
