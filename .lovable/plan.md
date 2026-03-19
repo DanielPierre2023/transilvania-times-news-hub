@@ -1,45 +1,40 @@
 
 
-## Plan: Add Category Page & Full Article Page
+## Analysis: Current State vs. Your Specifications
 
-### What We're Building
-1. **Full Article Page** (`/article/:slug`) — large hero image, metadata header, structured body content, "Go Back" button
-2. **Category Page** (`/category/:name`) — 4-column responsive grid of article cards with grayscale-to-color hover effect
-3. **Updated routing and navigation** — wire header category links and article cards to navigate between pages
+The existing codebase already implements nearly everything described:
 
-### Implementation Steps
+- **Design tokens** (paper, brandRed, espresso, clay, actionOrange) ✅
+- **Typography** (Lora serif, Inter sans-serif) ✅
+- **4-column responsive grid** with grayscale hover effect ✅
+- **Article page** with hero image, metadata, body, subheadings, "Go Back" button ✅
+- **Category page** with filtering ✅
+- **React Router** with `/article/:slug` and `/category/:name` routes ✅
+- **Header** with date, branding, Support Us CTA, category nav ✅
+- **Footer** with categories, contact, copyright ✅
+- **Newsletter** component ✅
 
-**1. Create article data file (`src/data/articles.ts`)**
-- Centralize all article data (title, slug, category, author, date, excerpt, body paragraphs, image) so it can be shared across pages
-- Include the featured article and the 4 existing articles, plus body content for the full article view
+### Minor Gaps to Address
 
-**2. Create Full Article page (`src/pages/Article.tsx`)**
-- Route: `/article/:slug`
-- Layout: ad banner area (optional), category label with red square accent, large serif title, author/date metadata row, full-width hero image, body paragraphs with `<h2>` subheadings, "Go Back to Homepage" button
-- Uses the espresso/clay/brandRed color tokens per spec
+**1. Add "Beauty" to navigation categories**
+Your spec lists: Politics, Technology, Education, Sports, Showbiz, Health, Beauty, Travel. Current Header has all except "Beauty".
 
-**3. Create Category page (`src/pages/Category.tsx`)**
-- Route: `/category/:name`
-- Category header with border-bottom
-- 4-column grid (`lg:grid-cols-4 md:grid-cols-2 grid-cols-1`, 24px gap)
-- Article cards with grayscale-to-color image hover effect and scale transition
-- Filter articles by category from the shared data
+**2. Update Footer category links to use router Links**
+Footer category links currently use `<a href="#...">` instead of `<Link to="/category/...">`, so they don't navigate properly.
 
-**4. Update ArticleCard component**
-- Wrap cards in `<Link to={/article/${slug}>}` for navigation
-- Add optional grayscale hover effect for category page variant
+**3. Add footer accessibility links as router Links**
+Same issue — Contact Us, FAQ, Accessibility links in footer use anchor tags instead of proper routing.
 
-**5. Update Header navigation**
-- Change category `<a>` tags to `<Link to={/category/${name}>}` using react-router-dom
+### Files to Change
 
-**6. Update App.tsx routes**
-- Add `/article/:slug` → `Article`
-- Add `/category/:name` → `Category`
+| File | Change |
+|------|--------|
+| `src/components/Header.tsx` | Add "Beauty" to categories array |
+| `src/components/Footer.tsx` | Convert category `<a>` tags to `<Link>` components, import react-router-dom |
 
-### Technical Details
-- All navigation uses `react-router-dom` `<Link>` components
-- Article lookup by slug using `.find()` on the centralized data array
-- Category filtering is case-insensitive match on the `category` field
-- Responsive grid: `grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6`
-- Image hover: `grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-700`
+### What We Won't Change
+
+- **No content.json / fetch approach**: The current `src/data/articles.ts` TypeScript module is superior — it provides type safety, tree-shaking, and avoids async loading for static content.
+- **No Framer CDN images**: We already have local image assets that work correctly.
+- **No custom breakpoints override**: The default Tailwind breakpoints (md:768px, lg:1024px) work well with the current grid and are industry standard.
 
