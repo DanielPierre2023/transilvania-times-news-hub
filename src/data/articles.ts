@@ -178,7 +178,7 @@ export const articles: Article[] = [
       ],
       ro: [
         "De la coline ondulate la biserici fortificate medievale, aceste sate mai puțin cunoscute oferă o experiență autentică a vieții rurale transilvănene. În timp ce turiștii se îndreaptă spre Brașov și Sighișoara, aceste comori ascunse rămân fericit de neaglomerate.",
-        "Viscri, probabil cel mai faimos dintre satele „ascunse" ale Transilvaniei, a câștigat atenția internațională când Regele Charles al III-lea a cumpărat și restaurat o casă tradițională săsească acolo. Biserica fortificată a satului este sit UNESCO.",
+        "Viscri, probabil cel mai faimos dintre satele \u201Eascunse\u201D ale Transilvaniei, a câștigat atenția internațională când Regele Charles al III-lea a cumpărat și restaurat o casă tradițională săsească acolo. Biserica fortificată a satului este sit UNESCO.",
         "Biertan, odată sediul episcopiei luterane, se mândrește cu una dintre cele mai impresionante biserici fortificate din regiune. Zidurile sale masive de apărare și turnurile au fost remarcabil de bine conservate de-a lungul secolelor.",
         "Mălâncrav este visul unui pictor. Pajiști ondulate, păduri seculare de stejar și o biserică din secolul al XIV-lea cu fresce originale îl fac una dintre cele mai fotogenice destinații din Transilvania.",
         "Rimetea, situată la poalele Munților Trascău, este unică prin arhitectura sa de influență maghiară. Casele albe cu obloane verzi creează un contrast vizual uimitor pe fundalul dramatic al munților.",

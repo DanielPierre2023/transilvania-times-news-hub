@@ -188,7 +188,7 @@ i18n
           gdpr_desc: "Transilvania Times și partenerii noștri utilizează module cookie pentru a stoca informații pe dispozitivul dumneavoastră. Facem acest lucru pentru a livra reclame personalizate, a măsura traficul și a îmbunătăți reportajele noastre de investigație.",
           gdpr_accept: "Acceptă Tot și Citește",
           gdpr_essential: "Doar Esențiale",
-          gdpr_note: "Apăsând „Acceptă Tot", susții jurnalismul independent.",
+          gdpr_note: "Apăsând \u201EAcceptă Tot\u201D, susții jurnalismul independent.",
           gdpr_link: "Citește Politica de Confidențialitate",
 
           // Contact page
