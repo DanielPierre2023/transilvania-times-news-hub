@@ -56,15 +56,13 @@ const Header = () => {
       </div>
 
       <div className="container mx-auto max-w-6xl px-4">
-        <div className="flex items-center justify-between py-3 border-b border-foreground/20">
+        {/* Top bar: date + lang + weather on left, search + support on right */}
+        <div className="flex items-center justify-between py-2 border-b border-foreground/20">
           <div className="flex items-center">
             <LangSwitcher />
-            <span className="text-sm text-muted-foreground font-sans">{t("date_full")}</span>
+            <span className="hidden sm:inline text-sm text-muted-foreground font-sans">{t("date_full")}</span>
             <WeatherWidget />
           </div>
-          <Link to="/" className="text-3xl md:text-4xl font-serif font-bold text-foreground tracking-tight hover:text-primary transition-colors">
-            Transilvania Times
-          </Link>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
@@ -75,11 +73,18 @@ const Header = () => {
             </button>
             <a
               href="#support"
-              className="bg-primary text-primary-foreground px-4 py-1.5 text-sm font-sans font-semibold rounded hover:bg-accent transition-colors"
+              className="hidden sm:inline-block bg-primary text-primary-foreground px-4 py-1.5 text-sm font-sans font-semibold rounded hover:bg-accent transition-colors"
             >
               {t("support_us")}
             </a>
           </div>
+        </div>
+
+        {/* Masthead */}
+        <div className="py-3 text-center border-b border-foreground/20">
+          <Link to="/" className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-foreground tracking-tight hover:text-primary transition-colors">
+            Transilvania Times
+          </Link>
         </div>
 
         {isSearchOpen && (
