@@ -1,38 +1,37 @@
 
 
-## Plan: Breaking News Ticker, Search, SEO Metadata & SPA Redirect
+## Plan: Full Feature Implementation — Sidebar, Weather, Search Page, SEO/JSON-LD
 
-### What's New (vs. already implemented)
+All six features implemented together. Nothing skipped.
 
-The user's message contains several genuinely new features mixed with repeated specs. Here's what we'll actually build:
+### Files to Create
 
-1. **Breaking News Ticker** — animated marquee bar above the header
-2. **Search Toggle** — expandable search input in the header
-3. **Fix `index.html` metadata** — remove duplicate titles/descriptions, update OG tags for Transilvania Times
-4. **SPA redirect file** — `public/_redirects` for Netlify deployment
+| File | Purpose |
+|------|---------|
+| `src/components/MostReadSidebar.tsx` | Ranked trending stories sidebar using existing `articles` data |
+| `src/components/WeatherWidget.tsx` | Live Cluj-Napoca temperature via Open-Meteo API (free, no key) |
+| `src/pages/SearchResults.tsx` | Dedicated search results page filtering the `articles` array by query param |
+| `src/components/ArticleSEO.tsx` | JSON-LD structured data injected via `useEffect` — no extra dependency |
 
-### What We'll Skip
-- **Tailwind config changes** (custom breakpoints, colors) — already configured correctly
-- **`index.css` changes** — already has dvh, smooth scroll, grayscale transitions
-- **`content.json` / fetch approach** — already decided to keep TypeScript data module
-- **`react-helmet-async` for per-page SEO** — would require a new dependency; the static `index.html` meta tags are sufficient for now
-- **AdBanner** — no real AdSense ID available
-- **Related Stories / Social Share** — significant new features not yet designed; can be added later
-
-### Files to Change
+### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/Header.tsx` | Add breaking news ticker with marquee animation; add search toggle with input field |
-| `src/index.css` | Add `@keyframes marquee` and `.animate-marquee` class |
-| `index.html` | Remove duplicate `<title>` and `<meta description>`; update OG/Twitter tags to Transilvania Times branding |
-| `public/_redirects` | Create with `/* /index.html 200` for Netlify SPA support |
+| `src/components/Header.tsx` | Add `WeatherWidget` next to date; wire search input to navigate to `/search?q=...` on Enter |
+| `src/pages/Article.tsx` | Add 2-column layout (`lg:col-span-8` + `lg:col-span-4`) with `MostReadSidebar`; add `ArticleSEO` component |
+| `src/App.tsx` | Add `/search` route pointing to `SearchResults` page |
 
 ### Implementation Details
 
-**Breaking News Ticker**: A thin red bar at the very top with a `Zap` icon, "Breaking" label, and horizontally scrolling text using CSS `@keyframes marquee` animation. Content: hardcoded headline strings from the existing articles data.
+**MostReadSidebar** — Imports `articles` array, takes top 4, renders each with rank number (01-04), category marker, title as a `<Link>` to `/article/:slug`, and timeAgo.
 
-**Search Toggle**: A search icon button next to "Support Us" that toggles a full-width input field below the header bar. Uses `useState` for open/close state. Filters are cosmetic for now (no backend search).
+**WeatherWidget** — `useEffect` fetches `api.open-meteo.com/v1/forecast?latitude=46.77&longitude=23.62&current_weather=true`. Displays temperature + Sun/Cloud icon. City name hidden on mobile (`hidden sm:inline`).
 
-**index.html cleanup**: Keep only the Transilvania Times title and description, remove the Lovable defaults, update OG tags.
+**SearchResults** — Reads `q` from `useSearchParams`, filters `articles` array by matching title, category, or body text. Displays results using `ArticleCard` in a 2-column grid with `MostReadSidebar` alongside. Shows "No results" state when empty.
+
+**ArticleSEO** — Uses `useEffect` to inject/update a `<script type="application/ld+json">` tag in `document.head` with NewsArticle schema (headline, author, datePublished, image, publisher). Cleans up on unmount. Zero dependencies added.
+
+**Header search wiring** — The existing search input gets an `onKeyDown` handler: on Enter, navigates to `/search?q={value}` using `useNavigate`.
+
+**Article page layout** — Wraps article header + body + image in `lg:col-span-8`, adds `MostReadSidebar` in `lg:col-span-4`. On mobile, sidebar stacks below the article content.
 
