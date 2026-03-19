@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { articles, t as tBi, tArr } from "@/data/articles";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import Newsletter from "@/components/Newsletter";
+
 import ArticleCard from "@/components/ArticleCard";
 import MostReadSidebar from "@/components/MostReadSidebar";
 
