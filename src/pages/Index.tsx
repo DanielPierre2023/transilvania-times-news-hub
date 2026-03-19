@@ -2,6 +2,7 @@ import Header from "@/components/Header";
 import ArticleCard from "@/components/ArticleCard";
 import Newsletter from "@/components/Newsletter";
 import Footer from "@/components/Footer";
+import AdUnit from "@/components/AdUnit";
 import { featuredArticle, articles } from "@/data/articles";
 
 const Index = () => {
@@ -20,6 +21,9 @@ const Index = () => {
           image={featuredArticle.image}
           featured
         />
+
+        {/* Leaderboard ad above latest stories */}
+        <AdUnit type="leaderboard" />
 
         <div className="mt-10 border-t border-foreground/20 pt-8">
           <h2 className="text-xl font-serif font-bold text-foreground mb-6">Latest Stories</h2>
