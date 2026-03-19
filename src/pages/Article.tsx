@@ -5,6 +5,7 @@ import Newsletter from "@/components/Newsletter";
 import Footer from "@/components/Footer";
 import MostReadSidebar from "@/components/MostReadSidebar";
 import ArticleSEO from "@/components/ArticleSEO";
+import AdUnit from "@/components/AdUnit";
 import NotFound from "./NotFound";
 
 const Article = () => {
@@ -13,10 +14,17 @@ const Article = () => {
 
   if (!article) return <NotFound />;
 
+  const midPoint = Math.floor(article.body.length / 2);
+  const firstHalf = article.body.slice(0, midPoint);
+  const secondHalf = article.body.slice(midPoint);
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <ArticleSEO article={article} />
+
+      {/* Top Leaderboard */}
+      <AdUnit type="leaderboard" className="pt-4" />
 
       <div className="max-w-6xl mx-auto px-4 py-12 grid grid-cols-1 lg:grid-cols-12 gap-12">
         {/* Main Article Column */}
@@ -48,10 +56,28 @@ const Article = () => {
           </section>
 
           <main className="pb-20 font-sans text-foreground text-lg leading-relaxed space-y-8">
-            {article.body.map((paragraph, i) => {
+            {firstHalf.map((paragraph, i) => {
               const subheading = article.subheadings?.find((s) => s.index === i);
               return (
                 <div key={i}>
+                  {subheading && (
+                    <h2 className="text-2xl font-serif font-bold pt-4 uppercase">
+                      {subheading.title}
+                    </h2>
+                  )}
+                  <p>{paragraph}</p>
+                </div>
+              );
+            })}
+
+            {/* Mid-article in-feed ad */}
+            <AdUnit type="infeed" />
+
+            {secondHalf.map((paragraph, i) => {
+              const actualIndex = midPoint + i;
+              const subheading = article.subheadings?.find((s) => s.index === actualIndex);
+              return (
+                <div key={actualIndex}>
                   {subheading && (
                     <h2 className="text-2xl font-serif font-bold pt-4 uppercase">
                       {subheading.title}
@@ -75,8 +101,9 @@ const Article = () => {
 
         {/* Sidebar Column */}
         <div className="lg:col-span-4">
-          <div className="lg:sticky lg:top-32">
+          <div className="lg:sticky lg:top-32 space-y-12">
             <MostReadSidebar />
+            <AdUnit type="sidebar" />
           </div>
         </div>
       </div>

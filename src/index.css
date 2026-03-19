@@ -100,3 +100,12 @@
   white-space: nowrap;
   animation: marquee 25s linear infinite;
 }
+
+@keyframes slideUp {
+  0% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out;
+}
