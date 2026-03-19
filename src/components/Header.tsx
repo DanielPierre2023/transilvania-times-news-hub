@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Search, X, Zap } from "lucide-react";
+import WeatherWidget from "./WeatherWidget";
 
 const categories = ['Politics', 'Technology', 'Education', 'Sports', 'Showbiz', 'Health', 'Beauty', 'Travel'];
 
@@ -12,6 +13,16 @@ const breakingHeadlines = [
 
 const Header = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const navigate = useNavigate();
+
+  const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && searchQuery.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      setIsSearchOpen(false);
+      setSearchQuery("");
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-background">
@@ -33,7 +44,10 @@ const Header = () => {
 
       <div className="container mx-auto max-w-6xl px-4">
         <div className="flex items-center justify-between py-3 border-b border-foreground/20">
-          <span className="text-sm text-muted-foreground font-sans">Thursday, March 19, 2026</span>
+          <div className="flex items-center">
+            <span className="text-sm text-muted-foreground font-sans">Thursday, March 19, 2026</span>
+            <WeatherWidget />
+          </div>
           <Link to="/" className="text-3xl md:text-4xl font-serif font-bold text-foreground tracking-tight hover:text-primary transition-colors">
             Transilvania Times
           </Link>
@@ -60,6 +74,9 @@ const Header = () => {
               type="text"
               placeholder="Search articles..."
               autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchSubmit}
               className="w-full bg-transparent border border-foreground/20 rounded px-4 py-2 text-sm font-sans placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
