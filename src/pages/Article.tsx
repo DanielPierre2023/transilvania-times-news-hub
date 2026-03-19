@@ -2,7 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { getArticleBySlug, t as tBi, tArr } from "@/data/articles";
 import Header from "@/components/Header";
-import Newsletter from "@/components/Newsletter";
+
 import Footer from "@/components/Footer";
 import MostReadSidebar from "@/components/MostReadSidebar";
 import ArticleSEO from "@/components/ArticleSEO";
