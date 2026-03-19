@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
-import Newsletter from "@/components/Newsletter";
+
 import Footer from "@/components/Footer";
 
 const sectionKeys = ["s1", "s2", "s3", "s4"] as const;
@@ -70,7 +70,7 @@ const TermsConditions = () => {
         </div>
       </main>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );

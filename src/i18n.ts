@@ -54,6 +54,7 @@ i18n
           privacy_policy: "Privacy Policy",
           terms_conditions: "Terms & Conditions",
           copyright: "© 2026 Transilvania Times. All rights reserved.",
+          footer_accessibility: "Accessibility",
 
           // Newsletter
           newsletter_title: "Newsletter",
@@ -175,6 +176,7 @@ i18n
           privacy_policy: "Politica de Confidențialitate",
           terms_conditions: "Termeni și Condiții",
           copyright: "© 2026 Transilvania Times. Toate drepturile rezervate.",
+          footer_accessibility: "Accesibilitate",
 
           // Newsletter
           newsletter_title: "Buletin Informativ",

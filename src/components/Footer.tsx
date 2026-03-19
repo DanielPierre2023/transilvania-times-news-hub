@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { MapPin, Mail, Phone, Facebook, Twitter, Instagram, Github } from "lucide-react";
 
 const categoryKeys = [
   "cat_politics", "cat_technology", "cat_education", "cat_sports",
@@ -19,28 +21,33 @@ const categorySlugs: Record<string, string> = {
 
 const Footer = () => {
   const { t } = useTranslation();
+  const [email, setEmail] = useState("");
 
   return (
-    <footer className="bg-foreground text-background/80 py-12 px-4">
+    <footer className="bg-background border-t border-foreground/10 pt-12 pb-6 px-4">
       <div className="container mx-auto max-w-6xl">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-          {/* Brand */}
-          <div>
-            <h3 className="text-xl font-serif font-bold text-background mb-3">Transilvania Times</h3>
-            <p className="text-sm font-sans leading-relaxed text-background/60">
-              {t("footer_description")}
-            </p>
-          </div>
+        {/* Brand header */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-serif font-bold text-primary italic tracking-tight">
+            Transilvania Times
+          </h2>
+          <div className="w-full h-px bg-primary/30 mt-4" />
+        </div>
 
-          {/* Categories */}
+        {/* 4-column grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
+          {/* Popular Categories */}
           <div>
-            <h4 className="font-sans font-semibold text-background mb-3 text-sm uppercase tracking-wider">
+            <h4 className="font-serif font-bold text-primary text-lg mb-4">
               {t("popular_categories")}
             </h4>
-            <ul className="space-y-1.5 font-sans text-sm">
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 font-sans text-sm">
               {categoryKeys.map((key) => (
                 <li key={key}>
-                  <Link to={`/category/${categorySlugs[key]}`} className="hover:text-background transition-colors">
+                  <Link
+                    to={`/category/${categorySlugs[key]}`}
+                    className="text-foreground/80 hover:text-primary transition-colors"
+                  >
                     {t(key)}
                   </Link>
                 </li>
@@ -48,31 +55,99 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Contact */}
+          {/* Contact Us */}
           <div>
-            <h4 className="font-sans font-semibold text-background mb-3 text-sm uppercase tracking-wider">
+            <h4 className="font-serif font-bold text-primary text-lg mb-4">
               {t("contact_us")}
             </h4>
-            <div className="space-y-1.5 font-sans text-sm">
-              <p>str. Memorandumului nr 2</p>
-              <p>Cluj-Napoca, Transilvania</p>
-              <p className="mt-3">
-                <a href="mailto:needhelp@transilvaniatimes.com" className="hover:text-background transition-colors">
+            <div className="space-y-3 font-sans text-sm text-foreground/80">
+              <div className="flex items-start gap-2">
+                <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p>str. Memorandumului nr 2</p>
+                  <p>Cluj-Napoca, Transilvania</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-primary shrink-0" />
+                <a href="mailto:needhelp@transilvaniatimes.com" className="hover:text-primary transition-colors">
                   needhelp@transilvaniatimes.com
                 </a>
+              </div>
+              <div className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-primary shrink-0" />
+                <span>+40 264 123 456</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Accessibility */}
+          <div>
+            <h4 className="font-serif font-bold text-primary text-lg mb-4">
+              {t("footer_accessibility")}
+            </h4>
+            <ul className="space-y-1.5 font-sans text-sm">
+              <li>
+                <Link to="/contact" className="text-foreground/80 hover:text-primary transition-colors">
+                  {t("contact_us")}
+                </Link>
+              </li>
+              <li>
+                <Link to="/privacy" className="text-foreground/80 hover:text-primary transition-colors">
+                  {t("privacy_policy")}
+                </Link>
+              </li>
+              <li>
+                <Link to="/terms" className="text-foreground/80 hover:text-primary transition-colors">
+                  {t("terms_conditions")}
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          {/* Newsletter */}
+          <div>
+            <div className="bg-primary rounded-sm p-5">
+              <h4 className="font-serif font-bold text-primary-foreground text-lg mb-2">
+                {t("newsletter_title")}
+              </h4>
+              <p className="text-primary-foreground/80 font-sans text-xs mb-4">
+                {t("newsletter_desc")}
               </p>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="email"
+                  placeholder={t("newsletter_placeholder")}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-sm bg-background text-foreground font-sans text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+                <button className="w-full bg-primary-foreground text-primary px-4 py-2 font-sans font-bold text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors">
+                  {t("newsletter_button")}
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="border-t border-background/20 mt-10 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-xs font-sans text-background/50">
+        {/* Bottom bar */}
+        <div className="border-t border-primary/30 pt-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-xs font-sans text-foreground/50">
             {t("copyright")}
           </p>
-          <div className="flex gap-6 text-xs font-sans">
-            <Link to="/contact" className="hover:text-background transition-colors">{t("contact_us")}</Link>
-            <Link to="/privacy" className="hover:text-background transition-colors">{t("privacy_policy")}</Link>
-            <Link to="/terms" className="hover:text-background transition-colors">{t("terms_conditions")}</Link>
+          <div className="flex items-center gap-3">
+            <a href="#" aria-label="Facebook" className="text-foreground/50 hover:text-primary transition-colors">
+              <Facebook className="w-4 h-4" />
+            </a>
+            <a href="#" aria-label="Twitter" className="text-foreground/50 hover:text-primary transition-colors">
+              <Twitter className="w-4 h-4" />
+            </a>
+            <a href="#" aria-label="Instagram" className="text-foreground/50 hover:text-primary transition-colors">
+              <Instagram className="w-4 h-4" />
+            </a>
+            <a href="#" aria-label="GitHub" className="text-foreground/50 hover:text-primary transition-colors">
+              <Github className="w-4 h-4" />
+            </a>
           </div>
         </div>
       </div>

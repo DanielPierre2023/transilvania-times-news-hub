@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Mail, Phone, MapPin, Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
-import Newsletter from "@/components/Newsletter";
+
 import Footer from "@/components/Footer";
 import { useToast } from "@/hooks/use-toast";
 
@@ -140,7 +140,7 @@ const Contact = () => {
         </div>
       </main>
 
-      <Newsletter />
+      
       <Footer />
     </div>
   );
