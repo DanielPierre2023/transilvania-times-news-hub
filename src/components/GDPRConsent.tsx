@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 
 const GDPRConsent = () => {
   const [showBanner, setShowBanner] = useState(false);
@@ -54,7 +55,10 @@ const GDPRConsent = () => {
         </div>
 
         <p className="text-[10px] text-muted-foreground/60 font-sans text-center md:text-left">
-          By clicking "Accept All", you help support independent journalism.
+          By clicking "Accept All", you help support independent journalism.{" "}
+          <Link to="/privacy" className="underline hover:text-foreground transition-colors">
+            Read our Privacy Policy
+          </Link>
         </p>
       </div>
     </div>
