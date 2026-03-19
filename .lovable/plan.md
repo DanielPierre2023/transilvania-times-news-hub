@@ -1,37 +1,37 @@
 
 
-## Plan: Full Feature Implementation — Sidebar, Weather, Search Page, SEO/JSON-LD
+## Plan: Ad Placeholders, GDPR Consent Banner & Terms Page
 
-All six features implemented together. Nothing skipped.
+The user requests ad slots, GDPR consent, and a Terms & Conditions page. Since there's no real AdSense ID, we'll build placeholder ad components that are visually correct and ready for a real ID later. No external dependencies needed.
 
 ### Files to Create
 
 | File | Purpose |
 |------|---------|
-| `src/components/MostReadSidebar.tsx` | Ranked trending stories sidebar using existing `articles` data |
-| `src/components/WeatherWidget.tsx` | Live Cluj-Napoca temperature via Open-Meteo API (free, no key) |
-| `src/pages/SearchResults.tsx` | Dedicated search results page filtering the `articles` array by query param |
-| `src/components/ArticleSEO.tsx` | JSON-LD structured data injected via `useEffect` — no extra dependency |
+| `src/components/AdUnit.tsx` | Reusable ad placeholder with leaderboard, sidebar, and infeed variants |
+| `src/components/GDPRConsent.tsx` | Cookie consent banner with Accept All / Essential Only, persists to localStorage |
+| `src/pages/TermsConditions.tsx` | Legal page with Terms & Conditions content |
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/Header.tsx` | Add `WeatherWidget` next to date; wire search input to navigate to `/search?q=...` on Enter |
-| `src/pages/Article.tsx` | Add 2-column layout (`lg:col-span-8` + `lg:col-span-4`) with `MostReadSidebar`; add `ArticleSEO` component |
-| `src/App.tsx` | Add `/search` route pointing to `SearchResults` page |
+| `src/pages/Article.tsx` | Add leaderboard ad above article, in-feed ad mid-article, sidebar ad below MostRead |
+| `src/pages/Index.tsx` | Add leaderboard ad above latest stories |
+| `src/pages/Category.tsx` | Inject in-feed ad after 2nd article card on mobile |
+| `src/App.tsx` | Add `/terms` route, render `GDPRConsent` globally |
+| `src/components/Footer.tsx` | Change "Accessibility" link to point to `/terms` |
+| `src/index.css` | Add `slideUp` keyframe for consent banner animation |
 
 ### Implementation Details
 
-**MostReadSidebar** — Imports `articles` array, takes top 4, renders each with rank number (01-04), category marker, title as a `<Link>` to `/article/:slug`, and timeAgo.
+**AdUnit** — Three variants via `type` prop: `leaderboard` (728x90), `sidebar` (300x600), `infeed` (responsive 250px height). Each shows a styled placeholder with "Advertisement" label. Checks `localStorage` for consent before rendering (shows blank placeholder if no consent). Ready to swap in real `adsbygoogle` tags when an ID is available.
 
-**WeatherWidget** — `useEffect` fetches `api.open-meteo.com/v1/forecast?latitude=46.77&longitude=23.62&current_weather=true`. Displays temperature + Sun/Cloud icon. City name hidden on mobile (`hidden sm:inline`).
+**GDPRConsent** — Fixed bottom banner, appears after 1.5s delay if no `transilvania-consent` key in localStorage. Two buttons: "Accept All" (stores `all`) and "Essential Only" (stores `essential`). Uses brand colors and slide-up animation.
 
-**SearchResults** — Reads `q` from `useSearchParams`, filters `articles` array by matching title, category, or body text. Displays results using `ArticleCard` in a 2-column grid with `MostReadSidebar` alongside. Shows "No results" state when empty.
+**TermsConditions** — Single-column reading layout matching article page style. Sections for Introduction, IP, Advertising/Data, User Conduct, and Contact. Header/Footer included.
 
-**ArticleSEO** — Uses `useEffect` to inject/update a `<script type="application/ld+json">` tag in `document.head` with NewsArticle schema (headline, author, datePublished, image, publisher). Cleans up on unmount. Zero dependencies added.
+**Article page ads** — Leaderboard above the grid, in-feed ad injected at the midpoint of article body paragraphs, sidebar ad below MostReadSidebar (sticky).
 
-**Header search wiring** — The existing search input gets an `onKeyDown` handler: on Enter, navigates to `/search?q={value}` using `useNavigate`.
-
-**Article page layout** — Wraps article header + body + image in `lg:col-span-8`, adds `MostReadSidebar` in `lg:col-span-4`. On mobile, sidebar stacks below the article content.
+**Category page ads** — In-feed ad injected after the 2nd card on mobile (`md:hidden`).
 
