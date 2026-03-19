@@ -54,6 +54,7 @@ i18n
           privacy_policy: "Privacy Policy",
           terms_conditions: "Terms & Conditions",
           copyright: "© 2026 Transilvania Times. All rights reserved.",
+          footer_accessibility: "Accessibility",
 
           // Newsletter
           newsletter_title: "Newsletter",
