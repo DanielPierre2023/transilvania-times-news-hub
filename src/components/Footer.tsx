@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 const Footer = () => (
   <footer className="bg-foreground text-background/80 py-12 px-4">
     <div className="container mx-auto max-w-6xl">
@@ -18,9 +20,9 @@ const Footer = () => (
           <ul className="space-y-1.5 font-sans text-sm">
             {['Politics', 'Technology', 'Education', 'Travel'].map((cat) => (
               <li key={cat}>
-                <a href={`#${cat.toLowerCase()}`} className="hover:text-background transition-colors">
+                <Link to={`/category/${cat.toLowerCase()}`} className="hover:text-background transition-colors">
                   {cat}
-                </a>
+                </Link>
               </li>
             ))}
           </ul>
@@ -48,9 +50,9 @@ const Footer = () => (
           © 2026 Transilvania Times. All rights reserved.
         </p>
         <div className="flex gap-6 text-xs font-sans">
-          <a href="#contact" className="hover:text-background transition-colors">Contact Us</a>
-          <a href="#faq" className="hover:text-background transition-colors">FAQ</a>
-          <a href="#accessibility" className="hover:text-background transition-colors">Accessibility</a>
+          <Link to="/contact" className="hover:text-background transition-colors">Contact Us</Link>
+          <Link to="/faq" className="hover:text-background transition-colors">FAQ</Link>
+          <Link to="/accessibility" className="hover:text-background transition-colors">Accessibility</Link>
         </div>
       </div>
     </div>

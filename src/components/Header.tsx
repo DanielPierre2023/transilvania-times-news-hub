@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-const categories = ['Politics', 'Technology', 'Education', 'Sports', 'Showbiz', 'Health', 'Travel'];
+const categories = ['Politics', 'Technology', 'Education', 'Sports', 'Showbiz', 'Health', 'Beauty', 'Travel'];
 
 const Header = () => (
   <header className="sticky top-0 z-50 bg-background">
