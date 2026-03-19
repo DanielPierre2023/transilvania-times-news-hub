@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Mail, Phone, MapPin, Send } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
 import Newsletter from "@/components/Newsletter";
 import Footer from "@/components/Footer";
@@ -7,11 +8,12 @@ import { useToast } from "@/hooks/use-toast";
 
 const Contact = () => {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    toast({ title: "Message Sent", description: "Thank you for reaching out. We'll respond within 48 hours." });
+    toast({ title: t("contact_toast_title"), description: t("contact_toast_desc") });
     setForm({ name: "", email: "", subject: "", message: "" });
   };
 
@@ -27,14 +29,14 @@ const Contact = () => {
           <div className="flex items-center gap-2 mb-4">
             <div className="w-2 h-2 bg-primary" />
             <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.2em]">
-              Get In Touch
+              {t("contact_label")}
             </span>
           </div>
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-foreground leading-tight italic tracking-tighter">
-            Contact Us
+            {t("contact_title")}
           </h1>
           <p className="text-muted-foreground font-sans text-sm mt-4 max-w-xl">
-            Have an investigative tip, a legal inquiry, or just want to say hello? Our Cluj-Napoca desk is ready to hear from you.
+            {t("contact_desc")}
           </p>
         </header>
 
@@ -44,7 +46,7 @@ const Contact = () => {
             <div className="flex gap-4">
               <MapPin className="w-5 h-5 text-primary mt-1 shrink-0" />
               <div>
-                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">Address</h3>
+                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("contact_address")}</h3>
                 <p className="text-muted-foreground text-sm font-sans">str. Memorandumului nr 2</p>
                 <p className="text-muted-foreground text-sm font-sans">Cluj-Napoca, Transilvania</p>
               </div>
@@ -53,7 +55,7 @@ const Contact = () => {
             <div className="flex gap-4">
               <Mail className="w-5 h-5 text-primary mt-1 shrink-0" />
               <div>
-                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">Email</h3>
+                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("contact_email")}</h3>
                 <a href="mailto:needhelp@transilvaniatimes.com" className="text-primary text-sm font-sans hover:underline block">
                   needhelp@transilvaniatimes.com
                 </a>
@@ -66,7 +68,7 @@ const Contact = () => {
             <div className="flex gap-4">
               <Phone className="w-5 h-5 text-primary mt-1 shrink-0" />
               <div>
-                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">Phone</h3>
+                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("contact_phone")}</h3>
                 <p className="text-muted-foreground text-sm font-sans">+40 264 123 456</p>
               </div>
             </div>
@@ -76,53 +78,53 @@ const Contact = () => {
           <form onSubmit={handleSubmit} className="md:col-span-3 space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
-                <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">Your Name</label>
+                <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">{t("contact_name_label")}</label>
                 <input
                   type="text"
                   required
                   maxLength={100}
                   value={form.name}
                   onChange={update("name")}
-                  placeholder="John Doe"
+                  placeholder={t("contact_name_placeholder")}
                   className="w-full bg-background border border-border p-4 font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                 />
               </div>
               <div>
-                <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">Email Address</label>
+                <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">{t("contact_email_label")}</label>
                 <input
                   type="email"
                   required
                   maxLength={255}
                   value={form.email}
                   onChange={update("email")}
-                  placeholder="you@example.com"
+                  placeholder={t("contact_email_placeholder")}
                   className="w-full bg-background border border-border p-4 font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">Subject</label>
+              <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">{t("contact_subject_label")}</label>
               <input
                 type="text"
                 required
                 maxLength={200}
                 value={form.subject}
                 onChange={update("subject")}
-                placeholder="Investigative Tip / Press Inquiry / General"
+                placeholder={t("contact_subject_placeholder")}
                 className="w-full bg-background border border-border p-4 font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
               />
             </div>
 
             <div>
-              <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">Your Message</label>
+              <label className="block font-sans text-xs font-bold uppercase tracking-wider text-foreground mb-2">{t("contact_message_label")}</label>
               <textarea
                 required
                 maxLength={2000}
                 rows={6}
                 value={form.message}
                 onChange={update("message")}
-                placeholder="Tell us what's on your mind…"
+                placeholder={t("contact_message_placeholder")}
                 className="w-full bg-background border border-border p-4 font-sans text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors resize-none"
               />
             </div>
@@ -132,7 +134,7 @@ const Contact = () => {
               className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-10 py-4 font-sans font-bold uppercase tracking-tight hover:bg-accent active:scale-95 transition-all"
             >
               <Send className="w-4 h-4" />
-              Send Message
+              {t("contact_send")}
             </button>
           </form>
         </div>

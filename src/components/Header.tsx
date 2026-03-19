@@ -1,20 +1,31 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, X, Zap } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import WeatherWidget from "./WeatherWidget";
+import LangSwitcher from "./LangSwitcher";
 
-const categories = ['Politics', 'Technology', 'Education', 'Sports', 'Showbiz', 'Health', 'Beauty', 'Travel'];
+const categoryKeys = [
+  "cat_politics", "cat_technology", "cat_education", "cat_sports",
+  "cat_showbiz", "cat_health", "cat_beauty", "cat_travel",
+] as const;
 
-const breakingHeadlines = [
-  "Opposition Leader Calls for Early Elections Amid Growing Public Discontent",
-  "Cluj-Napoca Startup Raises €12M in Series A Funding",
-  "Babeș-Bolyai University Launches New Digital Humanities Program",
-];
+const categorySlugs: Record<string, string> = {
+  cat_politics: "politics",
+  cat_technology: "technology",
+  cat_education: "education",
+  cat_sports: "sports",
+  cat_showbiz: "showbiz",
+  cat_health: "health",
+  cat_beauty: "beauty",
+  cat_travel: "travel",
+};
 
 const Header = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
 
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && searchQuery.trim()) {
@@ -24,13 +35,15 @@ const Header = () => {
     }
   };
 
+  const breakingHeadlines = [t("breaking_1"), t("breaking_2"), t("breaking_3")];
+
   return (
     <header className="sticky top-0 z-50 bg-background">
       {/* Breaking News Ticker */}
       <div className="bg-primary text-primary-foreground overflow-hidden">
         <div className="container mx-auto max-w-6xl px-4 flex items-center gap-3 py-1.5">
           <span className="flex items-center gap-1 text-xs font-sans font-bold uppercase tracking-wider shrink-0">
-            <Zap size={14} fill="currentColor" /> Breaking
+            <Zap size={14} fill="currentColor" /> {t("breaking")}
           </span>
           <div className="overflow-hidden flex-1">
             <span className="animate-marquee text-sm font-sans">
@@ -45,7 +58,8 @@ const Header = () => {
       <div className="container mx-auto max-w-6xl px-4">
         <div className="flex items-center justify-between py-3 border-b border-foreground/20">
           <div className="flex items-center">
-            <span className="text-sm text-muted-foreground font-sans">Thursday, March 19, 2026</span>
+            <LangSwitcher />
+            <span className="text-sm text-muted-foreground font-sans">{t("date_full")}</span>
             <WeatherWidget />
           </div>
           <Link to="/" className="text-3xl md:text-4xl font-serif font-bold text-foreground tracking-tight hover:text-primary transition-colors">
@@ -63,7 +77,7 @@ const Header = () => {
               href="#support"
               className="bg-primary text-primary-foreground px-4 py-1.5 text-sm font-sans font-semibold rounded hover:bg-accent transition-colors"
             >
-              Support Us
+              {t("support_us")}
             </a>
           </div>
         </div>
@@ -72,7 +86,7 @@ const Header = () => {
           <div className="py-3 border-b border-foreground/20">
             <input
               type="text"
-              placeholder="Search articles..."
+              placeholder={t("search_placeholder")}
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -84,13 +98,13 @@ const Header = () => {
 
         <nav className="border-b border-foreground/20">
           <ul className="flex items-center justify-center gap-6 py-2.5 overflow-x-auto">
-            {categories.map((cat) => (
-              <li key={cat}>
+            {categoryKeys.map((key) => (
+              <li key={key}>
                 <Link
-                  to={`/category/${cat.toLowerCase()}`}
+                  to={`/category/${categorySlugs[key]}`}
                   className="text-sm font-sans font-medium text-foreground hover:text-primary transition-colors whitespace-nowrap"
                 >
-                  {cat}
+                  {t(key)}
                 </Link>
               </li>
             ))}

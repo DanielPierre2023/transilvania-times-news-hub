@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 const GDPRConsent = () => {
   const [showBanner, setShowBanner] = useState(false);
+  const { t } = useTranslation();
 
   useEffect(() => {
     const consent = localStorage.getItem("transilvania-consent");
@@ -26,16 +28,14 @@ const GDPRConsent = () => {
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-primary" />
             <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.2em]">
-              Privacy Policy
+              {t("gdpr_label")}
             </span>
           </div>
           <h2 className="text-2xl font-serif font-bold text-foreground leading-tight italic">
-            Respecting your privacy in Transilvania.
+            {t("gdpr_title")}
           </h2>
           <p className="text-muted-foreground font-sans text-sm leading-relaxed">
-            The Transilvania Times and our partners use cookies to store
-            information on your device. We do this to deliver personalized ads,
-            measure traffic, and improve our investigative reporting.
+            {t("gdpr_desc")}
           </p>
         </div>
 
@@ -44,20 +44,20 @@ const GDPRConsent = () => {
             onClick={() => handleConsent("all")}
             className="flex-1 bg-primary text-primary-foreground py-4 font-bold uppercase text-xs tracking-widest hover:bg-accent transition-all"
           >
-            Accept All & Read
+            {t("gdpr_accept")}
           </button>
           <button
             onClick={() => handleConsent("essential")}
             className="flex-1 border border-foreground/20 text-foreground py-4 font-bold uppercase text-xs tracking-widest hover:bg-foreground hover:text-background transition-all"
           >
-            Essential Only
+            {t("gdpr_essential")}
           </button>
         </div>
 
         <p className="text-[10px] text-muted-foreground/60 font-sans text-center md:text-left">
-          By clicking "Accept All", you help support independent journalism.{" "}
+          {t("gdpr_note")}{" "}
           <Link to="/privacy" className="underline hover:text-foreground transition-colors">
-            Read our Privacy Policy
+            {t("gdpr_link")}
           </Link>
         </p>
       </div>

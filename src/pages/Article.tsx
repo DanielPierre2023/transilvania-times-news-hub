@@ -1,5 +1,6 @@
 import { useParams, Link } from "react-router-dom";
-import { getArticleBySlug } from "@/data/articles";
+import { useTranslation } from "react-i18next";
+import { getArticleBySlug, t as tBi, tArr } from "@/data/articles";
 import Header from "@/components/Header";
 import Newsletter from "@/components/Newsletter";
 import Footer from "@/components/Footer";
@@ -10,13 +11,16 @@ import NotFound from "./NotFound";
 
 const Article = () => {
   const { slug } = useParams<{ slug: string }>();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const article = slug ? getArticleBySlug(slug) : undefined;
 
   if (!article) return <NotFound />;
 
-  const midPoint = Math.floor(article.body.length / 2);
-  const firstHalf = article.body.slice(0, midPoint);
-  const secondHalf = article.body.slice(midPoint);
+  const body = tArr(article.body, lang);
+  const midPoint = Math.floor(body.length / 2);
+  const firstHalf = body.slice(0, midPoint);
+  const secondHalf = body.slice(midPoint);
 
   return (
     <div className="min-h-screen bg-background">
@@ -33,24 +37,24 @@ const Article = () => {
             <div className="flex items-center gap-2 mb-4 justify-center md:justify-start">
               <div className="w-2 h-2 bg-primary" />
               <span className="text-primary font-sans font-bold text-xs uppercase tracking-widest">
-                {article.category}
+                {tBi(article.category, lang)}
               </span>
             </div>
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-serif font-bold text-foreground leading-[1.1] mb-6">
-              {article.title}
+              {tBi(article.title, lang)}
             </h1>
 
             <div className="flex flex-col md:flex-row justify-between items-center py-4 border-b border-foreground/10">
-              <p className="text-muted-foreground font-sans text-lg">{article.date}</p>
-              <p className="text-foreground font-sans font-bold text-lg">By {article.author}</p>
+              <p className="text-muted-foreground font-sans text-lg">{tBi(article.date, lang)}</p>
+              <p className="text-foreground font-sans font-bold text-lg">{t("by_author")} {article.author}</p>
             </div>
           </header>
 
           <section className="py-10">
             <img
               src={article.image}
-              alt={article.title}
+              alt={tBi(article.title, lang)}
               className="w-full aspect-[2/1] object-cover shadow-2xl rounded-sm"
             />
           </section>
@@ -62,7 +66,7 @@ const Article = () => {
                 <div key={i}>
                   {subheading && (
                     <h2 className="text-2xl font-serif font-bold pt-4 uppercase">
-                      {subheading.title}
+                      {tBi(subheading.title, lang)}
                     </h2>
                   )}
                   <p>{paragraph}</p>
@@ -80,7 +84,7 @@ const Article = () => {
                 <div key={actualIndex}>
                   {subheading && (
                     <h2 className="text-2xl font-serif font-bold pt-4 uppercase">
-                      {subheading.title}
+                      {tBi(subheading.title, lang)}
                     </h2>
                   )}
                   <p>{paragraph}</p>
@@ -93,7 +97,7 @@ const Article = () => {
                 to="/"
                 className="bg-primary text-primary-foreground px-10 py-4 font-bold uppercase tracking-tight hover:bg-accent transition-all"
               >
-                Go Back to Homepage
+                {t("go_back")}
               </Link>
             </div>
           </main>
