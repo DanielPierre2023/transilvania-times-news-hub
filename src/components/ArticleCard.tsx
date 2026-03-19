@@ -1,4 +1,6 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { t as tBi } from "@/data/articles";
 
 interface ArticleCardProps {
   slug: string;
@@ -12,6 +14,8 @@ interface ArticleCardProps {
 }
 
 const ArticleCard = ({ slug, category, title, author, timeAgo, excerpt, image, featured = false }: ArticleCardProps) => {
+  const { t } = useTranslation();
+
   if (featured) {
     return (
       <Link to={`/article/${slug}`} className="block">
@@ -32,7 +36,7 @@ const ArticleCard = ({ slug, category, title, author, timeAgo, excerpt, image, f
             </h2>
             <p className="mt-2 text-clay font-sans text-sm leading-relaxed line-clamp-3">{excerpt}</p>
             <div className="flex items-center gap-3 mt-3 text-xs text-clay font-sans">
-              <span className="font-medium">By {author}</span>
+              <span className="font-medium">{t("by_author")} {author}</span>
               <span>•</span>
               <span>{timeAgo}</span>
             </div>
@@ -58,7 +62,7 @@ const ArticleCard = ({ slug, category, title, author, timeAgo, excerpt, image, f
             {title}
           </h3>
           <div className="flex items-center gap-2 mt-1.5 text-xs text-clay font-sans">
-            <span>By {author}</span>
+            <span>{t("by_author")} {author}</span>
             <span>•</span>
             <span>{timeAgo}</span>
           </div>

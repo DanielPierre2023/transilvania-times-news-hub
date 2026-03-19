@@ -1,6 +1,7 @@
 import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { getArticlesByCategory, articles } from "@/data/articles";
+import { useTranslation } from "react-i18next";
+import { getArticlesByCategory, articles, t as tBi } from "@/data/articles";
 import Header from "@/components/Header";
 import Newsletter from "@/components/Newsletter";
 import Footer from "@/components/Footer";
@@ -8,8 +9,10 @@ import AdUnit from "@/components/AdUnit";
 
 const Category = () => {
   const { name } = useParams<{ name: string }>();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const categoryName = name ? name.charAt(0).toUpperCase() + name.slice(1).toLowerCase() : "";
-  const filtered = name ? getArticlesByCategory(name) : [];
+  const filtered = name ? getArticlesByCategory(name, lang) : [];
   const displayArticles = filtered.length > 0 ? filtered : articles;
 
   return (
@@ -19,7 +22,7 @@ const Category = () => {
       <main className="max-w-6xl mx-auto px-4 py-12">
         <div className="border-b border-foreground/20 mb-10 pb-4">
           <h1 className="text-3xl font-serif font-bold text-foreground uppercase tracking-tight">
-            {categoryName || "All Articles"}
+            {categoryName || t("all_articles")}
           </h1>
         </div>
 
@@ -33,7 +36,7 @@ const Category = () => {
                 <div className="overflow-hidden mb-4 border border-foreground/5">
                   <img
                     src={article.image}
-                    alt={article.title}
+                    alt={tBi(article.title, lang)}
                     className="w-full aspect-[3/2] object-cover grayscale group-hover:grayscale-0 transition-all duration-700 ease-in-out transform group-hover:scale-105"
                   />
                 </div>
@@ -41,18 +44,18 @@ const Category = () => {
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-2 h-2 bg-primary" />
                   <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.1em]">
-                    {article.category}
+                    {tBi(article.category, lang)}
                   </span>
                 </div>
 
                 <h3 className="text-lg font-serif font-bold text-foreground leading-tight mb-3 group-hover:text-primary transition-colors duration-300">
-                  {article.title}
+                  {tBi(article.title, lang)}
                 </h3>
 
                 <div className="text-muted-foreground font-sans text-xs font-medium flex items-center gap-1 mt-auto">
-                  <span>By {article.author}</span>
+                  <span>{t("by_author")} {article.author}</span>
                   <span>•</span>
-                  <span>{article.timeAgo}</span>
+                  <span>{tBi(article.timeAgo, lang)}</span>
                 </div>
               </Link>
 
