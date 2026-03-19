@@ -142,7 +142,7 @@ export const articles: Article[] = [
         "Un startup AI promițător din Cluj-Napoca a obținut o finanțare semnificativă pentru a-și extinde operațiunile în Europa Centrală și de Est. Runda Series A de 12 milioane € a fost condusă de o firmă de capital de risc de renume din Berlin.",
         "Compania, specializată în procesarea limbajului natural pentru limbile est-europene, plănuiește să utilizeze fondurile pentru a-și tripla echipa de inginerie și a deschide birouri la Budapesta și Varșovia.",
         "Fondată în 2023 de doi absolvenți ai Universității Babeș-Bolyai, startup-ul a atras deja clienți din sectoarele de servicii financiare și sănătate. Produsul său principal utilizează învățarea automată avansată pentru a procesa și analiza documente în română, maghiară și poloneză.",
-        "Runda de finanțare reflectă interesul internațional crescând pentru ecosistemul tech din Europa Centrală și de Est. Doar Cluj-Napoca găzduiește peste 300 de companii tech, câștigând porecla de „Silicon Valley al Transilvaniei".",
+        "Runda de finanțare reflectă interesul internațional crescând pentru ecosistemul tech din Europa Centrală și de Est. Doar Cluj-Napoca găzduiește peste 300 de companii tech, câștigând porecla de \u201ESilicon Valley al Transilvaniei\u201D.",
         "Experții din industrie observă că combinația regiunii de educație tehnică solidă, costuri operaționale mai mici și apartenența la UE o face o destinație din ce în ce mai atractivă pentru investițiile tech.",
         "CEO-ul startup-ului a declarat că obiectivul este de a deveni liderul NLP pentru regiunea ECE în termen de trei ani, concurând cu jucătorii consacrați din Europa de Vest prin acuratețe superioară pentru limbile regionale.",
       ],
