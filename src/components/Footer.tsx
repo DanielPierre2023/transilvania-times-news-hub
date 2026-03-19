@@ -18,7 +18,7 @@ const Footer = () => (
             Popular Categories
           </h4>
           <ul className="space-y-1.5 font-sans text-sm">
-            {['Politics', 'Technology', 'Education', 'Travel'].map((cat) => (
+            {['Politics', 'Technology', 'Education', 'Sports', 'Showbiz', 'Health', 'Beauty', 'Travel'].map((cat) => (
               <li key={cat}>
                 <Link to={`/category/${cat.toLowerCase()}`} className="hover:text-background transition-colors">
                   {cat}

@@ -52,11 +52,40 @@
     @apply border-border;
   }
 
+  html {
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100vh;
+    min-height: 100dvh;
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif;
+  }
+}
+
+@layer components {
+  .article-thumb-transition {
+    @apply grayscale transition-all duration-700 ease-in-out;
+  }
+
+  .article-thumb-transition:hover,
+  .article-thumb-transition:active {
+    @apply grayscale-0 scale-[1.02];
+  }
+}
+
+@layer utilities {
+  .min-h-dynamic {
+    min-height: 100dvh;
+  }
+
+  .safe-p-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
