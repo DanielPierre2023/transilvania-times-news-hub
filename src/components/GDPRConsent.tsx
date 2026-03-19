@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 
 const GDPRConsent = () => {
   const [showBanner, setShowBanner] = useState(false);
