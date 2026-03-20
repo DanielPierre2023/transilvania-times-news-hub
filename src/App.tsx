@@ -17,6 +17,9 @@ import NotFound from "./pages/NotFound.tsx";
 import AdminLogin from "./pages/admin/AdminLogin.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
 import Dashboard from "./pages/admin/Dashboard.tsx";
+import BlogManager from "./pages/admin/BlogManager.tsx";
+import BlogEditor from "./pages/admin/BlogEditor.tsx";
+import Analytics from "./pages/admin/Analytics.tsx";
 import ComingSoon from "./pages/admin/ComingSoon.tsx";
 
 const queryClient = new QueryClient();
