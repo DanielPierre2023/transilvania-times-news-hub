@@ -279,6 +279,7 @@ export type Database = {
           id: string
           is_active: boolean
           language: string | null
+          name: string | null
         }
         Insert: {
           confirmed?: boolean
@@ -287,6 +288,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           language?: string | null
+          name?: string | null
         }
         Update: {
           confirmed?: boolean
@@ -295,6 +297,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           language?: string | null
+          name?: string | null
         }
         Relationships: []
       }
@@ -360,30 +363,61 @@ export type Database = {
       }
       rewrite_jobs: {
         Row: {
+          article_id: string | null
           completed_at: string | null
           created_at: string
+          editor: string | null
+          error_code: string | null
+          error_message: string | null
+          finished_at: string | null
           id: string
+          max_retries: number | null
           result: string | null
+          retry_count: number | null
           scraped_article_id: string | null
+          started_at: string | null
           status: string
         }
         Insert: {
+          article_id?: string | null
           completed_at?: string | null
           created_at?: string
+          editor?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
           id?: string
+          max_retries?: number | null
           result?: string | null
+          retry_count?: number | null
           scraped_article_id?: string | null
+          started_at?: string | null
           status?: string
         }
         Update: {
+          article_id?: string | null
           completed_at?: string | null
           created_at?: string
+          editor?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
           id?: string
+          max_retries?: number | null
           result?: string | null
+          retry_count?: number | null
           scraped_article_id?: string | null
+          started_at?: string | null
           status?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "rewrite_jobs_article_id_fkey"
+            columns: ["article_id"]
+            isOneToOne: false
+            referencedRelation: "scraped_articles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "rewrite_jobs_scraped_article_id_fkey"
             columns: ["scraped_article_id"]
@@ -431,7 +465,11 @@ export type Database = {
           original_content: string | null
           original_title: string
           original_url: string | null
+          plagiarism_score: number | null
+          quality_checked_at: string | null
           rewrite_error: string | null
+          rewrite_finished_at: string | null
+          rewrite_started_at: string | null
           rewrite_tags: string[] | null
           rewritten_content: string | null
           rewritten_en: string | null
@@ -457,7 +495,11 @@ export type Database = {
           original_content?: string | null
           original_title: string
           original_url?: string | null
+          plagiarism_score?: number | null
+          quality_checked_at?: string | null
           rewrite_error?: string | null
+          rewrite_finished_at?: string | null
+          rewrite_started_at?: string | null
           rewrite_tags?: string[] | null
           rewritten_content?: string | null
           rewritten_en?: string | null
@@ -483,7 +525,11 @@ export type Database = {
           original_content?: string | null
           original_title?: string
           original_url?: string | null
+          plagiarism_score?: number | null
+          quality_checked_at?: string | null
           rewrite_error?: string | null
+          rewrite_finished_at?: string | null
+          rewrite_started_at?: string | null
           rewrite_tags?: string[] | null
           rewritten_content?: string | null
           rewritten_en?: string | null
