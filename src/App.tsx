@@ -27,6 +27,8 @@ import InboxPage from "./pages/admin/InboxPage.tsx";
 import AdminNewsletter from "./pages/admin/Newsletter.tsx";
 import RssScraper from "./pages/admin/RssScraper.tsx";
 import ComingSoon from "./pages/admin/ComingSoon.tsx";
+import Subscribers from "./pages/admin/Subscribers.tsx";
+import SettingsPage from "./pages/admin/SettingsPage.tsx";
 
 const queryClient = new QueryClient();
 
