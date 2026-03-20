@@ -54,8 +54,8 @@ const App = () => (
             <Route path="blog/new" element={<BlogEditor />} />
             <Route path="blog/:id" element={<BlogEditor />} />
             <Route path="comments" element={<CommentsManager />} />
-            <Route path="rss" element={<ComingSoon />} />
-            <Route path="newsletter" element={<ComingSoon />} />
+            <Route path="rss" element={<RssScraper />} />
+            <Route path="newsletter" element={<AdminNewsletter />} />
             <Route path="subscribers" element={<ComingSoon />} />
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="conversations" element={<ComingSoon />} />
