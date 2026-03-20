@@ -61,7 +61,7 @@ const App = () => (
             <Route path="conversations" element={<ComingSoon />} />
             <Route path="reports" element={<ComingSoon />} />
             <Route path="geo" element={<GeoToolsPage />} />
-            <Route path="inbox" element={<ComingSoon />} />
+            <Route path="inbox" element={<InboxPage />} />
             <Route path="settings" element={<ComingSoon />} />
           </Route>
 
