@@ -171,6 +171,7 @@ export type Database = {
           id: string
           message: string
           name: string
+          replied_at: string | null
           status: string
           subject: string | null
         }
@@ -181,6 +182,7 @@ export type Database = {
           id?: string
           message: string
           name: string
+          replied_at?: string | null
           status?: string
           subject?: string | null
         }
@@ -191,6 +193,7 @@ export type Database = {
           id?: string
           message?: string
           name?: string
+          replied_at?: string | null
           status?: string
           subject?: string | null
         }
@@ -244,6 +247,7 @@ export type Database = {
           sent_at: string | null
           status: string
           subject: string
+          target_language: string | null
         }
         Insert: {
           content?: string | null
@@ -253,6 +257,7 @@ export type Database = {
           sent_at?: string | null
           status?: string
           subject: string
+          target_language?: string | null
         }
         Update: {
           content?: string | null
@@ -262,6 +267,7 @@ export type Database = {
           sent_at?: string | null
           status?: string
           subject?: string
+          target_language?: string | null
         }
         Relationships: []
       }
@@ -416,13 +422,16 @@ export type Database = {
       }
       scraped_articles: {
         Row: {
+          ai_score: number | null
           created_at: string
           excerpt_en: string | null
           excerpt_ro: string | null
           id: string
+          last_rewrite_job_id: string | null
           original_content: string | null
           original_title: string
           original_url: string | null
+          rewrite_error: string | null
           rewrite_tags: string[] | null
           rewritten_content: string | null
           rewritten_en: string | null
@@ -439,13 +448,16 @@ export type Database = {
           title_ro: string | null
         }
         Insert: {
+          ai_score?: number | null
           created_at?: string
           excerpt_en?: string | null
           excerpt_ro?: string | null
           id?: string
+          last_rewrite_job_id?: string | null
           original_content?: string | null
           original_title: string
           original_url?: string | null
+          rewrite_error?: string | null
           rewrite_tags?: string[] | null
           rewritten_content?: string | null
           rewritten_en?: string | null
@@ -462,13 +474,16 @@ export type Database = {
           title_ro?: string | null
         }
         Update: {
+          ai_score?: number | null
           created_at?: string
           excerpt_en?: string | null
           excerpt_ro?: string | null
           id?: string
+          last_rewrite_job_id?: string | null
           original_content?: string | null
           original_title?: string
           original_url?: string | null
+          rewrite_error?: string | null
           rewrite_tags?: string[] | null
           rewritten_content?: string | null
           rewritten_en?: string | null
@@ -485,6 +500,13 @@ export type Database = {
           title_ro?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "scraped_articles_last_rewrite_job_id_fkey"
+            columns: ["last_rewrite_job_id"]
+            isOneToOne: false
+            referencedRelation: "rewrite_jobs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "scraped_articles_source_id_fkey"
             columns: ["source_id"]
