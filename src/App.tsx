@@ -26,7 +26,7 @@ import GeoToolsPage from "./pages/admin/GeoToolsPage.tsx";
 import InboxPage from "./pages/admin/InboxPage.tsx";
 import AdminNewsletter from "./pages/admin/Newsletter.tsx";
 import RssScraper from "./pages/admin/RssScraper.tsx";
-import ComingSoon from "./pages/admin/ComingSoon.tsx";
+
 import Subscribers from "./pages/admin/Subscribers.tsx";
 import SettingsPage from "./pages/admin/SettingsPage.tsx";
 
@@ -60,8 +60,6 @@ const App = () => (
             <Route path="newsletter" element={<AdminNewsletter />} />
             <Route path="subscribers" element={<Subscribers />} />
             <Route path="contacts" element={<ContactsPage />} />
-            <Route path="conversations" element={<ComingSoon />} />
-            <Route path="reports" element={<ComingSoon />} />
             <Route path="geo" element={<GeoToolsPage />} />
             <Route path="inbox" element={<InboxPage />} />
             <Route path="settings" element={<SettingsPage />} />

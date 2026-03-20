@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import {
   LayoutDashboard, BarChart3, FileText, Rss, Mail, Users,
   Inbox, Settings, LogOut, Newspaper, MessageCircle, Contact,
-  MessageSquare, Menu, FileBarChart, Globe
+  Menu, Globe
 } from 'lucide-react';
 
 const navItems = [
@@ -20,8 +20,6 @@ const navItems = [
   { to: '/admin/newsletter', icon: Mail, label: 'Newsletter' },
   { to: '/admin/subscribers', icon: Users, label: 'Subscribers' },
   { to: '/admin/contacts', icon: Contact, label: 'Contacts' },
-  { to: '/admin/conversations', icon: MessageSquare, label: 'Conversations' },
-  { to: '/admin/reports', icon: FileBarChart, label: 'Reports' },
   { to: '/admin/geo', icon: Globe, label: 'GEO Tools' },
   { to: '/admin/inbox', icon: Inbox, label: 'Inbox' },
   { to: '/admin/settings', icon: Settings, label: 'Settings' },
