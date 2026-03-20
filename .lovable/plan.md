@@ -1,43 +1,56 @@
 
 
-## Plan: Redesign Footer to Match Reference Template
+## Plan: Admin Panel Phase 1 — Database, Auth, Login, Layout & Dashboard
 
-The current footer uses a dark background with a simple 3-column layout. The reference image shows a completely different design on the paper/cream background with the newsletter integrated into the footer area.
+### Current State
+- Database is empty (no tables, no enums, no triggers)
+- No admin pages exist (`src/pages/admin/` is empty)
+- No `useAdmin` hook exists
+- The uploaded `admin-schema.sql` contains the complete schema (17 tables, RLS policies, triggers, storage buckets)
+- The project already uses i18n, bilingual articles data, and Transilvania Times branding
 
-### What changes
+### Step 1: Database Migration
 
-**Footer layout** — Switch from dark `bg-foreground` to light `bg-paper` background. Restructure into:
+Run the full schema from the uploaded SQL file, **excluding** tables irrelevant to a news site (configurator_submissions, vip_remembered_ips, playground_usage, service_checklist_items, client_projects, client_project_checks). Also exclude storage bucket inserts (must be done via Storage UI).
 
-1. **Top section**: "Transilvania Times" in red decorative serif + red divider line
-2. **Middle section** (4 columns on desktop):
-   - **Popular Categories** (red heading) — 2-column grid of 8 categories
-   - **Contact Us** (red heading) — address with map-pin icon, email with mail icon, phone with phone icon
-   - **Accessibility** (red heading) — links to Contact Us, Privacy Policy, 404
-   - **Newsletter** (red card) — email input + "Thank you" button, integrated here instead of as a separate section
-3. **Bottom bar**: copyright left, social media icons right (Facebook, Twitter, Instagram, GitHub), separated by a red divider line
+Tables to create: `user_roles`, `profiles`, `blog_posts`, `blog_comments`, `contact_messages`, `contacts`, `newsletter_subscribers`, `newsletter_campaigns`, `site_analytics`, `section_views`, `rss_sources`, `scraped_articles`, `rewrite_jobs`, `chat_conversations`, `report_requests`, `site_settings`
 
-**Newsletter removal from pages** — Since the newsletter moves into the footer, remove the separate `<Newsletter />` component from all pages (Index, Article, Category, Contact, TermsConditions, PrivacyPolicy).
+Plus: `app_role` enum, `has_role()` function, `handle_new_user()` trigger, `sync_subscriber_to_contacts()` trigger, `update_updated_at()` triggers, and all RLS policies.
 
-### Files to modify
+### Step 2: Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/hooks/useAdmin.ts` | Auth guard — checks session + `user_roles` for admin role |
+| `src/pages/admin/AdminLogin.tsx` | Login form with Transilvania Times branding (serif masthead, primary red button, paper bg) |
+| `src/pages/admin/AdminLayout.tsx` | Sidebar shell with espresso bg, red active states, mobile Sheet drawer, "Transilvania Times" branding, sign out button, `<Outlet />` |
+| `src/pages/admin/Dashboard.tsx` | Placeholder dashboard with welcome card and stats placeholders |
+
+### Step 3: Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/Footer.tsx` | Full redesign: paper bg, 4-column layout, red headings, integrated newsletter, social icons, new bottom bar |
-| `src/components/Newsletter.tsx` | Restyle as an inline card (red bg) for embedding in the footer |
-| `src/pages/Index.tsx` | Remove `<Newsletter />` import and usage |
-| `src/pages/Article.tsx` | Remove `<Newsletter />` import and usage |
-| `src/pages/Category.tsx` | Remove `<Newsletter />` import and usage |
-| `src/pages/Contact.tsx` | Remove `<Newsletter />` import and usage |
-| `src/pages/TermsConditions.tsx` | Remove `<Newsletter />` import and usage |
-| `src/pages/PrivacyPolicy.tsx` | Remove `<Newsletter />` import and usage |
-| `src/i18n.ts` | Add translation keys for "Accessibility", social link labels if needed |
+| `src/App.tsx` | Add imports for admin pages; add `/admin/login` route and `/admin` route group with `AdminLayout` wrapping `Dashboard` |
 
-### Design details
+### Branding Adaptations (ADDIS.Admin → Transilvania Times)
 
-- Headings use `text-primary` (brand red) with serif font
-- Category list in 2-column `grid-cols-2` layout matching the reference
-- Contact info items use lucide icons (MapPin, Mail, Phone) in red
-- Newsletter card: `bg-primary` with white text, paper-colored input, white "Thank you" button
-- Bottom bar: thin red top border, copyright left, 4 social icon buttons right
-- All text in espresso/foreground color on paper background
+- Sidebar: `bg-foreground` (espresso dark) with white text
+- Active nav: `bg-primary text-white` (brand red #ca2222)
+- Hover: `hover:bg-primary/10`
+- Login card: paper background with serif "Transilvania Times" masthead
+- All CSS variables (`--blue`, `--ink`, `--slate`) replaced with Tailwind classes using existing brand tokens
+
+### Nav Items (Phase 1)
+
+Full navigation visible in sidebar but only Dashboard has a real page. Other items link to placeholder routes that show "Coming Soon" within the AdminLayout outlet. This prevents 404s while keeping the menu ready for future phases.
+
+Nav items: Dashboard, Analytics, Blog Manager, AI Blog Editor, Comments, RSS Scraper, Newsletter, Subscribers, Contacts, Conversations, Reports, GEO Tools, Inbox, Settings
+
+### Post-Implementation Setup
+
+After implementation, the user must:
+1. Create a user in Supabase Auth dashboard
+2. Insert admin role via SQL Editor: `INSERT INTO user_roles (user_id, role) VALUES ('<uuid>', 'admin');`
+3. Create storage buckets `blog-images` and `reports` via Storage UI
+4. Navigate to `/admin/login` to sign in
 
