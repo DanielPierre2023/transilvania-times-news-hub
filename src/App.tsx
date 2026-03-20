@@ -64,7 +64,7 @@ const App = () => (
             <Route path="reports" element={<ComingSoon />} />
             <Route path="geo" element={<GeoToolsPage />} />
             <Route path="inbox" element={<InboxPage />} />
-            <Route path="settings" element={<ComingSoon />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
