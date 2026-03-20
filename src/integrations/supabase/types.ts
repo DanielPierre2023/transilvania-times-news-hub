@@ -201,27 +201,36 @@ export type Database = {
           created_at: string
           email: string
           id: string
+          language: string | null
           name: string | null
+          newsletter_subscribed: boolean | null
           notes: string | null
           source: string | null
+          tags: string[] | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           email: string
           id?: string
+          language?: string | null
           name?: string | null
+          newsletter_subscribed?: boolean | null
           notes?: string | null
           source?: string | null
+          tags?: string[] | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           email?: string
           id?: string
+          language?: string | null
           name?: string | null
+          newsletter_subscribed?: boolean | null
           notes?: string | null
           source?: string | null
+          tags?: string[] | null
           updated_at?: string
         }
         Relationships: []

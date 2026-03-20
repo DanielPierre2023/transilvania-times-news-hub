@@ -20,6 +20,9 @@ import Dashboard from "./pages/admin/Dashboard.tsx";
 import BlogManager from "./pages/admin/BlogManager.tsx";
 import BlogEditor from "./pages/admin/BlogEditor.tsx";
 import Analytics from "./pages/admin/Analytics.tsx";
+import CommentsManager from "./pages/admin/CommentsManager.tsx";
+import ContactsPage from "./pages/admin/ContactsPage.tsx";
+import GeoToolsPage from "./pages/admin/GeoToolsPage.tsx";
 import ComingSoon from "./pages/admin/ComingSoon.tsx";
 
 const queryClient = new QueryClient();
@@ -47,14 +50,14 @@ const App = () => (
             <Route path="blog" element={<BlogManager />} />
             <Route path="blog/new" element={<BlogEditor />} />
             <Route path="blog/:id" element={<BlogEditor />} />
-            <Route path="comments" element={<ComingSoon />} />
+            <Route path="comments" element={<CommentsManager />} />
             <Route path="rss" element={<ComingSoon />} />
             <Route path="newsletter" element={<ComingSoon />} />
             <Route path="subscribers" element={<ComingSoon />} />
-            <Route path="contacts" element={<ComingSoon />} />
+            <Route path="contacts" element={<ContactsPage />} />
             <Route path="conversations" element={<ComingSoon />} />
             <Route path="reports" element={<ComingSoon />} />
-            <Route path="geo" element={<ComingSoon />} />
+            <Route path="geo" element={<GeoToolsPage />} />
             <Route path="inbox" element={<ComingSoon />} />
             <Route path="settings" element={<ComingSoon />} />
           </Route>
