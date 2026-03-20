@@ -57,54 +57,78 @@ export type Database = {
       }
       blog_posts: {
         Row: {
-          author: string | null
+          author_name: string | null
           category: string | null
-          content: string | null
+          content_en: string | null
+          content_ro: string | null
+          cover_image: string | null
           created_at: string
-          excerpt: string | null
-          hero_image: string | null
+          excerpt_en: string | null
+          excerpt_ro: string | null
           id: string
-          language: string | null
           published_at: string | null
-          seo_description: string | null
-          seo_title: string | null
+          reading_time_min: number | null
+          seo_description_en: string | null
+          seo_description_ro: string | null
+          seo_title_en: string | null
+          seo_title_ro: string | null
           slug: string
           status: string
-          title: string
+          summary_en: string | null
+          summary_ro: string | null
+          tags: string[] | null
+          title_en: string
+          title_ro: string | null
           updated_at: string
         }
         Insert: {
-          author?: string | null
+          author_name?: string | null
           category?: string | null
-          content?: string | null
+          content_en?: string | null
+          content_ro?: string | null
+          cover_image?: string | null
           created_at?: string
-          excerpt?: string | null
-          hero_image?: string | null
+          excerpt_en?: string | null
+          excerpt_ro?: string | null
           id?: string
-          language?: string | null
           published_at?: string | null
-          seo_description?: string | null
-          seo_title?: string | null
+          reading_time_min?: number | null
+          seo_description_en?: string | null
+          seo_description_ro?: string | null
+          seo_title_en?: string | null
+          seo_title_ro?: string | null
           slug: string
           status?: string
-          title: string
+          summary_en?: string | null
+          summary_ro?: string | null
+          tags?: string[] | null
+          title_en: string
+          title_ro?: string | null
           updated_at?: string
         }
         Update: {
-          author?: string | null
+          author_name?: string | null
           category?: string | null
-          content?: string | null
+          content_en?: string | null
+          content_ro?: string | null
+          cover_image?: string | null
           created_at?: string
-          excerpt?: string | null
-          hero_image?: string | null
+          excerpt_en?: string | null
+          excerpt_ro?: string | null
           id?: string
-          language?: string | null
           published_at?: string | null
-          seo_description?: string | null
-          seo_title?: string | null
+          reading_time_min?: number | null
+          seo_description_en?: string | null
+          seo_description_ro?: string | null
+          seo_title_en?: string | null
+          seo_title_ro?: string | null
           slug?: string
           status?: string
-          title?: string
+          summary_en?: string | null
+          summary_ro?: string | null
+          tags?: string[] | null
+          title_en?: string
+          title_ro?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -384,33 +408,72 @@ export type Database = {
       scraped_articles: {
         Row: {
           created_at: string
+          excerpt_en: string | null
+          excerpt_ro: string | null
           id: string
           original_content: string | null
+          original_title: string
           original_url: string | null
+          rewrite_tags: string[] | null
           rewritten_content: string | null
+          rewritten_en: string | null
+          rewritten_ro: string | null
+          seo_description_en: string | null
+          seo_description_ro: string | null
+          seo_title_en: string | null
+          seo_title_ro: string | null
           source_id: string | null
           status: string
-          title: string
+          summary_en: string | null
+          summary_ro: string | null
+          title_en: string | null
+          title_ro: string | null
         }
         Insert: {
           created_at?: string
+          excerpt_en?: string | null
+          excerpt_ro?: string | null
           id?: string
           original_content?: string | null
+          original_title: string
           original_url?: string | null
+          rewrite_tags?: string[] | null
           rewritten_content?: string | null
+          rewritten_en?: string | null
+          rewritten_ro?: string | null
+          seo_description_en?: string | null
+          seo_description_ro?: string | null
+          seo_title_en?: string | null
+          seo_title_ro?: string | null
           source_id?: string | null
           status?: string
-          title: string
+          summary_en?: string | null
+          summary_ro?: string | null
+          title_en?: string | null
+          title_ro?: string | null
         }
         Update: {
           created_at?: string
+          excerpt_en?: string | null
+          excerpt_ro?: string | null
           id?: string
           original_content?: string | null
+          original_title?: string
           original_url?: string | null
+          rewrite_tags?: string[] | null
           rewritten_content?: string | null
+          rewritten_en?: string | null
+          rewritten_ro?: string | null
+          seo_description_en?: string | null
+          seo_description_ro?: string | null
+          seo_title_en?: string | null
+          seo_title_ro?: string | null
           source_id?: string | null
           status?: string
-          title?: string
+          summary_en?: string | null
+          summary_ro?: string | null
+          title_en?: string | null
+          title_ro?: string | null
         }
         Relationships: [
           {
@@ -457,6 +520,7 @@ export type Database = {
           page_path: string
           referrer: string | null
           session_duration: number | null
+          session_id: string | null
           user_agent: string | null
         }
         Insert: {
@@ -469,6 +533,7 @@ export type Database = {
           page_path: string
           referrer?: string | null
           session_duration?: number | null
+          session_id?: string | null
           user_agent?: string | null
         }
         Update: {
@@ -481,6 +546,7 @@ export type Database = {
           page_path?: string
           referrer?: string | null
           session_duration?: number | null
+          session_id?: string | null
           user_agent?: string | null
         }
         Relationships: []

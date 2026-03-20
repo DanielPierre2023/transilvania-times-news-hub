@@ -17,6 +17,9 @@ import NotFound from "./pages/NotFound.tsx";
 import AdminLogin from "./pages/admin/AdminLogin.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
 import Dashboard from "./pages/admin/Dashboard.tsx";
+import BlogManager from "./pages/admin/BlogManager.tsx";
+import BlogEditor from "./pages/admin/BlogEditor.tsx";
+import Analytics from "./pages/admin/Analytics.tsx";
 import ComingSoon from "./pages/admin/ComingSoon.tsx";
 
 const queryClient = new QueryClient();
@@ -40,10 +43,10 @@ const App = () => (
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Dashboard />} />
-            <Route path="analytics" element={<ComingSoon />} />
-            <Route path="blog" element={<ComingSoon />} />
-            <Route path="blog/new" element={<ComingSoon />} />
-            <Route path="blog/:id" element={<ComingSoon />} />
+            <Route path="analytics" element={<Analytics />} />
+            <Route path="blog" element={<BlogManager />} />
+            <Route path="blog/new" element={<BlogEditor />} />
+            <Route path="blog/:id" element={<BlogEditor />} />
             <Route path="comments" element={<ComingSoon />} />
             <Route path="rss" element={<ComingSoon />} />
             <Route path="newsletter" element={<ComingSoon />} />
