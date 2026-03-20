@@ -20,6 +20,9 @@ import Dashboard from "./pages/admin/Dashboard.tsx";
 import BlogManager from "./pages/admin/BlogManager.tsx";
 import BlogEditor from "./pages/admin/BlogEditor.tsx";
 import Analytics from "./pages/admin/Analytics.tsx";
+import CommentsManager from "./pages/admin/CommentsManager.tsx";
+import ContactsPage from "./pages/admin/ContactsPage.tsx";
+import GeoToolsPage from "./pages/admin/GeoToolsPage.tsx";
 import ComingSoon from "./pages/admin/ComingSoon.tsx";
 
 const queryClient = new QueryClient();
