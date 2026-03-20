@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import {
   LayoutDashboard, BarChart3, FileText, Rss, Mail, Users,
   Inbox, Settings, LogOut, Newspaper, MessageCircle, Contact,
-  MessageSquare, Menu, FileBarChart, Globe
+  Menu, Globe
 } from 'lucide-react';
 
 const navItems = [
