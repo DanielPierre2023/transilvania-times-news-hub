@@ -58,7 +58,7 @@ const App = () => (
             <Route path="comments" element={<CommentsManager />} />
             <Route path="rss" element={<RssScraper />} />
             <Route path="newsletter" element={<AdminNewsletter />} />
-            <Route path="subscribers" element={<ComingSoon />} />
+            <Route path="subscribers" element={<Subscribers />} />
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="conversations" element={<ComingSoon />} />
             <Route path="reports" element={<ComingSoon />} />
