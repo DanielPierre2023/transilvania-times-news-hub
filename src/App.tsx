@@ -23,6 +23,9 @@ import Analytics from "./pages/admin/Analytics.tsx";
 import CommentsManager from "./pages/admin/CommentsManager.tsx";
 import ContactsPage from "./pages/admin/ContactsPage.tsx";
 import GeoToolsPage from "./pages/admin/GeoToolsPage.tsx";
+import InboxPage from "./pages/admin/InboxPage.tsx";
+import AdminNewsletter from "./pages/admin/Newsletter.tsx";
+import RssScraper from "./pages/admin/RssScraper.tsx";
 import ComingSoon from "./pages/admin/ComingSoon.tsx";
 
 const queryClient = new QueryClient();
