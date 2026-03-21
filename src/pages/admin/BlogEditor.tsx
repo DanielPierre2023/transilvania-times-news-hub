@@ -398,21 +398,48 @@ const BlogEditor = () => {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <Input placeholder="Slug" value={form.slug} onChange={e => handleChange('slug', e.target.value)} />
-            <div className="flex items-center gap-2">
-              <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
-              <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => coverInputRef.current?.click()} disabled={uploading}>
-                <Upload className="w-3 h-3" /> Upload
-              </Button>
-              {!form.cover_image ? (
-                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
-                  <ImagePlus className="w-3 h-3" /> ✨ Generate
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => coverInputRef.current?.click()} disabled={uploading}>
+                  <Upload className="w-3 h-3" /> Upload
                 </Button>
-              ) : (
-                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
-                  <RefreshCw className="w-3 h-3" /> Regenerate
-                </Button>
+                {!form.cover_image ? (
+                  <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => { setCoverLoading(true); setCoverError(false); generateCoverImage(); }}>
+                    <ImagePlus className="w-3 h-3" /> ✨ Generate
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => { setCoverLoading(true); setCoverError(false); generateCoverImage(); }}>
+                    <RefreshCw className="w-3 h-3" /> Regenerate
+                  </Button>
+                )}
+              </div>
+              {form.cover_image && (
+                <div className="relative w-full h-48 bg-muted rounded-md overflow-hidden border">
+                  {coverLoading && !coverError && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 bg-muted/80">
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Generating image…</span>
+                    </div>
+                  )}
+                  {coverError ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                      <span className="text-xs text-destructive">Failed to load — try Regenerate</span>
+                    </div>
+                  ) : (
+                    <img
+                      src={form.cover_image}
+                      alt="Cover preview"
+                      className="w-full h-full object-cover"
+                      onLoad={() => setCoverLoading(false)}
+                      onError={() => { setCoverLoading(false); setCoverError(true); }}
+                    />
+                  )}
+                  <p className="absolute bottom-0 left-0 right-0 bg-background/80 text-[10px] text-muted-foreground px-2 py-1 truncate">
+                    {form.cover_image.substring(0, 80)}…
+                  </p>
+                </div>
               )}
-              {form.cover_image && <img src={form.cover_image} alt="" className="w-8 h-8 rounded object-cover" />}
             </div>
             <Select value={form.status} onValueChange={v => handleChange('status', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
