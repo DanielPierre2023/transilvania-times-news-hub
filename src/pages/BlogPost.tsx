@@ -108,7 +108,35 @@ const BlogPost = () => {
           className="prose prose-lg max-w-none font-sans text-foreground"
           dangerouslySetInnerHTML={{ __html: content || "" }}
         />
+
+        {/* SEO Tag Pills */}
+        {post.tags && post.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-10">
+            {post.tags.map((tag: string) => (
+              <span key={tag} className="bg-espresso text-paper px-3 py-1 text-[10px] font-bold uppercase tracking-widest">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Comment Section */}
+        <CommentSection
+          postId={post.id}
+          postTitle={title || ""}
+          postExcerpt={summary || ""}
+        />
       </article>
+
+      {/* Sticky Mobile Share Dock */}
+      <ShareSuite
+        title={title || ""}
+        url={typeof window !== "undefined" ? window.location.href : ""}
+        summary={summary || ""}
+        tags={post.tags || []}
+        sticky
+      />
+
       <Footer />
     </div>
   );

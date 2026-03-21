@@ -134,7 +134,14 @@ const Article = () => {
         </div>
       </div>
 
-      
+      {/* Sticky Mobile Share Dock */}
+      <ShareSuite
+        title={tBi(article.title, lang)}
+        url={typeof window !== "undefined" ? window.location.href : ""}
+        summary={tBi(article.excerpt, lang)}
+        sticky
+      />
+
       <Footer />
     </div>
   );
