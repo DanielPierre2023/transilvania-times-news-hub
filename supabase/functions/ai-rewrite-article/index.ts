@@ -23,7 +23,7 @@ const ROMANIAN_RULES = `ROMÂNĂ: ZERO subtitluri. Proză continuă. NU concluzi
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
-  const { article_id, editor = 'marcus_webb' } = await req.json();
+  const { article_id, editor = 'daniel_dobos' } = await req.json();
   if (!article_id) {
     return new Response(JSON.stringify({ error: 'article_id required' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
