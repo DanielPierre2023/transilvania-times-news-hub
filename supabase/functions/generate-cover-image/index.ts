@@ -12,11 +12,9 @@ function buildPrompt(title: string, excerpt: string): string {
 }
 
 async function generateWithHuggingFace(prompt: string, apiKey: string): Promise<Uint8Array> {
-  // Try multiple providers: hf-inference, fal-ai, replicate
   const providers = [
     { provider: 'fal-ai', model: 'black-forest-labs/FLUX.1-schnell' },
     { provider: 'hf-inference', model: 'black-forest-labs/FLUX.1-schnell' },
-    { provider: 'hf-inference', model: 'stabilityai/stable-diffusion-xl-base-1.0' },
   ];
 
   for (const { provider, model } of providers) {
@@ -42,53 +40,66 @@ async function generateWithHuggingFace(prompt: string, apiKey: string): Promise<
 
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('image')) {
-        console.error(`HF ${provider}/${model} returned non-image: ${contentType}`);
+        console.error(`HF returned non-image: ${contentType}`);
         continue;
       }
 
       const buffer = await res.arrayBuffer();
-      if (buffer.byteLength < 1000) {
-        console.error(`HF ${provider}/${model} returned tiny: ${buffer.byteLength}b`);
-        continue;
-      }
+      if (buffer.byteLength < 1000) continue;
 
-      console.log(`HF ${provider}/${model} success: ${buffer.byteLength} bytes`);
+      console.log(`HF success: ${buffer.byteLength} bytes`);
       return new Uint8Array(buffer);
     } catch (e) {
-      console.error(`HF ${provider}/${model} error: ${(e as Error).message}`);
+      console.error(`HF error: ${(e as Error).message}`);
       continue;
     }
   }
-
-  throw new Error('ALL_HF_MODELS_FAILED');
+  throw new Error('ALL_HF_PROVIDERS_FAILED');
 }
 
-async function generateWithPollinations(prompt: string): Promise<Uint8Array> {
-  const seed = Math.floor(Math.random() * 100000);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1200&height=630&model=flux&seed=${seed}&nologo=true`;
-  
-  console.log(`Trying Pollinations fallback...`);
-  const res = await fetch(url, { redirect: 'follow' });
-  
-  if (!res.ok) throw new Error(`Pollinations ${res.status}`);
-  
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('image')) {
-    throw new Error(`Pollinations returned non-image: ${contentType}`);
+async function generateWithOpenAI(prompt: string, apiKey: string): Promise<Uint8Array> {
+  console.log('Trying OpenAI DALL-E 3...');
+  const res = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'dall-e-3',
+      prompt: prompt,
+      n: 1,
+      size: '1792x1024',
+      quality: 'standard',
+      response_format: 'b64_json',
+    }),
+  });
+
+  if (!res.ok) {
+    const errData = await res.text();
+    throw new Error(`OpenAI ${res.status}: ${errData.substring(0, 200)}`);
   }
 
-  const buffer = await res.arrayBuffer();
-  if (buffer.byteLength < 1000) throw new Error('Pollinations returned empty image');
-  
-  console.log(`Pollinations success: ${buffer.byteLength} bytes`);
-  return new Uint8Array(buffer);
+  const data = await res.json();
+  const b64 = data.data?.[0]?.b64_json;
+  if (!b64) throw new Error('OpenAI returned no image data');
+
+  // Decode base64 to Uint8Array
+  const binaryString = atob(b64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  console.log(`OpenAI DALL-E success: ${bytes.byteLength} bytes`);
+  return bytes;
 }
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const { title, excerpt, seed } = await req.json();
+    const { title, excerpt } = await req.json();
     if (!title) {
       return new Response(JSON.stringify({ error: 'Title is required' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -97,25 +108,44 @@ serve(async (req) => {
 
     const prompt = buildPrompt(title, excerpt || '');
     const hfKey = Deno.env.get('HUGGING_FACE_API_KEY');
+    const openaiKey = Deno.env.get('OPENAI_API_KEY');
     let imageBytes: Uint8Array;
+    let ext = 'jpg';
 
-    // Try Hugging Face first, then Pollinations fallback
-    try {
-      if (!hfKey) throw new Error('NO_HF_KEY');
-      imageBytes = await generateWithHuggingFace(prompt, hfKey);
-    } catch (hfErr) {
-      console.warn(`HF failed: ${(hfErr as Error).message}, trying Pollinations...`);
+    // Provider chain: HF → OpenAI DALL-E → error
+    let lastError = '';
+    let success = false;
+
+    // Try Hugging Face first (free)
+    if (hfKey) {
       try {
-        imageBytes = await generateWithPollinations(prompt);
-      } catch (pollErr) {
-        console.error(`All providers failed. HF: ${(hfErr as Error).message}, Pollinations: ${(pollErr as Error).message}`);
-        return new Response(JSON.stringify({
-          error: 'IMAGE_GENERATION_FAILED',
-          details: `HF: ${(hfErr as Error).message}, Pollinations: ${(pollErr as Error).message}`,
-        }), {
-          status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        imageBytes = await generateWithHuggingFace(prompt, hfKey);
+        success = true;
+      } catch (e) {
+        lastError = `HF: ${(e as Error).message}`;
+        console.warn(lastError);
       }
+    }
+
+    // Fallback to OpenAI (paid but reliable)
+    if (!success && openaiKey) {
+      try {
+        imageBytes = await generateWithOpenAI(prompt, openaiKey);
+        ext = 'png';
+        success = true;
+      } catch (e) {
+        lastError += ` | OpenAI: ${(e as Error).message}`;
+        console.error(lastError);
+      }
+    }
+
+    if (!success) {
+      return new Response(JSON.stringify({
+        error: 'IMAGE_GENERATION_FAILED',
+        details: lastError || 'No image provider configured',
+      }), {
+        status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // Upload to Supabase Storage
@@ -124,13 +154,11 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    const fileName = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+    const fileName = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const contentType = ext === 'png' ? 'image/png' : 'image/jpeg';
     const { error: uploadErr } = await supabaseAdmin.storage
       .from('blog-images')
-      .upload(fileName, imageBytes, {
-        contentType: 'image/jpeg',
-        upsert: false,
-      });
+      .upload(fileName, imageBytes!, { contentType, upsert: false });
 
     if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
 
