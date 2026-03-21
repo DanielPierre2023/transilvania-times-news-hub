@@ -151,7 +151,7 @@ const BlogEditor = () => {
         status: 'draft',
         category: r.category || categoryFromUrl || 'news',
         subcategory: r.subcategory || subcategoryFromUrl || 'international',
-        author_name: 'Marcus Webb',
+        author_name: 'Daniel Dobos',
       });
       setGenOpen(false);
     }
