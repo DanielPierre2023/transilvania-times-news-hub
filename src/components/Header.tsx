@@ -30,6 +30,12 @@ const Header = () => {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
 
+  const dateStr = useMemo(() => {
+    const locale = i18n.language.startsWith('ro') ? 'ro-RO' : 'en-US';
+    return new Intl.DateTimeFormat(locale, {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    }).format(new Date());
+  }, [i18n.language]);
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && searchQuery.trim()) {
       navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
