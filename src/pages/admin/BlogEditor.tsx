@@ -31,7 +31,11 @@ const EDITOR_NAMES: Record<string, string> = {
   sofia_marinescu: 'Sofia Marinescu', mihai_ionescu: 'Mihai Ionescu',
 };
 
-const AUTHORS = [
+// Manual authors (real journalists who write their own articles)
+const MANUAL_AUTHORS = ['Daniel Dobos', 'Cristina Erika', 'Corina Bugner'];
+// All possible bylines (includes AI editor names for RSS-imported articles)
+const ALL_AUTHORS = [
+  'Redacția Transilvania Times',
   'Daniel Dobos', 'Cristina Erika', 'Corina Bugner',
   'Andrei Popescu', 'Elena Vasilescu', 'Lucian Bratu',
   'Sofia Marinescu', 'Mihai Ionescu',
