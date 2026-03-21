@@ -1,6 +1,6 @@
 export const CATEGORIES = [
-  'politics', 'world', 'technology', 'business', 'culture',
-  'opinion', 'travel', 'education', 'sports', 'health', 'news',
+  'news', 'politics', 'technology', 'business', 'culture',
+  'travel', 'education', 'sports', 'health', 'opinion',
 ] as const;
 
 export type Category = typeof CATEGORIES[number];
@@ -25,7 +25,8 @@ const CATEGORY_ALIASES: Record<string, string> = {
   politică: 'politics',
   știri: 'news',
   stiri: 'news',
-  lume: 'world',
+  lume: 'news',
+  world: 'news',
   tehnologie: 'technology',
   afaceri: 'business',
   cultură: 'culture',
@@ -37,13 +38,14 @@ const CATEGORY_ALIASES: Record<string, string> = {
   educatie: 'education',
   sănătate: 'health',
   sanatate: 'health',
-  international: 'world',
+  international: 'news',
   finance: 'business',
   money: 'business',
   science: 'technology',
   entertainment: 'culture',
   lifestyle: 'culture',
   showbiz: 'culture',
+  global: 'news',
 };
 
 const SUBCATEGORY_ALIASES: Record<string, string> = {

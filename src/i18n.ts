@@ -162,17 +162,16 @@ i18n
           support_us: "Susține-ne",
           search_placeholder: "Caută articole...",
           // Categories
+          cat_news: "Știri",
           cat_politics: "Politică",
-          cat_world: "Lume",
           cat_technology: "Tehnologie",
           cat_business: "Afaceri",
           cat_culture: "Cultură",
-          cat_opinion: "Opinie",
           cat_travel: "Călătorii",
           cat_education: "Educație",
           cat_sports: "Sport",
           cat_health: "Sănătate",
-          cat_news: "Știri",
+          cat_opinion: "Opinie",
 
           // Subcategories
           subcat_regional: "Regional",

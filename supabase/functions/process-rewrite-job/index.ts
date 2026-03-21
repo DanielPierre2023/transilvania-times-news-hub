@@ -101,9 +101,9 @@ serve(async (req) => {
     console.log(`[${jobId}] Desk 1 complete: ${extractedFacts.length} chars of facts extracted`);
 
     // Parse category/subcategory from extracted facts if needed
-    const VALID_CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health', 'news'];
+    const VALID_CATEGORIES = ['news', 'politics', 'technology', 'business', 'culture', 'travel', 'education', 'sports', 'health', 'opinion'];
     const VALID_SUBCATEGORIES = ['regional', 'national', 'international'];
-    const CAT_ALIASES: Record<string, string> = { tech: 'technology', sport: 'sports', economia: 'business', economie: 'business', politica: 'politics', știri: 'news', stiri: 'news', science: 'technology', entertainment: 'culture', lifestyle: 'culture', finance: 'business' };
+    const CAT_ALIASES: Record<string, string> = { tech: 'technology', sport: 'sports', economia: 'business', economie: 'business', politica: 'politics', știri: 'news', stiri: 'news', science: 'technology', entertainment: 'culture', lifestyle: 'culture', finance: 'business', world: 'news', lume: 'news', international: 'news', global: 'news' };
     const SUB_ALIASES: Record<string, string> = { local: 'regional', transilvania: 'regional', transylvania: 'regional', romania: 'national', global: 'international', mondial: 'international', extern: 'international' };
 
     let detectedCategory = sourceCategory;
