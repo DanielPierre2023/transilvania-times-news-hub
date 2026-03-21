@@ -19,10 +19,14 @@ const CompetitorTab = () => {
         body: { topic },
       });
       if (error) throw error;
-      setResult(data);
+      if (typeof data === 'string') {
+        try { setResult(JSON.parse(data)); } catch { setResult({ raw: data }); }
+      } else {
+        setResult(data);
+      }
       toast.success('Analysis complete');
     } catch (e: any) {
-      toast.error(e.message || 'Edge function not deployed yet');
+      toast.error(e.message || 'Analysis failed');
     } finally {
       setLoading(false);
     }

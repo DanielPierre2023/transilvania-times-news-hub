@@ -9,7 +9,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const { industry, companySize, currentTools } = await req.json();
+    const { topic, industry, companySize, currentTools } = await req.json();
+
+    const effectiveIndustry = topic || industry || 'Media';
 
     const systemInstruction = `You are a competitive intelligence analyst for Transilvania Times, an independent bilingual newspaper covering technology, politics, culture, and business from Transylvania, Romania.
 
@@ -24,7 +26,7 @@ Transilvania Times key differentiators:
 
 Always respond in valid JSON.`;
 
-    const userMessage = `Generate a competitive positioning analysis for a prospect in the "${industry || 'Media'}" industry with company size "${companySize || 'mid-market'}" currently using "${currentTools || 'basic CMS'}".
+    const userMessage = `Generate a competitive positioning analysis for a prospect in the "${effectiveIndustry}" industry with company size "${companySize || 'mid-market'}" currently using "${currentTools || 'basic CMS'}".
 
 Return JSON with:
 {
@@ -36,7 +38,7 @@ Return JSON with:
   "estimatedROI": "projected ROI statement tailored to their industry"
 }`;
 
-    const result = await callGemini({ systemInstruction, userMessage, temperature: 0.6, maxTokens: 1500, jsonMode: true });
+    const result = await callGemini({ systemInstruction, userMessage, temperature: 0.6, maxTokens: 3000, jsonMode: true });
 
     if (result.error) {
       return new Response(JSON.stringify({ error: result.error }), {
