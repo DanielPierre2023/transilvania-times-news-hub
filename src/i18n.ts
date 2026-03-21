@@ -43,6 +43,9 @@ i18n
           // Article
           go_back: "Go Back to Homepage",
           by_author: "By",
+          previous: "Previous",
+          next: "Next",
+          related_articles: "Related Articles",
 
           // Most Read
           most_read: "Most Read",
