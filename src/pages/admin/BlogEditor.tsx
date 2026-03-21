@@ -15,17 +15,17 @@ import { Save, Eye, Wand2, Send, Bold, Italic, Heading, Link, Image, Code, List,
 import { Badge } from '@/components/ui/badge';
 
 const EDITORS = [
-  { value: 'kara_newman', label: 'Kara Newman — Senior Reporter' },
   { value: 'marcus_webb', label: 'Marcus Webb — Investigative' },
-  { value: 'elena_vasilescu', label: 'Elena Vasilescu — Politics' },
-  { value: 'andrei_pop', label: 'Andrei Pop — Culture' },
-  { value: 'sofia_marinescu', label: 'Sofia Marinescu — Science' },
+  { value: 'elena_vasilescu', label: 'Elena Vasilescu — Science Editor' },
+  { value: 'james_chen', label: 'James Chen — Features' },
+  { value: 'sofia_marinescu', label: 'Sofia Marinescu — Research' },
+  { value: 'daniel_novak', label: 'Daniel Novak — Tech Reviews' },
 ];
 
 const EDITOR_NAMES: Record<string, string> = {
-  kara_newman: 'Kara Newman', marcus_webb: 'Marcus Webb',
-  elena_vasilescu: 'Elena Vasilescu', andrei_pop: 'Andrei Pop',
-  sofia_marinescu: 'Sofia Marinescu',
+  marcus_webb: 'Marcus Webb', elena_vasilescu: 'Elena Vasilescu',
+  james_chen: 'James Chen', sofia_marinescu: 'Sofia Marinescu',
+  daniel_novak: 'Daniel Novak',
 };
 
 const AI_CHIPS = [

@@ -146,8 +146,12 @@ const Footer = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3 py-2 rounded-sm bg-background text-foreground font-sans text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
-                <button className="w-full bg-primary-foreground text-primary px-4 py-2 font-sans font-bold text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors">
-                  {t("newsletter_button")}
+                <button
+                  onClick={handleSubscribe}
+                  disabled={subscribing || !email}
+                  className="w-full bg-primary-foreground text-primary px-4 py-2 font-sans font-bold text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
+                >
+                  {subscribing ? "..." : t("newsletter_button")}
                 </button>
               </div>
             </div>

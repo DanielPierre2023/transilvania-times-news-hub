@@ -13,8 +13,8 @@ const ArticleSEO = ({ article }: { article: Article }) => {
       "@type": "NewsArticle",
       headline: tBi(article.title, lang),
       image: [article.image],
-      datePublished: "2026-03-19T14:30:00+02:00",
-      dateModified: "2026-03-19T14:30:00+02:00",
+      datePublished: new Date().toISOString(),
+      dateModified: new Date().toISOString(),
       author: [
         {
           "@type": "Person",

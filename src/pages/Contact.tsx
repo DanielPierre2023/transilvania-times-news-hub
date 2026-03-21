@@ -148,10 +148,11 @@ const Contact = () => {
 
             <button
               type="submit"
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-10 py-4 font-sans font-bold uppercase tracking-tight hover:bg-accent active:scale-95 transition-all"
+              disabled={submitting}
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-10 py-4 font-sans font-bold uppercase tracking-tight hover:bg-accent active:scale-95 transition-all disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              {t("contact_send")}
+              {submitting ? '...' : t("contact_send")}
             </button>
           </form>
         </div>
