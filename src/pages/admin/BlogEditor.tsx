@@ -253,6 +253,7 @@ const BlogEditor = () => {
         cover_image: form.cover_image || null, status: form.status,
         category: form.category, subcategory: form.subcategory || 'international',
         author_name: form.author_name,
+        is_breaking: form.is_breaking,
         seo_title_en: form.seo_title_en || null, seo_title_ro: form.seo_title_ro || null,
         seo_description_en: form.seo_description_en || null, seo_description_ro: form.seo_description_ro || null,
         reading_time_min: readingTime,
