@@ -41,7 +41,7 @@ serve(async (req) => {
       const rawContent = extractText(block, 'content:encoded') || extractText(block, 'description') || extractText(block, 'summary') || extractText(block, 'content');
       const cleaned = stripHtml(rawContent);
       if (title && link) {
-        articles.push({ title, url: link, content_snippet: cleaned.slice(0, 3000) });
+        articles.push({ title, url: link, content_snippet: cleaned.slice(0, 8000) });
       }
     }
     return new Response(JSON.stringify({ articles }), {

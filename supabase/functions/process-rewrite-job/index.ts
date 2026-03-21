@@ -2,6 +2,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sanitizeContent, humanizeContent } from "../_shared/sanitize.ts";
+import { callGemini } from "../_shared/gemini.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,16 +10,16 @@ const corsHeaders = {
 };
 
 const EDITORS: Record<string, string> = {
-  daniel_dobos: `You are Daniel Dobos, a senior technology editor. Systems-level precision, clean structured prose.`,
-  marcus_webb: `You are Marcus Webb, a former Reuters correspondent. Precise, evidence-driven, dry British wit.`,
-  elena_vasilescu: `You are Elena Vasilescu, a former science editor. Elegant prose, illuminating metaphors.`,
-  james_chen: `You are James Chen, a former Wired writer. Scene-setting, cultural references in tech.`,
-  sofia_marinescu: `You are Sofia Marinescu, a former Nature contributor. Academic rigor, journalistic readability.`,
-  daniel_novak: `You are Daniel Novak, a former Ars Technica reviewer. Architecture-focused, precise.`,
+  daniel_dobos: `You are Daniel Dobos, a senior technology editor. Systems-level precision, clean structured prose. Use short declarative sentences mixed with complex technical analysis.`,
+  marcus_webb: `You are Marcus Webb, a former Reuters correspondent. Precise, evidence-driven, dry British wit. Mix punchy 5-word sentences with elaborate 30-word observations. Use contractions naturally.`,
+  elena_vasilescu: `You are Elena Vasilescu, a former science editor. Elegant prose, illuminating metaphors. Long flowing sentences mixed with sharp factual statements. Occasional rhetorical questions.`,
+  james_chen: `You are James Chen, a former Wired writer. Scene-setting, cultural references in tech. Fast-paced, slightly cynical tone. Start with a bold claim or scene.`,
+  sofia_marinescu: `You are Sofia Marinescu, a former Nature contributor. Academic rigor meets journalistic readability. Use data points naturally. Vary paragraph length dramatically.`,
+  daniel_novak: `You are Daniel Novak, a former Ars Technica reviewer. Architecture-focused, precise. Sardonic observations mixed with deep technical insight.`,
 };
 
-const RULES = `RULES: ZERO subheadings. No bold-on-own-line. NO conclusion. Vary paragraph length. ZERO AI fingerprints. Sentence-case. 100% original. Tags: 6-9 lowercase hyphenated SEO.`;
-const ROMANIAN_RULES = `ROMÂNĂ: ZERO subtitluri. Proză continuă. NU concluzie. Cuvinte interzise: crucial, esențial, robust, vital, paradigmă, ecosistem, sinergie, peisajul. Sentence case. Scrie nativ.`;
+const RULES = `RULES: ZERO subheadings. No bold-on-own-line. NO conclusion paragraph. Vary paragraph length dramatically. ZERO AI fingerprints. Sentence-case only. 100% original prose. Tags: 6-9 lowercase hyphenated SEO tags.`;
+const ROMANIAN_RULES = `ROMÂNĂ: ZERO subtitluri. Proză continuă. NU concluzie. Cuvinte INTERZISE: crucial, esențial, robust, vital, paradigmă, ecosistem, sinergie, peisajul. Sentence case. Scrie ca un jurnalist nativ român — NU traduce din engleză.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -51,12 +52,72 @@ serve(async (req) => {
     const editor = job.editor || 'marcus_webb';
 
     const { data: article, error: fetchErr } = await supabaseAdmin
-      .from('scraped_articles').select('original_content, original_title').eq('id', articleId).single();
+      .from('scraped_articles').select('original_content, original_title, source_id').eq('id', articleId).single();
 
     if (fetchErr || !article) throw new Error(`Article not found: ${fetchErr?.message}`);
 
+    // Detect source language from rss_sources
+    let sourceLang = 'en';
+    if (article.source_id) {
+      const { data: source } = await supabaseAdmin
+        .from('rss_sources').select('source_language').eq('id', article.source_id).single();
+      if (source?.source_language) sourceLang = source.source_language;
+    }
+
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     const persona = EDITORS[editor] || EDITORS.marcus_webb;
+
+    // ═══════════════════════════════════════════════════
+    // DESK 1: EXTRACTION (Gemini Flash — fast, cheap)
+    // Strips original to language-neutral facts only
+    // ═══════════════════════════════════════════════════
+    console.log(`[${jobId}] Desk 1: Extracting facts via Gemini Flash...`);
+    const extractionResult = await callGemini({
+      systemInstruction: `You are a senior fact-checker and data extraction specialist. Your job is to extract ONLY the factual claims from articles. Output a numbered list of facts in English. No opinions, no adjectives, no prose, no original phrasing. Just raw facts with numbers, names, dates, locations, and events. If the source is not in English, translate the facts to English. Do NOT preserve the original article's sentence structures or narrative flow.`,
+      userMessage: `Extract all factual claims from this article as a numbered list:\n\nTitle: ${article.original_title}\n\nContent:\n${article.original_content}`,
+      temperature: 0.3,
+      maxTokens: 3000,
+      jsonMode: false,
+    });
+
+    if (extractionResult.error) {
+      console.error(`[${jobId}] Desk 1 Gemini error: ${extractionResult.error}`);
+      throw new Error(`DESK1_EXTRACTION_FAILED: ${extractionResult.error}`);
+    }
+
+    const extractedFacts = extractionResult.text;
+    if (!extractedFacts || extractedFacts.length < 50) {
+      throw new Error(`DESK1_INSUFFICIENT_FACTS: Only ${extractedFacts?.length || 0} chars extracted`);
+    }
+    console.log(`[${jobId}] Desk 1 complete: ${extractedFacts.length} chars of facts extracted`);
+
+    // ═══════════════════════════════════════════════════
+    // DESK 2+3: SYNTHESIS + STYLING (GPT-4o — single call)
+    // Builds original bilingual article from facts using editor persona
+    // ═══════════════════════════════════════════════════
+    console.log(`[${jobId}] Desk 2+3: Synthesizing with ${editor} persona...`);
+    const synthesisPrompt = `Current date: March 2026.
+
+${persona}
+
+${RULES}
+
+${ROMANIAN_RULES}
+
+SOURCE LANGUAGE: ${sourceLang.toUpperCase()}.
+
+You will receive a LIST OF FACTS extracted from a news source. Build an ORIGINAL article from these facts.
+
+CRITICAL INSTRUCTIONS:
+- Do NOT follow any original article's structure, phrasing, or narrative flow.
+- Create your own unique narrative structure and paragraph organization.
+- English version: write as a native English journalist. ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}
+- Romanian version: write NATIVELY in Romanian as a native Romanian journalist. ${sourceLang === 'ro' ? 'The source was Romanian — you MUST completely rebuild every sentence in Romanian. Zero overlap with any original phrasing.' : 'Do NOT translate from the English version. Build independently from the facts with different structure, different opening hook, different narrative flow.'}
+- Both versions must be independently structured (different paragraph order, different opening hooks, different narrative flow).
+- Each version must be 1200+ words of continuous prose.
+
+Respond with valid JSON:
+{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags":["..."],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -65,8 +126,8 @@ serve(async (req) => {
         model: 'gpt-4o',
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: `Current date: March 2026.\n\n${persona}\n\n${RULES}\n\n${ROMANIAN_RULES}\n\nRewrite in BOTH English and Romanian. Each 1200+ words. Romanian written NATIVELY.\n\nRespond with valid JSON:\n{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags":["..."],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}` },
-          { role: 'user', content: `Rewrite:\n\nTitle: ${article.original_title}\n\nContent:\n${article.original_content}` },
+          { role: 'system', content: synthesisPrompt },
+          { role: 'user', content: `FACTS EXTRACTED FROM SOURCE:\n\n${extractedFacts}` },
         ],
         temperature: 0.85,
         max_tokens: 8000,
@@ -90,9 +151,24 @@ serve(async (req) => {
     if (!contentEn || contentEn.length < 200) throw new Error(`EN content too short: ${contentEn?.length || 0}`);
     if (!contentRo || contentRo.length < 200) throw new Error(`RO content too short: ${contentRo?.length || 0}`);
 
-    contentEn = await humanizeContent(contentEn, 'en', apiKey!);
-    contentRo = await humanizeContent(contentRo, 'ro', apiKey!);
+    console.log(`[${jobId}] Desk 2+3 complete. EN: ${contentEn.length} chars, RO: ${contentRo.length} chars`);
 
+    // ═══════════════════════════════════════════════════
+    // DESK 3: HUMANIZATION (GPT-4o — EN + RO in PARALLEL)
+    // Adversarial rewrite to defeat AI detectors
+    // ═══════════════════════════════════════════════════
+    console.log(`[${jobId}] Desk 3: Parallel humanization...`);
+    const [humanizedEn, humanizedRo] = await Promise.all([
+      humanizeContent(contentEn, 'en', apiKey!),
+      humanizeContent(contentRo, 'ro', apiKey!),
+    ]);
+    contentEn = humanizedEn;
+    contentRo = humanizedRo;
+    console.log(`[${jobId}] Desk 3 complete. Humanized EN: ${contentEn.length}, RO: ${contentRo.length}`);
+
+    // ═══════════════════════════════════════════════════
+    // QUALITY GATE
+    // ═══════════════════════════════════════════════════
     let aiScore: number | null = null;
     let plagiarismScore: number | null = null;
     try {
@@ -107,6 +183,10 @@ serve(async (req) => {
       plagiarismScore = qData.plagiarism_score ?? null;
     } catch (e) { console.error('Quality check failed:', (e as Error).message); }
 
+    // Determine if content needs review based on quality scores
+    const needsReview = (aiScore !== null && aiScore < 50) || (plagiarismScore !== null && plagiarismScore > 25);
+    const finalStatus = needsReview ? 'needs_review' : 'rewritten';
+
     await supabaseAdmin.from('scraped_articles').update({
       rewritten_en: contentEn, rewritten_ro: contentRo,
       title_en: sanitizeContent(parsed.title_en || article.original_title, 'en'),
@@ -120,7 +200,7 @@ serve(async (req) => {
       seo_title_ro: sanitizeContent(parsed.seo_title_ro || '', 'ro'),
       seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),
       seo_description_ro: sanitizeContent(parsed.seo_description_ro || '', 'ro'),
-      status: 'rewritten', rewrite_error: null, rewrite_finished_at: new Date().toISOString(),
+      status: finalStatus, rewrite_error: null, rewrite_finished_at: new Date().toISOString(),
       ai_score: aiScore, plagiarism_score: plagiarismScore, quality_checked_at: new Date().toISOString(),
     } as any).eq('id', articleId);
 
@@ -128,7 +208,9 @@ serve(async (req) => {
       status: 'succeeded', finished_at: new Date().toISOString(),
     }).eq('id', jobId);
 
-    return new Response(JSON.stringify({ ok: true, job_id: jobId, status: 'succeeded' }), {
+    console.log(`[${jobId}] Pipeline complete. Status: ${finalStatus}, AI: ${aiScore}, Plagiarism: ${plagiarismScore}`);
+
+    return new Response(JSON.stringify({ ok: true, job_id: jobId, status: 'succeeded', quality: { aiScore, plagiarismScore, finalStatus } }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e: unknown) {
@@ -141,7 +223,9 @@ serve(async (req) => {
 
       await supabaseAdmin.from('rewrite_jobs').update({
         status: newStatus, retry_count: retryCount,
-        error_code: (e as Error).message?.startsWith('OPENAI_BAD_JSON') ? 'OPENAI_BAD_JSON' : 'PROCESSING_ERROR',
+        error_code: (e as Error).message?.startsWith('OPENAI_BAD_JSON') ? 'OPENAI_BAD_JSON'
+          : (e as Error).message?.startsWith('DESK1_') ? 'EXTRACTION_FAILED'
+          : 'PROCESSING_ERROR',
         error_message: (e as Error).message?.substring(0, 500),
         finished_at: new Date().toISOString(),
       }).eq('id', jobId);

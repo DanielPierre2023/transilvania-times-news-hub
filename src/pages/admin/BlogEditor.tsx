@@ -134,6 +134,7 @@ const BlogEditor = () => {
   useEffect(() => {
     if (rssArticle && !isEdit) {
       const r = rssArticle as any;
+      const categoryFromUrl = searchParams.get('category');
       setForm({
         title_en: r.title_en || r.original_title || '',
         title_ro: r.title_ro || '',
@@ -144,12 +145,13 @@ const BlogEditor = () => {
         seo_title_en: r.seo_title_en || '', seo_title_ro: r.seo_title_ro || '',
         seo_description_en: r.seo_description_en || '', seo_description_ro: r.seo_description_ro || '',
         tags: (r.rewrite_tags || []).join(', '),
-        cover_image: '', status: 'draft', category: 'politics',
+        cover_image: '', status: 'draft',
+        category: categoryFromUrl || 'politics',
         author_name: 'Marcus Webb',
       });
       setGenOpen(false);
     }
-  }, [rssArticle, isEdit]);
+  }, [rssArticle, isEdit, searchParams]);
 
   const handleChange = (field: string, value: string) => {
     setForm(prev => {
