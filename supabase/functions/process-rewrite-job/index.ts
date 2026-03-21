@@ -100,10 +100,32 @@ serve(async (req) => {
     }
     console.log(`[${jobId}] Desk 1 complete: ${extractedFacts.length} chars of facts extracted`);
 
-    // ═══════════════════════════════════════════════════
-    // DESK 2+3: SYNTHESIS + STYLING (GPT-4o — single call)
-    // Builds original bilingual article from facts using editor persona
-    // ═══════════════════════════════════════════════════
+    // Parse category/subcategory from extracted facts if needed
+    const VALID_CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health', 'news'];
+    const VALID_SUBCATEGORIES = ['regional', 'national', 'international'];
+    const CAT_ALIASES: Record<string, string> = { tech: 'technology', sport: 'sports', economia: 'business', economie: 'business', politica: 'politics', știri: 'news', stiri: 'news', science: 'technology', entertainment: 'culture', lifestyle: 'culture', finance: 'business' };
+    const SUB_ALIASES: Record<string, string> = { local: 'regional', transilvania: 'regional', transylvania: 'regional', romania: 'national', global: 'international', mondial: 'international', extern: 'international' };
+
+    let detectedCategory = sourceCategory;
+    let detectedSubcategory = article.subcategory || null;
+
+    if (needsClassification) {
+      const catMatch = extractedFacts.match(/CATEGORY:\s*(.+)/i);
+      const subMatch = extractedFacts.match(/SUBCATEGORY:\s*(.+)/i);
+      if (catMatch && !detectedCategory) {
+        const raw = catMatch[1].trim().toLowerCase();
+        detectedCategory = CAT_ALIASES[raw] || (VALID_CATEGORIES.includes(raw) ? raw : 'news');
+      }
+      if (subMatch && !detectedSubcategory) {
+        const raw = subMatch[1].trim().toLowerCase();
+        detectedSubcategory = SUB_ALIASES[raw] || (VALID_SUBCATEGORIES.includes(raw) ? raw : 'international');
+      }
+    }
+
+    if (!detectedCategory) detectedCategory = 'news';
+    if (!detectedSubcategory) detectedSubcategory = 'international';
+
+    console.log(`[${jobId}] Classification: ${detectedCategory} / ${detectedSubcategory}`);
     console.log(`[${jobId}] Desk 2+3: Synthesizing with ${editor} persona...`);
     const synthesisPrompt = `Current date: March 2026.
 
