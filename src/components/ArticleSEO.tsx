@@ -39,7 +39,7 @@ const ArticleSEO = ({ article }: { article: Article }) => {
     const metaTags: Record<string, string> = {
       "og:title": headline,
       "og:description": description,
-      "og:image": article.image,
+      "og:image": toPublicMediaUrl(article.image),
       "og:url": articleUrl,
       "og:type": "article",
       "og:site_name": "Transilvania Times",
