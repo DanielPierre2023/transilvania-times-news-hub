@@ -1,58 +1,48 @@
 
 
-## Plan: Hide Supabase URLs on Frontend Display Layer
+## Diagnosis
 
-### Problem
-Generated cover images stored in Supabase Storage expose the project URL (`zimpimoierpsocnmnizm.supabase.co`) publicly in `<img>` tags, page source, and SEO metadata.
+The edge function is **working perfectly** — logs confirm images are generated via Hugging Face and stored in Supabase Storage successfully. The problem is the `toPublicMediaUrl()` function.
 
-### Solution
-Create a simple utility function that rewrites Supabase Storage URLs to use a Netlify proxy path. The actual storage stays in Supabase — we just mask the URL on the frontend.
+### Root Cause
 
-### 1. Add Netlify Proxy Rule (`public/_redirects`)
-
-```text
-/media/*  https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/:splat  200
+`toPublicMediaUrl()` rewrites Supabase Storage URLs like:
+```
+https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/blog-images/covers/123.jpg
+```
+to:
+```
+/media/blog-images/covers/123.jpg
 ```
 
-This makes `https://transilvaniatimes.com/media/blog-images/covers/123.jpg` proxy transparently to Supabase Storage. The `200` status means it's a rewrite (proxy), not a redirect — the browser never sees the Supabase URL.
+This `/media/*` path only works on **Netlify** (via the `_redirects` proxy rule). In the **Lovable preview** environment and any other non-Netlify context, the `/media/` path returns a 404, causing the "Failed to load" error.
 
-### 2. Create URL Rewriter Utility (`src/lib/mediaUrl.ts`)
+### Fix
+
+Update `src/lib/mediaUrl.ts` to only rewrite URLs when running on the production domain (transilvaniatimes.com). In development/preview, keep the original Supabase URL so images load directly.
 
 ```typescript
-export function toPublicMediaUrl(supabaseUrl: string): string {
-  if (!supabaseUrl) return supabaseUrl;
-  const storagePrefix = 'https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/';
-  if (supabaseUrl.startsWith(storagePrefix)) {
-    return '/media/' + supabaseUrl.slice(storagePrefix.length);
+const SUPABASE_STORAGE_PREFIX = 'https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/';
+const PRODUCTION_HOST = 'transilvaniatimes.com';
+
+export function toPublicMediaUrl(url: string): string {
+  if (!url) return url;
+  if (!url.startsWith(SUPABASE_STORAGE_PREFIX)) return url;
+  
+  // Only rewrite on production (where Netlify proxy handles /media/*)
+  if (typeof window !== 'undefined' && window.location.hostname !== PRODUCTION_HOST) {
+    return url; // Keep original Supabase URL in dev/preview
   }
-  return supabaseUrl;
+  
+  return '/media/' + url.slice(SUPABASE_STORAGE_PREFIX.length);
 }
 ```
 
-### 3. Apply in Frontend Components
-
-Use `toPublicMediaUrl()` wherever cover images are rendered:
-- `BlogEditor.tsx` (preview thumbnail)
-- `ArticleCard.tsx` (blog listing)
-- `BlogPost.tsx` / `Article.tsx` (article detail page)
-- `ArticleSEO.tsx` (og:image meta tag)
-
-The edge functions (`generate-cover-image`, `process-rewrite-job`) continue storing the raw Supabase URL in the database — no backend changes needed.
-
-### Files
+### File to Modify
 
 | File | Change |
 |------|--------|
-| `public/_redirects` | Add `/media/*` proxy to Supabase Storage |
-| `src/lib/mediaUrl.ts` | **New** — URL rewriter utility |
-| `src/pages/admin/BlogEditor.tsx` | Wrap cover preview with `toPublicMediaUrl()` |
-| `src/components/ArticleCard.tsx` | Wrap image src |
-| `src/pages/BlogPost.tsx` | Wrap image src |
-| `src/pages/Article.tsx` | Wrap image src |
-| `src/components/ArticleSEO.tsx` | Wrap og:image URL |
+| `src/lib/mediaUrl.ts` | Add hostname check — only rewrite on production domain |
 
-### Result
-- Database stores: `https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/blog-images/covers/123.jpg`
-- Browser sees: `https://transilvaniatimes.com/media/blog-images/covers/123.jpg`
-- Supabase project ID never appears in page source, network tab, or SEO metadata
+This is a one-line logic addition. Images will load correctly in both preview and production environments.
 
