@@ -198,6 +198,25 @@ const RssScraper = () => {
     const status = article.status;
 
     if (status === 'rewriting') {
+      const startedAt = article.rewrite_started_at ? new Date(article.rewrite_started_at).getTime() : 0;
+      const isStuck = startedAt > 0 && (Date.now() - startedAt) > 10 * 60 * 1000;
+      if (isStuck) {
+        return (
+          <div className="flex items-center gap-1">
+            <Badge variant="outline" className="gap-1 border-red-500 text-red-600">
+              <AlertTriangle className="w-3 h-3" /> Stuck
+            </Badge>
+            <Button size="sm" variant="ghost" className="h-6 px-1 text-xs" onClick={async (e) => {
+              e.stopPropagation();
+              await supabase.from('scraped_articles').update({ status: 'scraped' } as any).eq('id', article.id);
+              qc.invalidateQueries({ queryKey: ['scraped_articles'] });
+              toast.info('Article reset to scraped — you can retry.');
+            }}>
+              <RotateCcw className="w-3 h-3 mr-1" /> Reset
+            </Button>
+          </div>
+        );
+      }
       return <Badge variant="outline" className="gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Processing</Badge>;
     }
     if (status === 'needs_review') {
