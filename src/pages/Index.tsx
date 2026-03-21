@@ -2,13 +2,12 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, formatDistanceToNow } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AdUnit from "@/components/AdUnit";
 import ArticleCard from "@/components/ArticleCard";
-import MostReadSidebar from "@/components/MostReadSidebar";
 import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
@@ -25,7 +24,7 @@ const Index = () => {
         .select("*")
         .eq("status", "published")
         .order("published_at", { ascending: false })
-        .limit(30);
+        .limit(50);
       return data || [];
     },
   });
@@ -40,7 +39,17 @@ const Index = () => {
   const secondaryText = allPosts[2] || null;
   const secondaryImage = allPosts[3] || null;
   const gridArticles = allPosts.slice(4, 8);
-  const restPosts = allPosts.slice(8);
+  const editorialLeftPosts = allPosts.slice(8, 14);
+  const editorialCenterPosts = allPosts.slice(14, 19);
+  const editorialRightPosts = allPosts.slice(19, 22);
+  const restPosts = allPosts.slice(22);
+
+  const getTimeAgo = (post: any) => {
+    if (!post?.published_at) return "";
+    try {
+      return formatDistanceToNow(parseISO(post.published_at), { addSuffix: true });
+    } catch { return ""; }
+  };
 
   // Group remaining posts by category
   const categoryGroups = useMemo(() => {
@@ -251,10 +260,108 @@ const Index = () => {
           </section>
         )}
 
-        {/* ═══ MOST READ SECTION ═══ */}
-        <section className="border-b border-foreground/10 p-6 lg:p-8">
-          <div className="max-w-md mx-auto lg:max-w-none lg:mx-0 lg:w-1/3">
-            <MostReadSidebar />
+        {/* ═══ 3-COLUMN EDITORIAL BLOCK ═══ */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 border-b border-foreground/10">
+          {/* LEFT — Ad + 2-col text snippets */}
+          <div className="lg:col-span-4 lg:border-r border-foreground/10 p-6">
+            <AdUnit type="sidebar" className="mb-6" />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-5">
+              {editorialLeftPosts.map((post) => (
+                <Link key={post.id} to={`/blog/${post.slug}`} className="group">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <div className="w-1.5 h-1.5 bg-primary" />
+                    <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-primary">
+                      {t(categoryI18nKey(post.category || "news"))}
+                    </span>
+                  </div>
+                  <h4 className="font-serif font-bold text-sm leading-snug text-foreground group-hover:text-primary transition-colors line-clamp-3">
+                    {getTitle(post)}
+                  </h4>
+                  <span className="text-[9px] font-sans text-muted-foreground mt-1 block">
+                    {getTimeAgo(post)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* CENTER — Horizontal mini-cards with thumbnails */}
+          <div className="lg:col-span-4 lg:border-r border-foreground/10 p-6">
+            <div className="flex flex-col">
+              {editorialCenterPosts.map((post, i) => (
+                <Link
+                  key={post.id}
+                  to={`/blog/${post.slug}`}
+                  className={`flex gap-4 py-4 group cursor-pointer ${
+                    i < editorialCenterPosts.length - 1 ? "border-b border-dotted border-foreground/15" : ""
+                  }`}
+                >
+                  <div className="w-[120px] shrink-0 aspect-[4/3] overflow-hidden">
+                    <img
+                      src={toPublicMediaUrl(post.cover_image || "/placeholder.svg")}
+                      alt={getTitle(post)}
+                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                    />
+                  </div>
+                  <div className="flex flex-col justify-center min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <div className="w-1.5 h-1.5 bg-primary" />
+                      <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-primary">
+                        {t(categoryI18nKey(post.category || "news"))}
+                      </span>
+                    </div>
+                    <h4 className="font-serif font-bold text-sm leading-snug text-foreground group-hover:text-primary transition-colors line-clamp-2">
+                      {getTitle(post)}
+                    </h4>
+                    <span className="text-[9px] font-sans text-muted-foreground mt-1">
+                      {getTimeAgo(post)}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* RIGHT — Trending entries + Sponsored card */}
+          <div className="lg:col-span-4 p-6 flex flex-col">
+            <div className="flex flex-col flex-1">
+              {editorialRightPosts.map((post, i) => (
+                <Link
+                  key={post.id}
+                  to={`/blog/${post.slug}`}
+                  className={`flex items-start gap-3 py-3 group ${
+                    i < editorialRightPosts.length - 1 ? "border-b border-foreground/10" : ""
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-full bg-primary/10 shrink-0 flex items-center justify-center text-[10px] font-bold text-primary">
+                    {(post.author_name || "T")[0].toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-serif font-bold text-sm leading-snug text-foreground group-hover:text-primary transition-colors line-clamp-2">
+                      {getTitle(post)}
+                    </h4>
+                    <span className="text-[9px] font-sans text-muted-foreground mt-0.5 block">
+                      {getTimeAgo(post)}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            {/* Sponsored card */}
+            <div className="mt-4 bg-foreground text-background p-4 flex flex-col">
+              <span className="text-[9px] font-sans font-bold uppercase tracking-[0.2em] text-background/50 mb-3">
+                {t("sponsor", "Sponsor")}
+              </span>
+              <div className="aspect-[16/9] bg-background/10 mb-3 overflow-hidden">
+                <div className="w-full h-full flex items-center justify-center text-background/30 text-xs italic font-sans">
+                  Ad Placeholder
+                </div>
+              </div>
+              <h4 className="font-serif font-bold text-sm leading-snug text-background">
+                {t("sponsored_content", "Sponsored Content")}
+              </h4>
+            </div>
           </div>
         </section>
 
