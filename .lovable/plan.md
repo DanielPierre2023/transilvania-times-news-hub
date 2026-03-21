@@ -1,61 +1,71 @@
 
 
-## Plan: Sitemap, Robots.txt & Legal Entity Updates
+## Updated Plan: Three-Desk Pipeline with Bidirectional Translation
 
-### Company Details
+### The Gap
 
-- **Name**: ADD Individual Solutions Ltd.
-- **VAT**: CY10439793M
-- **Email**: contact@add-individual-solutions.com
-- **Phone**: +35796919606
-- **Address**: Sunset Valley, 7081 Pyla, Cyprus
+The current `process-rewrite-job` doesn't track source language. It sends raw content to GPT-4o with "Rewrite in BOTH English and Romanian" — but if the source is Romanian (e.g., Digi24, HotNews), the LLM tends to preserve Romanian phrasing and produce weaker English. Vice versa for English sources producing weak Romanian.
 
-### 1. Create Bilingual Sitemap (`public/sitemap.xml`)
+### Fix: Language-Aware Three-Desk Pipeline
 
-Static sitemap with `xhtml:link` hreflang tags for all public routes. Since the site uses i18n (same URL, language toggle) rather than `/en/` and `/ro/` prefixes, each URL gets self-referencing hreflang annotations with `x-default`.
+**Database**: Add `source_language text DEFAULT 'en'` to `rss_sources` table (alongside the `category` column already planned).
 
-Routes to include: `/`, `/contact`, `/terms`, `/privacy`, `/blog`, plus category pages and static article slugs.
+**Desk 1 (Gemini Flash Extraction)**: The extraction prompt will auto-detect and declare source language, plus extract facts in a language-neutral numbered list.
 
-### 2. Update Robots.txt (`public/robots.txt`)
+```text
+"Detect the language of this article (output 'en' or 'ro' on line 1).
+Then extract ONLY factual claims as a numbered list in English.
+No opinions, no prose, no original phrasing."
+```
 
-Add `Sitemap: https://transilvaniatimes.com/sitemap.xml` directive.
+**Desk 2+3 (GPT-4o Synthesis + Style)**: Language-aware instructions:
 
-### 3. Update Legal Pages with Real Company Details
+```text
+"Source language: {detected_lang}.
+Build an ORIGINAL article from these facts.
+- English version: write as a native English journalist. If source was EN, 
+  do NOT reuse any original phrasing — rebuild completely.
+- Romanian version: write NATIVELY in Romanian, not translated from English. 
+  If source was RO, do NOT reuse any original phrasing — rebuild completely.
+Both versions must be independently structured (different paragraph order, 
+different opening hooks, different narrative flow)."
+```
 
-**Footer (`Footer.tsx`):**
-- Add company line: "A media project by ADD Individual Solutions Ltd."
-- Update contact email to `contact@add-individual-solutions.com`
-- Update phone to `+35796919606`
-- Add "Sunset Valley, 7081 Pyla, Cyprus" as corporate address (keep Cluj editorial desk)
-- Update copyright line with company name
+This ensures:
+- EN source → original EN article (no copy) + native RO article (not translated)
+- RO source → native RO article (no copy) + original EN article (not translated)
 
-**Terms & Conditions (`TermsConditions.tsx`):**
-- Replace hardcoded "str. Memorandumului" with Cyprus corporate address
-- Update email to `contact@add-individual-solutions.com`
-- Add company registration and VAT info
+**Desk 3 (Humanization)**: Unchanged — parallel `humanizeContent()` for EN and RO.
 
-**Privacy Policy (`PrivacyPolicy.tsx`):**
-- Same: update contact section with Cyprus HQ details
-- Add Data Protection Authority reference (Cyprus Commissioner)
+### RssScraper UI
 
-**Contact Page (`Contact.tsx`):**
-- Add "Corporate Headquarters" section (Cyprus) alongside existing "Editorial Desk" (Cluj)
-- Update phone number
+Add a "Language" dropdown (EN/RO) per RSS source alongside the category dropdown. This value is stored in `rss_sources.source_language` and passed through to `scraped_articles` for the pipeline to use.
 
-**i18n (`src/i18n.ts`):**
-- Update `terms_hq` to reference ADD Individual Solutions Ltd.
-- Add new translation keys for corporate HQ, registration, VAT
-- Make `terms_updated` and `privacy_updated` dates dynamic (or update to current)
-
-### Files to Modify
+### Complete File Changes
 
 | File | Change |
 |------|--------|
-| `public/sitemap.xml` | **New** — bilingual sitemap |
-| `public/robots.txt` | Add Sitemap directive |
-| `src/components/Footer.tsx` | Add company entity line, update email/phone, add Cyprus address |
-| `src/pages/TermsConditions.tsx` | Replace contact section with Cyprus HQ + registration details |
-| `src/pages/PrivacyPolicy.tsx` | Replace contact section with Cyprus HQ + DPA reference |
-| `src/pages/Contact.tsx` | Add Corporate HQ section alongside Editorial Desk |
-| `src/i18n.ts` | Update `terms_hq`, add company detail translation keys |
+| **Migration** | Add `category text DEFAULT 'technology'` and `source_language text DEFAULT 'en'` to `rss_sources` |
+| `supabase/functions/scrape-rss/index.ts` | Increase snippet limit 3000→8000 |
+| `supabase/functions/process-rewrite-job/index.ts` | Three-Desk: Gemini extraction (with language detection) → GPT-4o synthesis with language-aware prompts → parallel humanization |
+| `src/pages/admin/RssScraper.tsx` | Add category + language dropdowns per source, "Scrape All" button, category badges |
+| `src/pages/admin/BlogEditor.tsx` | Auto-populate category from URL params |
+
+### Pipeline Flow
+
+```text
+RSS Source (lang: en/ro, category: politics)
+  ↓
+scrape-rss (8000 char snippets)
+  ↓
+scraped_articles (source_language stored)
+  ↓
+Desk 1: Gemini Flash — extract facts in English (language-neutral)
+  ↓
+Desk 2+3: GPT-4o — build EN article (original) + RO article (native, not translated)
+  ↓
+Desk 3: Parallel humanization (EN + RO simultaneously)
+  ↓
+Quality gate → Save to scraped_articles → Ready for blog publish
+```
 
