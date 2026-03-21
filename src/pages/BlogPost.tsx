@@ -8,6 +8,7 @@ import ShareSuite from "@/components/ShareSuite";
 import CommentSection from "@/components/CommentSection";
 import { format, parseISO } from "date-fns";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
+import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
