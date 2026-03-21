@@ -1,61 +1,98 @@
 
 
-## Plan: Exact Newspaper Layout Implementation
+## Why the Layout Doesn't Match — Root Cause Analysis
 
-The provided code snippets will be adapted to the existing project's TypeScript/Tailwind token system (`foreground/10` instead of `espresso/10`, `primary` instead of `brandRed`, `background` instead of `paper`). The layout structure, class names, spacing, and visual rhythm will match exactly.
+### The Reference (Picture 1 — "The Featured Times")
 
-### Changes
+The hero area is a **3-zone editorial spread across 12 columns**:
 
-#### 1. `src/pages/Index.tsx` — Full rewrite to match provided MainPage structure
+```text
+┌──────────────┬────────────────────┬──────────────┐
+│  Left Image  │  ■ WORLD           │  Right Image │
+│  (grayscale  │  Large Serif Title │  (grayscale  │
+│   ~4 cols)   │  • bullet summary  │   ~4 cols)   │
+│              │  • bullet summary  │  ■ SPORTS    │
+│              │  • bullet summary  │  Serif Title │
+│              │     (~4 cols)      │              │
+└──────────────┴────────────────────┴──────────────┘
+── border-b ─────────────────────────────────────────
+┌──────────┬──────────────────┬──────────────────────┐
+│ ■ NEWS   │  Large Image     │  Ad Image            │
+│ Title    │  (grayscale)     │                      │
+│ 30 mins  │                  │                      │
+│ excerpt  │                  │                      │
+└──────────┴──────────────────┴──────────────────────┘
+```
 
-Exact sequence:
-1. Header
-2. Global ad slot (`border-b border-foreground/10 py-6`)
-3. `<main className="max-w-7xl mx-auto border-x border-foreground/10">`
-4. Hero + Sidebar: `grid grid-cols-1 lg:grid-cols-12 border-b border-foreground/10`
-   - Hero (`lg:col-span-8 p-6 lg:border-r border-foreground/10 group cursor-pointer`): grayscale `aspect-video` image with `border-4 border-background shadow-xl`, category overlay `absolute top-0 left-0 bg-primary`, massive serif italic title (`text-4xl md:text-7xl font-serif font-bold leading-[0.95] italic tracking-tighter`), excerpt below
-   - Sidebar (`lg:col-span-4 p-6 bg-primary/5`): `<MostReadSidebar />`
-5. 4-column grid (`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 border-b border-foreground/10`): next 4 articles as `ArticleCard`, with `lg:border-r border-foreground/10` on all but last
-6. `<Newsletter />` — inside `<main>`, not outside
-7. Category sections: for each category group, render section header (red dot + category name) + 3-col grid of cards
-8. `</main>`
-9. Footer
+- **No border-4, no shadow-xl** on images
+- **No "Most Read" sidebar** next to the hero
+- Images are flush, borderless, grayscale
+- Center column has bullet-point summaries with dotted separators
+- Below: a 3-column section with text-left article + large image + ad
 
-Key difference from current: ad moves ABOVE main, hero gets `border-4 border-background shadow-xl` + `absolute top-0 left-0` category tag (not bottom), title becomes massive italic serif, Newsletter moves INSIDE main.
+### The Current Implementation (Picture 2)
 
-#### 2. `src/components/Newsletter.tsx` — Restyle to match provided code
+```text
+┌────────────────────────────────┬──────────────────┐
+│  Hero Image (border-4,shadow)  │  Most Read       │
+│  ■ CATEGORY (top-left)         │  01 Title        │
+│  Massive italic title          │  02 Title        │
+│  Excerpt text                  │  03 Title        │
+│  Author • Date                 │  04 Title        │
+│           (8 cols)             │  05 Title (4col) │
+└────────────────────────────────┴──────────────────┘
+```
 
-Replace current dark `bg-foreground` generic block with:
-- `bg-primary text-primary-foreground p-12 md:p-20 border-b border-foreground/10 flex flex-col items-center text-center`
-- `max-w-xl` inner container
-- Title: `font-serif text-4xl md:text-5xl font-bold italic`
-- Description: `text-primary-foreground/80`
-- Form: `flex flex-col md:flex-row gap-0 shadow-2xl overflow-hidden`
-- Input: `bg-primary-foreground/10 border border-primary-foreground/30 text-primary-foreground placeholder:text-primary-foreground/50`
-- Button: `bg-background text-primary px-10 py-5 font-bold uppercase text-[10px] tracking-[0.2em] hover:bg-foreground hover:text-background`
+This is a completely different structural pattern. The code you've been providing describes a hero+sidebar 8/4 split, but the reference screenshot shows a 3-zone editorial spread with NO sidebar.
 
-Keep existing subscribe logic intact.
+### What Needs to Change
 
-#### 3. `src/components/ArticleCard.tsx` — Match provided card pattern
+The homepage hero must be rebuilt as a **3-column editorial spread** matching Picture 1 exactly:
 
-Grid variant changes:
-- Container: `p-6 flex flex-col group cursor-pointer` (was `p-4`)
-- Image: add `shadow-sm` to container
-- Title: `text-xl` (was `text-lg`), add `group-hover:text-primary`
-- Add optional summary display for "default" variant vs "simple" variant
-- Keep existing `variant="hero"` for hero usage elsewhere
-- Accept optional `className` prop for border control from parent
+1. **Hero section** — 3-zone layout (left image | center text+bullets | right image+title)
+2. **Below hero** — 3-column section (text article | large image | ad slot)
+3. **Most Read sidebar** — moves to a different location (below the hero sections, or removed from homepage entirely)
+4. **No border-4/shadow-xl** on hero images — just clean grayscale images
+5. **Newsletter** — footer only (per your answer), remove `<Newsletter />` from Index.tsx
+6. **Category tag position** — stays as overlay on images (already correct)
 
-#### 4. `src/components/Footer.tsx` — Match max-w-7xl
-
-Change `max-w-6xl` → `max-w-7xl` to align with homepage shell width.
-
-### Files
+### Implementation Plan
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Full rewrite: ad above main, hero with massive italic title + top-left category + border-4 shadow, 4-col grid with border-r separators, Newsletter inside main, category sections after |
-| `src/components/Newsletter.tsx` | Restyle: `bg-primary`, centered, italic serif 5xl title, shadow-2xl form row, white-on-red inputs |
-| `src/components/ArticleCard.tsx` | Add `className` prop, increase padding to p-6, title to text-xl, add shadow-sm to image |
-| `src/components/Footer.tsx` | Change max-w-6xl to max-w-7xl |
+| `src/pages/Index.tsx` | Rebuild hero as 3-zone spread: `lg:grid-cols-3` with left image (col 1), center text with category+title+bullet summaries (col 2), right image+category+title (col 3). Below: 3-col section with text article + large image + ad. Remove `<Newsletter />`. Move MostRead below hero sections or remove. Remove `border-4 shadow-xl` from hero images. |
+| `src/components/Footer.tsx` | No change — newsletter stays in footer 4th column |
+| `src/components/ArticleCard.tsx` | No change — card pattern is correct |
+| `src/components/MostReadSidebar.tsx` | No change — component itself is correct, just relocated |
+
+### Hero Section Structure (Matching Reference Exactly)
+
+```text
+Section 1 — Editorial Spread:
+  grid grid-cols-1 lg:grid-cols-12 border-b
+  
+  Col 1 (lg:col-span-4): 
+    - Tall grayscale image, no border/shadow
+    
+  Col 2 (lg:col-span-4):
+    - ■ CATEGORY label (red square + text)
+    - Large serif title (text-3xl)
+    - Bullet summaries with dotted border-b separators
+    
+  Col 3 (lg:col-span-4):
+    - Grayscale image
+    - ■ CATEGORY label
+    - Serif title below image
+
+Section 2 — Secondary Spread:
+  grid grid-cols-1 lg:grid-cols-3 border-b
+  
+  Col 1: ■ CATEGORY + title + time + excerpt (text only, no image)
+  Col 2: Large grayscale image
+  Col 3: Ad unit (rectangle)
+```
+
+### Rest of Page (Below Hero Sections)
+
+Stays as-is: 4-column article grid with vertical borders → category sections → View All → Footer (with newsletter in 4th column).
 
