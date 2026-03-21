@@ -263,7 +263,10 @@ const RssScraper = () => {
             <Input placeholder="Name (optional)" value={newName} onChange={e => setNewName(e.target.value)} className="w-40" />
             <Select value={newCategory} onValueChange={setNewCategory}>
               <SelectTrigger className="w-32 text-xs"><SelectValue placeholder="Category" /></SelectTrigger>
-              <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}</SelectContent>
+              <SelectContent>
+                <SelectItem value="auto-detect" className="text-xs">🤖 Auto-Detect</SelectItem>
+                {CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}
+              </SelectContent>
             </Select>
             <Select value={newLang} onValueChange={setNewLang}>
               <SelectTrigger className="w-32 text-xs"><SelectValue placeholder="Language" /></SelectTrigger>
