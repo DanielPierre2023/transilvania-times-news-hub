@@ -153,6 +153,7 @@ const BlogEditor = () => {
         category: r.category || categoryFromUrl || 'news',
         subcategory: r.subcategory || subcategoryFromUrl || 'international',
         author_name: 'Daniel Dobos',
+        is_breaking: false,
       });
       setGenOpen(false);
     }
