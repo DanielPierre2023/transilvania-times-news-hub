@@ -143,7 +143,11 @@ const BlogEditor = () => {
       const r = rssArticle as any;
       const categoryFromUrl = searchParams.get('category');
       const subcategoryFromUrl = searchParams.get('subcategory');
+      const aiEditorFromUrl = searchParams.get('ai_editor');
       const rssCover = r.cover_image || '';
+      // Resolve byline: use AI editor name if available, else "Redacția Transilvania Times"
+      const assignedEditor = r.assigned_editor || aiEditorFromUrl || '';
+      const editorName = EDITOR_NAMES[assignedEditor] || 'Redacția Transilvania Times';
       setForm({
         title_en: r.title_en || r.original_title || '',
         title_ro: r.title_ro || '',
@@ -159,7 +163,7 @@ const BlogEditor = () => {
         status: 'draft',
         category: r.category || categoryFromUrl || 'news',
         subcategory: r.subcategory || subcategoryFromUrl || 'international',
-        author_name: 'Daniel Dobos',
+        author_name: editorName,
         is_breaking: false,
       });
       setGenOpen(false);
