@@ -51,13 +51,13 @@ const Footer = () => {
               {t("popular_categories")}
             </h4>
             <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 font-sans text-sm">
-              {categoryKeys.map((key) => (
-                <li key={key}>
+              {NAV_CATEGORIES.map(({ slug, i18nKey }) => (
+                <li key={slug}>
                   <Link
-                    to={`/category/${categorySlugs[key]}`}
+                    to={`/category/${slug}`}
                     className="text-foreground/80 hover:text-primary transition-colors"
                   >
-                    {t(key)}
+                    {t(i18nKey)}
                   </Link>
                 </li>
               ))}

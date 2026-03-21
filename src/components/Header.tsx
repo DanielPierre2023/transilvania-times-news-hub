@@ -94,13 +94,13 @@ const Header = () => {
 
         <nav className="border-b border-foreground/20">
           <ul className="flex items-center justify-center gap-6 py-2.5 overflow-x-auto">
-            {categoryKeys.map((key) => (
-              <li key={key}>
+            {NAV_CATEGORIES.map(({ slug, i18nKey }) => (
+              <li key={slug}>
                 <Link
-                  to={`/category/${categorySlugs[key]}`}
+                  to={`/category/${slug}`}
                   className="text-sm font-sans font-medium text-foreground hover:text-primary transition-colors whitespace-nowrap"
                 >
-                  {t(key)}
+                  {t(i18nKey)}
                 </Link>
               </li>
             ))}

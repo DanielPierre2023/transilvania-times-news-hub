@@ -173,6 +173,12 @@ i18n
           cat_education: "Educație",
           cat_sports: "Sport",
           cat_health: "Sănătate",
+          cat_news: "Știri",
+
+          // Subcategories
+          subcat_regional: "Regional",
+          subcat_national: "Național",
+          subcat_international: "Internațional",
 
           // Breaking headlines
           breaking_1: "Liderul Opoziției solicită alegeri anticipate pe fondul nemulțumirii publice crescânde",
