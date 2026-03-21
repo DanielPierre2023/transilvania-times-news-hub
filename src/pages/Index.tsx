@@ -40,7 +40,17 @@ const Index = () => {
   const secondaryText = allPosts[2] || null;
   const secondaryImage = allPosts[3] || null;
   const gridArticles = allPosts.slice(4, 8);
-  const restPosts = allPosts.slice(8);
+  const editorialLeftPosts = allPosts.slice(8, 14);
+  const editorialCenterPosts = allPosts.slice(14, 19);
+  const editorialRightPosts = allPosts.slice(19, 22);
+  const restPosts = allPosts.slice(22);
+
+  const getTimeAgo = (post: any) => {
+    if (!post?.published_at) return "";
+    try {
+      return formatDistanceToNow(parseISO(post.published_at), { addSuffix: true });
+    } catch { return ""; }
+  };
 
   // Group remaining posts by category
   const categoryGroups = useMemo(() => {
