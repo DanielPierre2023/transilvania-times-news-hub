@@ -55,6 +55,9 @@ const Footer = () => {
           <h2 className="text-2xl font-serif font-bold text-primary italic tracking-tight">
             Transilvania Times
           </h2>
+          <p className="text-[10px] text-foreground/50 font-sans uppercase tracking-[0.15em] mt-1">
+            {t("footer_company_line")}
+          </p>
           <div className="w-full h-px bg-primary/30 mt-4" />
         </div>
 
