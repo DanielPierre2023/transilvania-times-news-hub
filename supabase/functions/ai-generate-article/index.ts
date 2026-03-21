@@ -176,20 +176,24 @@ serve(async (req) => {
     finalEn = await humanizeContent(finalEn, 'en', apiKey!, editorProfile.persona);
     finalRo = await humanizeContent(finalRo, 'ro', apiKey!, editorProfile.persona);
 
+    // Post-process tags and titles
+    const cleanTagsEn = normalizeTags(enArticle.tags || []);
+    const cleanTagsRo = normalizeTags(roArticle.tags_ro || roArticle.tags || []);
+
     return new Response(JSON.stringify({
-      title_en: sanitizeContent(enArticle.title || '', 'en'),
-      title_ro: sanitizeContent(roArticle.title || '', 'ro'),
+      title_en: sanitizeTitle(sanitizeContent(enArticle.title || '', 'en')),
+      title_ro: sanitizeTitle(sanitizeContent(roArticle.title || '', 'ro')),
       excerpt_en: sanitizeContent(enArticle.excerpt || '', 'en'),
       excerpt_ro: sanitizeContent(roArticle.excerpt || '', 'ro'),
       summary_en: sanitizeContent(enArticle.summary || '', 'en'),
       summary_ro: sanitizeContent(roArticle.summary || '', 'ro'),
       content_en: finalEn,
       content_ro: finalRo,
-      tags: enArticle.tags || [],
-      tags_en: enArticle.tags || [],
-      tags_ro: roArticle.tags_ro || roArticle.tags || [],
-      seo_title_en: sanitizeContent(enArticle.seo_title || '', 'en'),
-      seo_title_ro: sanitizeContent(roArticle.seo_title || '', 'ro'),
+      tags: cleanTagsEn,
+      tags_en: cleanTagsEn,
+      tags_ro: cleanTagsRo,
+      seo_title_en: sanitizeTitle(sanitizeContent(enArticle.seo_title || '', 'en')),
+      seo_title_ro: sanitizeTitle(sanitizeContent(roArticle.seo_title || '', 'ro')),
       seo_description_en: sanitizeContent(enArticle.seo_description || '', 'en'),
       seo_description_ro: sanitizeContent(roArticle.seo_description || '', 'ro'),
       slug,
