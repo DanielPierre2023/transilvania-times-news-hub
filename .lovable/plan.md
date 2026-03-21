@@ -1,70 +1,105 @@
 
 
-## Plan: Replace "Most Read" with Rich 3-Column Editorial Block
+## CTO Analysis: Enterprise Implementation Plan
 
-### What the Reference Shows (image-33.png)
+### Scope — 6 Deliverables
 
-The section below the 4-column article grid is NOT a simple "Most Read" numbered list. It's a sophisticated 3-column editorial composition:
+After thorough codebase review, the plan is sound but needs these refinements for enterprise quality.
 
-```text
-┌─────────────────────┬─────────────────────────┬──────────────────────┐
-│  Ad Unit (sidebar)  │  ■ TRAVEL               │  Avatar + Title      │
-│  (scooter ad)       │  [img] Title             │  "Champions League"  │
-│                     │        20 mins           │  20 mins ago         │
-│                     │  ───────────────────     │                      │
-│─────────────────────│  ■ LAW                   │  Avatar + Title      │
-│ ■ SPORTS  ■ BEAUTY  │  [img] Title             │  "Who's next..."     │
-│ Title     Title     │        20 mins           │  30 mins ago         │
-│ 20 mins   20 mins   │  ───────────────────     │                      │
-│                     │  ■ TECHNOLOGY            │  Avatar + Title      │
-│ ■ TRAVEL  ■ LAW     │  [img] Title             │  "Earthquake..."     │
-│ Title     Title     │        30 mins           │  20 mins ago         │
-│ 20 mins   20 mins   │  ───────────────────     │                      │
-│                     │  ■ SHOWBIZ               │ ┌──────────────────┐ │
-│ ■ TECH    ■ SHOWBIZ │  [img] Title             │ │ SPONSOR          │ │
-│ Title     Title     │        20 mins           │ │ Dark card with   │ │
-│ 30 mins   20 mins   │                          │ │ image + title    │ │
-│                     │                          │ └──────────────────┘ │
-└─────────────────────┴─────────────────────────┴──────────────────────┘
-```
+---
 
-**Left column (~4 cols)**: Ad unit on top, then a 2-column grid of text-only article snippets (no images — just colored category square + category name + title + time)
+### 1. Breaking News — DB-Driven
 
-**Center column (~4 cols)**: Vertical stack of horizontal cards — small grayscale thumbnail on left + category label + serif title + time on right, separated by dotted borders
+**Migration**: Add `is_breaking boolean default false` to `blog_posts`.
 
-**Right column (~4 cols)**: Author avatar + title + time entries (like a trending feed), plus a large sponsored/ad card at the bottom with dark background, image, and title
+**`src/components/Header.tsx`**: Replace hardcoded `breakingHeadlines` (line 29) with a Supabase query fetching `blog_posts` where `is_breaking = true` and `status = 'published'`, ordered by `published_at desc`, limit 5. Use localized title. Fallback to i18n strings if no results. Use `useQuery` with a 60s stale time to avoid excessive fetches on a sticky header.
 
-### Implementation
+**`src/pages/admin/BlogEditor.tsx`**: Add a "Breaking News" `Switch` toggle in the form that maps to `is_breaking`. Save it alongside other fields.
 
-#### 1. `src/pages/Index.tsx` — Replace "MOST READ SECTION" (lines 254-259)
+**`src/pages/admin/BlogManager.tsx`**: Show a `⚡ Breaking` badge next to title when `is_breaking = true`. Add a quick-toggle Switch in the table row.
 
-Replace the current `MostReadSidebar` wrapper with a new 3-column `lg:grid-cols-12` section:
+---
 
-- **Left (col-span-4)**: `<AdUnit type="sidebar" />` on top, then a 2-column (`grid-cols-2`) grid of text-only article snippets from `restPosts`. Each snippet: colored category square + category name + serif title + time. No images.
-- **Center (col-span-4)**: Vertical stack of horizontal mini-cards. Each card: `flex` row with a small grayscale image (`w-[120px] aspect-[4/3]`) on left + category label + title + time on right. Separated by `border-b border-dotted border-foreground/15`.
-- **Right (col-span-4)**: Top portion shows 3-4 "trending" entries with a circular avatar placeholder + title + time. Bottom portion shows a sponsored ad card with dark `bg-foreground` background, an image, "SPONSOR" label, and a serif title.
+### 2. Footer Fixes
 
-All articles in this section are pulled from `allPosts` (posts not already used in the hero/grid sections). The data is already fetched — this is purely a layout change.
+**`src/components/Footer.tsx`**:
+- Line 77: Change `str. Memorandumului nr 2` → `str. Frunzișului nr. 89`
+- Line 159: Remove the VAT line (`<p className="mt-0.5">VAT: CY10439793M</p>`)
 
-#### 2. `src/components/MostReadSidebar.tsx` — No deletion
+---
 
-Keep the component — it's still used on `BlogPost.tsx` and other pages. Just remove its import from `Index.tsx`.
+### 3. Romanian Editorial Team
 
-### Files
+Replace English-sounding names across 4 files. Keep Daniel Dobos, Elena Vasilescu, Sofia Marinescu (already Romanian). Replace the 3 English names:
+
+| Old | New | Style |
+|-----|-----|-------|
+| Marcus Webb | Andrei Popescu | Investigative, punchy, cynical — "The Hard-Hitter" |
+| James Chen | Lucian Bratu | Philosophical, metaphor-rich, Romanian cultural refs — "The Philosopher" |
+| Daniel Novak | Mihai Ionescu | Architecture-focused, sardonic, specs-driven — "The Tech Guru" |
+
+**Add 2 real journalists** (manual authors only, NOT in scraper rotation):
+- Cristina Erika
+- Corina Bugner
+
+**Files to update**:
+- `src/pages/admin/BlogEditor.tsx` — Replace EDITORS + EDITOR_NAMES (lines 18-30). Add separate "Author" list with Daniel Dobos, Cristina Erika, Corina Bugner for manual articles.
+- `src/pages/admin/RssScraper.tsx` — Replace EDITORS (lines 23-29)
+- `supabase/functions/process-rewrite-job/index.ts` — Replace EDITORS dict (lines 12-19)
+- `supabase/functions/ai-rewrite-article/index.ts` — Replace EDITORS dict (lines 11-18)
+- `supabase/functions/ai-generate-article/index.ts` — Replace EDITORS dict
+
+---
+
+### 4. Enhanced Humanizer Prompt
+
+**`supabase/functions/process-rewrite-job/index.ts`** — Enhance the synthesis prompt with the Master Humanizing instructions:
+
+- Max 3 consecutive words from source
+- BURSTINESS: Mix 3-word sentences with 25+ word complex ones
+- PERPLEXITY: Industry jargon, idiomatic expressions, Romanian-isms
+- Date hook: Reference current date context
+- Map each editor to their Linguistic Fingerprint (Hard-Hitter, Philosopher, Tech Guru, Localist, Skeptic, Storyteller)
+- Explicit anti-pattern: "Do NOT follow the original article's sentence structure"
+
+---
+
+### 5. Social Sharing OG Proxy
+
+**New files**:
+- `netlify/edge-functions/og-rewrite.ts` — Bot UA detection → proxies to Supabase function
+- `supabase/functions/og-proxy/index.ts` — Fetches blog post from DB, generates full HTML with OG/Twitter/article meta tags. `verify_jwt = false`.
+- `netlify.toml` — SPA routing rules + edge function registration for `/blog/*`
+
+**`supabase/config.toml`** — Add `[functions.og-proxy]` section with `verify_jwt = false`.
+
+Adapted for this project: domain `https://transilvaniatimes.com`, Supabase URL `https://zimpimoierpsocnmnizm.supabase.co`, correct column names from schema.
+
+---
+
+### 6. Newsletter — Footer Only (Confirmed)
+
+**`src/pages/Index.tsx`**: Newsletter is already NOT imported on the homepage. No change needed. ✓
+
+**`src/components/Newsletter.tsx`**: Keep as standalone component (used nowhere currently on homepage — correct). No change.
+
+---
+
+### File Summary
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Replace lines 254-259 (MostRead section) with the 3-column editorial block. Remove `MostReadSidebar` import. Use posts from `restPosts` or allocate specific post slots for each column. |
-
-### Data Allocation
-
-Current flow: posts 0-1 (hero spread), 2-3 (secondary spread), 4-7 (4-col grid), 8+ (category sections).
-
-New allocation for the editorial block — use posts 8-19 before category grouping:
-- Posts 8-13: left column text snippets (6 articles, 2-col grid)
-- Posts 14-18: center column horizontal cards (5 articles)
-- Posts 19-21: right column trending entries (3 articles)
-- Posts 22+: category sections (as before)
-
-This requires fetching more posts (increase limit from 30 to 50) to have enough content for all sections.
+| **Migration** | `ALTER TABLE blog_posts ADD COLUMN is_breaking boolean DEFAULT false` |
+| `src/components/Header.tsx` | DB-driven breaking news marquee with useQuery |
+| `src/components/Footer.tsx` | Remove VAT, update address |
+| `src/pages/admin/BlogEditor.tsx` | Romanian editors, breaking toggle, real journalist authors |
+| `src/pages/admin/BlogManager.tsx` | Breaking badge + toggle |
+| `src/pages/admin/RssScraper.tsx` | Romanian editor names |
+| `supabase/functions/process-rewrite-job/index.ts` | Romanian editors + enhanced humanizer prompt |
+| `supabase/functions/ai-rewrite-article/index.ts` | Romanian editors |
+| `supabase/functions/ai-generate-article/index.ts` | Romanian editors |
+| `netlify/edge-functions/og-rewrite.ts` | New: bot detection + proxy |
+| `supabase/functions/og-proxy/index.ts` | New: OG meta generation |
+| `netlify.toml` | New: SPA routing + edge function |
+| `supabase/config.toml` | Add og-proxy config |
 
