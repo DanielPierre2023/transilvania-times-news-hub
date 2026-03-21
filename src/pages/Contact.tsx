@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Mail, Phone, MapPin, Send } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
 
