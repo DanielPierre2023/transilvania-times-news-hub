@@ -95,7 +95,7 @@ serve(async (req) => {
           { role: 'system', content: `Current date: March 2026.\n\n${wordCountRules}\n\n${editorProfile.system}\n\n${WRITING_RULES}\n\nCategory: "${category}". Target: ${word_count} words.\n\nRespond ONLY with valid JSON:\n{"title":"...","excerpt":"1-2 sentence hook","summary":"3-5 sentence abstract","content":"full article in markdown","tags":["6-9 tags"],"seo_title":"under 60 chars","seo_description":"under 160 chars"}` },
           { role: 'user', content: `Write a professional article in ENGLISH about: ${prompt}` },
         ],
-        temperature: 0.85,
+        temperature: 0.6,
         max_tokens: maxTokens,
       }),
     });
