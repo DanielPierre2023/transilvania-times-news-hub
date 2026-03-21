@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, X, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import WeatherWidget from "./WeatherWidget";
 import LangSwitcher from "./LangSwitcher";
 import { NAV_CATEGORIES } from "@/lib/categories";
@@ -26,7 +28,28 @@ const Header = () => {
     }
   };
 
-  const breakingHeadlines = [t("breaking_1"), t("breaking_2"), t("breaking_3")];
+  const { data: breakingPosts } = useQuery({
+    queryKey: ['breaking_news'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('blog_posts')
+        .select('title_en, title_ro')
+        .eq('is_breaking', true)
+        .eq('status', 'published')
+        .order('published_at', { ascending: false })
+        .limit(5);
+      return data || [];
+    },
+    staleTime: 60_000,
+  });
+
+  const breakingHeadlines = useMemo(() => {
+    const isRo = i18n.language.startsWith('ro');
+    if (breakingPosts && breakingPosts.length > 0) {
+      return breakingPosts.map((p: any) => (isRo ? p.title_ro : p.title_en) || p.title_en);
+    }
+    return [t("breaking_1"), t("breaking_2"), t("breaking_3")];
+  }, [breakingPosts, i18n.language, t]);
 
   return (
     <header className="sticky top-0 z-50 bg-background">

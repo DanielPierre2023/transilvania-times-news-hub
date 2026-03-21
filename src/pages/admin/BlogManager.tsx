@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Trash2, Edit } from 'lucide-react';
+import { Plus, Search, Trash2, Edit, Zap } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -32,6 +33,14 @@ const BlogManager = () => {
       if (error) throw error;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['blog_posts'] }); toast.success('Post deleted'); },
+  });
+
+  const toggleBreaking = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase.from('blog_posts').update({ is_breaking: value } as any).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blog_posts'] }); },
   });
 
   const filtered = posts.filter((p: any) => {
@@ -71,6 +80,7 @@ const BlogManager = () => {
               <TableHead>Title</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Breaking</TableHead>
               <TableHead>Tags</TableHead>
               <TableHead>Date</TableHead>
               <TableHead className="w-24">Actions</TableHead>
@@ -79,13 +89,24 @@ const BlogManager = () => {
           <TableBody>
             {filtered.map((post: any) => (
               <TableRow key={post.id} className="cursor-pointer" onClick={() => navigate(`/admin/blog/${post.id}`)}>
-                <TableCell className="font-medium">{post.title_en || 'Untitled'}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    {(post as any).is_breaking && <Badge variant="destructive" className="gap-1 text-[10px]"><Zap className="w-3 h-3" /> Breaking</Badge>}
+                    {post.title_en || 'Untitled'}
+                  </div>
+                </TableCell>
                 <TableCell>
                   <Badge variant={post.status === 'published' ? 'default' : 'secondary'}>
                     {post.status}
                   </Badge>
                 </TableCell>
                 <TableCell className="capitalize">{post.category || 'news'}</TableCell>
+                <TableCell onClick={e => e.stopPropagation()}>
+                  <Switch
+                    checked={(post as any).is_breaking || false}
+                    onCheckedChange={v => toggleBreaking.mutate({ id: post.id, value: v })}
+                  />
+                </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{(post.tags || []).join(', ')}</TableCell>
                 <TableCell className="text-sm">{format(parseISO(post.created_at), 'MMM dd, yyyy')}</TableCell>
                 <TableCell onClick={e => e.stopPropagation()}>
@@ -113,7 +134,7 @@ const BlogManager = () => {
               </TableRow>
             ))}
             {filtered.length === 0 && (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No posts found</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No posts found</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

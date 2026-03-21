@@ -12,22 +12,30 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { Save, Eye, Wand2, Send, Bold, Italic, Heading, Link, Image, Code, List, ChevronRight, ChevronDown, Sparkles, Upload, AlignLeft, AlignCenter, AlignRight, Square, ShieldCheck, Loader2, RefreshCw, ImagePlus } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { toPublicMediaUrl } from '@/lib/mediaUrl';
 
 const EDITORS = [
-  { value: 'marcus_webb', label: 'Marcus Webb — Investigative' },
+  { value: 'daniel_dobos', label: 'Daniel Dobos — Senior Tech Editor' },
+  { value: 'andrei_popescu', label: 'Andrei Popescu — Investigative' },
   { value: 'elena_vasilescu', label: 'Elena Vasilescu — Science Editor' },
-  { value: 'james_chen', label: 'James Chen — Features' },
+  { value: 'lucian_bratu', label: 'Lucian Bratu — Features' },
   { value: 'sofia_marinescu', label: 'Sofia Marinescu — Research' },
-  { value: 'daniel_novak', label: 'Daniel Novak — Tech Reviews' },
+  { value: 'mihai_ionescu', label: 'Mihai Ionescu — Tech Reviews' },
 ];
 
 const EDITOR_NAMES: Record<string, string> = {
-  marcus_webb: 'Marcus Webb', elena_vasilescu: 'Elena Vasilescu',
-  james_chen: 'James Chen', sofia_marinescu: 'Sofia Marinescu',
-  daniel_novak: 'Daniel Novak',
+  daniel_dobos: 'Daniel Dobos', andrei_popescu: 'Andrei Popescu',
+  elena_vasilescu: 'Elena Vasilescu', lucian_bratu: 'Lucian Bratu',
+  sofia_marinescu: 'Sofia Marinescu', mihai_ionescu: 'Mihai Ionescu',
 };
+
+const AUTHORS = [
+  'Daniel Dobos', 'Cristina Erika', 'Corina Bugner',
+  'Andrei Popescu', 'Elena Vasilescu', 'Lucian Bratu',
+  'Sofia Marinescu', 'Mihai Ionescu',
+];
 
 const AI_CHIPS = [
   { action: 'write_intro', label: 'Write Intro' },
@@ -68,7 +76,7 @@ const BlogEditor = () => {
   const [genOpen, setGenOpen] = useState(!isEdit);
   const [genPrompt, setGenPrompt] = useState('');
   const [genWordCount, setGenWordCount] = useState('1800');
-  const [genEditor, setGenEditor] = useState('marcus_webb');
+  const [genEditor, setGenEditor] = useState('daniel_dobos');
   const [genCategory, setGenCategory] = useState('politics');
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -81,7 +89,8 @@ const BlogEditor = () => {
     summary_en: '', summary_ro: '',
     content_en: '', content_ro: '', tags: '' as string, cover_image: '',
     status: 'draft', category: 'politics', subcategory: 'international' as string,
-    author_name: 'Kara Newman',
+    author_name: 'Daniel Dobos',
+    is_breaking: false,
     seo_title_en: '', seo_title_ro: '', seo_description_en: '', seo_description_ro: '',
   });
 
@@ -115,7 +124,8 @@ const BlogEditor = () => {
         tags: (p.tags || []).join(', '), cover_image: p.cover_image || '',
         status: p.status || 'draft', category: p.category || 'politics',
         subcategory: p.subcategory || 'international',
-        author_name: p.author_name || 'Kara Newman',
+        author_name: p.author_name || 'Daniel Dobos',
+        is_breaking: p.is_breaking || false,
         seo_title_en: p.seo_title_en || '', seo_title_ro: p.seo_title_ro || '',
         seo_description_en: p.seo_description_en || '', seo_description_ro: p.seo_description_ro || '',
       });
@@ -142,7 +152,8 @@ const BlogEditor = () => {
         status: 'draft',
         category: r.category || categoryFromUrl || 'news',
         subcategory: r.subcategory || subcategoryFromUrl || 'international',
-        author_name: 'Marcus Webb',
+        author_name: 'Daniel Dobos',
+        is_breaking: false,
       });
       setGenOpen(false);
     }
@@ -244,6 +255,7 @@ const BlogEditor = () => {
         cover_image: form.cover_image || null, status: form.status,
         category: form.category, subcategory: form.subcategory || 'international',
         author_name: form.author_name,
+        is_breaking: form.is_breaking,
         seo_title_en: form.seo_title_en || null, seo_title_ro: form.seo_title_ro || null,
         seo_description_en: form.seo_description_en || null, seo_description_ro: form.seo_description_ro || null,
         reading_time_min: readingTime,
@@ -479,10 +491,16 @@ const BlogEditor = () => {
               <SelectTrigger><SelectValue placeholder="Subcategory" /></SelectTrigger>
               <SelectContent>{SUBCATEGORIES.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
             </Select>
-            <Select value={Object.keys(EDITOR_NAMES).find(k => EDITOR_NAMES[k] === form.author_name) || 'marcus_webb'} onValueChange={v => handleChange('author_name', EDITOR_NAMES[v] || v)}>
+            <Select value={form.author_name} onValueChange={v => handleChange('author_name', v)}>
               <SelectTrigger className="text-xs"><SelectValue placeholder="Author" /></SelectTrigger>
-              <SelectContent>{EDITORS.map(e => <SelectItem key={e.value} value={e.value} className="text-xs">{e.label}</SelectItem>)}</SelectContent>
+              <SelectContent>{AUTHORS.map(a => <SelectItem key={a} value={a} className="text-xs">{a}</SelectItem>)}</SelectContent>
             </Select>
+          </div>
+          <div className="flex items-center gap-3 px-1">
+            <label className="text-xs font-medium text-foreground flex items-center gap-2 cursor-pointer">
+              <Switch checked={form.is_breaking} onCheckedChange={v => setForm(prev => ({ ...prev, is_breaking: v }))} />
+              ⚡ Breaking News
+            </label>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input placeholder="Excerpt (EN)" value={form.excerpt_en} onChange={e => handleChange('excerpt_en', e.target.value)} />

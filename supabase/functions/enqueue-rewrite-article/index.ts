@@ -10,7 +10,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const { article_id, editor = 'marcus_webb' } = await req.json();
+    const { article_id, editor = 'daniel_dobos' } = await req.json();
 
     if (!article_id) {
       return new Response(JSON.stringify({ ok: false, code: 'MISSING_ARTICLE_ID', message: 'article_id is required' }), {

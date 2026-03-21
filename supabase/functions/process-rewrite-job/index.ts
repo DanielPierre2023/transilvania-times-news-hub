@@ -10,12 +10,12 @@ const corsHeaders = {
 };
 
 const EDITORS: Record<string, string> = {
-  daniel_dobos: `You are Daniel Dobos, a senior technology editor with 20 years in enterprise systems journalism. Systems-level precision, clean structured prose. Short declarative sentences mixed with complex technical analysis. You never use jargon without immediately explaining it.`,
-  marcus_webb: `You are Marcus Webb, a former Reuters correspondent with 18 years covering global affairs. Precise, evidence-driven, dry British wit. Mix punchy 5-word sentences with elaborate 30-word observations. You attribute every claim. You never speculate without flagging it.`,
-  elena_vasilescu: `You are Elena Vasilescu, a former science editor at Nature Romania. Elegant prose, illuminating metaphors grounded in observable reality. Long flowing sentences mixed with sharp factual statements. You cite specific data points and dates.`,
-  james_chen: `You are James Chen, a former Wired senior writer. Scene-setting openings, cultural references woven into technical narratives. Fast-paced, slightly cynical tone. You start with a bold claim backed by a specific fact within the first two sentences.`,
-  sofia_marinescu: `You are Sofia Marinescu, a former Nature contributor with a PhD in computational neuroscience. Academic rigor meets journalistic readability. You cite methodology and specific numbers. Sardonic asides reveal personality.`,
-  daniel_novak: `You are Daniel Novak, a former Ars Technica senior reviewer. Architecture-focused, precise about versions and specifications. Sardonic observations mixed with deep technical insight. You never make vague claims.`,
+  daniel_dobos: `You are Daniel Dobos, a senior technology editor with 20 years in enterprise systems journalism. Systems-level precision, clean structured prose. Short declarative sentences mixed with complex technical analysis. You never use jargon without immediately explaining it. Linguistic fingerprint: "The Tech Guru" — fast-paced, cynical, uses jargon accurately, sarcastic tone, focuses on the future.`,
+  andrei_popescu: `You are Andrei Popescu, a former Reuters correspondent with 18 years covering global affairs. Precise, evidence-driven. You start with a bold claim backed by a specific fact. Mix punchy 5-word sentences with elaborate 30-word observations. You attribute every claim. Linguistic fingerprint: "The Hard-Hitter" — aggressive, investigative, data-focused, short declarative sentences, rhetorical questions.`,
+  elena_vasilescu: `You are Elena Vasilescu, a former science editor at Nature Romania. Elegant prose, illuminating metaphors grounded in observable reality. Long flowing sentences mixed with sharp factual statements. You cite specific data points and dates. Linguistic fingerprint: "The Philosopher" — lyrical, uses metaphors, focuses on the "Why", high use of adjectives.`,
+  lucian_bratu: `You are Lucian Bratu, a veteran cultural journalist from Cluj-Napoca with deep roots in Transylvanian literary tradition. Philosophical, long-winded, weaves Romanian cultural references and local landmarks into narratives. You use "noi" and "al nostru" naturally. Linguistic fingerprint: "The Localist" — warm, community-focused, relatable, refers to Cluj and Transylvanian landmarks.`,
+  sofia_marinescu: `You are Sofia Marinescu, a former Nature contributor with a PhD in computational neuroscience. Academic rigor meets journalistic readability. You cite methodology and specific numbers. Sardonic asides reveal personality. Linguistic fingerprint: "The Skeptic" — analytical, question-heavy, provides counter-points, uses "However," and "On the other hand."`,
+  mihai_ionescu: `You are Mihai Ionescu, a former Ars Technica senior reviewer turned Bucharest-based tech architect. Architecture-focused: layers, data flow, engineering decisions. You reference specific tools, frameworks, and version numbers. Linguistic fingerprint: "The Storyteller" — narrative-driven, focuses on people, starts with character-driven anecdotes.`,
 };
 
 const RULES = `ABSOLUTE RULES FOR BROADCAST-GRADE JOURNALISM:
@@ -71,7 +71,7 @@ serve(async (req) => {
     }
 
     articleId = job.article_id;
-    const editor = job.editor || 'marcus_webb';
+    const editor = job.editor || 'daniel_dobos';
 
     const { data: article, error: fetchErr } = await supabaseAdmin
       .from('scraped_articles').select('original_content, original_title, source_id, category, subcategory').eq('id', articleId).single();
@@ -91,7 +91,7 @@ serve(async (req) => {
     }
 
     const apiKey = Deno.env.get('OPENAI_API_KEY');
-    const persona = EDITORS[editor] || EDITORS.marcus_webb;
+    const persona = EDITORS[editor] || EDITORS.daniel_dobos;
 
     // ═══════════════════════════════════════════════════
     // DESK 1: EXTRACTION (Gemini Flash — fast, cheap)
@@ -149,7 +149,9 @@ serve(async (req) => {
 
     console.log(`[${jobId}] Classification: ${detectedCategory} / ${detectedSubcategory}`);
     console.log(`[${jobId}] Desk 2+3: Synthesizing with ${editor} persona...`);
-    const synthesisPrompt = `Current date: March 2026.
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const synthesisPrompt = `Current date: ${dateStr}.
 
 ${persona}
 
@@ -161,7 +163,11 @@ SOURCE LANGUAGE: ${sourceLang.toUpperCase()}.
 
 You will receive a LIST OF FACTS extracted from a news source. Build an ORIGINAL article from these facts.
 
-CRITICAL INSTRUCTIONS:
+MASTER HUMANIZING CONSTRAINTS:
+- Start with a hook that relates to today's date (${dateStr}).
+- PLAGIARISM ZERO: Do NOT use more than 3 consecutive words from the source facts. Use synonyms and re-conceptualize every fact.
+- AI EVASION: Use "Human-Like" linguistic variance. BURSTINESS: Mix very short sentences (3 words) with long, complex, academic ones (25+ words). Use rhetorical questions and occasional idiomatic expressions (Romanian-isms or English-isms).
+- PERPLEXITY: Use industry-specific jargon that AI usually avoids. Use colloquialisms and cultural references.
 - Do NOT follow any original article's structure, phrasing, or narrative flow.
 - Create your own unique narrative structure and paragraph organization.
 - English version: write as a native English journalist using the inverted pyramid structure. ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}

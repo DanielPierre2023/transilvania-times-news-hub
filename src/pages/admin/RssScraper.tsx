@@ -21,11 +21,12 @@ function decodeEntities(text: string): string {
 }
 
 const EDITORS = [
-  { value: 'marcus_webb', label: 'Marcus Webb' },
+  { value: 'daniel_dobos', label: 'Daniel Dobos' },
+  { value: 'andrei_popescu', label: 'Andrei Popescu' },
   { value: 'elena_vasilescu', label: 'Elena Vasilescu' },
-  { value: 'james_chen', label: 'James Chen' },
+  { value: 'lucian_bratu', label: 'Lucian Bratu' },
   { value: 'sofia_marinescu', label: 'Sofia Marinescu' },
-  { value: 'daniel_novak', label: 'Daniel Novak' },
+  { value: 'mihai_ionescu', label: 'Mihai Ionescu' },
 ];
 
 import { CATEGORIES, SUBCATEGORIES, categoryI18nKey, subcategoryI18nKey } from '@/lib/categories';
@@ -159,7 +160,7 @@ const RssScraper = () => {
   };
 
   const rewriteArticle = async (article: any) => {
-    const editor = editorSelection[article.id] || 'marcus_webb';
+    const editor = editorSelection[article.id] || 'daniel_dobos';
     try {
       const { data, error } = await supabase.functions.invoke('enqueue-rewrite-article', {
         body: { article_id: article.id, editor },
@@ -386,7 +387,7 @@ const RssScraper = () => {
                 <TableCell>{getSourceCategory(a)}</TableCell>
                 <TableCell>
                   {a.status === 'scraped' && (
-                    <Select value={editorSelection[a.id] || 'marcus_webb'} onValueChange={v => setEditorSelection(prev => ({ ...prev, [a.id]: v }))}>
+                    <Select value={editorSelection[a.id] || 'daniel_dobos'} onValueChange={v => setEditorSelection(prev => ({ ...prev, [a.id]: v }))}>
                       <SelectTrigger className="w-36 text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>{EDITORS.map(e => <SelectItem key={e.value} value={e.value} className="text-xs">{e.label}</SelectItem>)}</SelectContent>
                     </Select>
