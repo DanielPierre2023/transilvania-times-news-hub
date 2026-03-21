@@ -1,74 +1,47 @@
 
 
-## Plan: Fix Crash + Mobile Layout + Subcategory Consistency
+## Plan: Move Hamburger to Top Bar + Fix Category Subcategory Tabs on Mobile
 
-### 1. Fix Runtime Error — `src/pages/Index.tsx`
+### Two Issues
 
-**Root cause**: `getSummary(heroMain)` is called inside `useMemo` (line 67) unconditionally, but `heroMain` can be `null` when posts haven't loaded yet. The `useMemo` runs before the null-check guard at line 86.
+1. **Hamburger menu is below the masthead** — user wants it in the top bar (next to RO/EN and weather), like CNN/CBS where the menu icon is always at the very top.
 
-**Fix**: Add null guard in `getSummary`, `getTitle`, `getExcerpt` helpers:
-```ts
-const getSummary = (post: any) => {
-  if (!post) return "";
-  return isRo ? post.summary_ro || post.summary_en : post.summary_en;
-};
+2. **Subcategory tabs on Category page use `overflow-x-auto` horizontal scroll** — ugly scrollbar visible on mobile. Needs a proper solution.
+
+### Changes
+
+#### 1. `src/components/Header.tsx` — Move hamburger to top bar
+
+Current layout (mobile):
 ```
-Same pattern for `getTitle` and `getExcerpt`.
-
-### 2. Mobile Hamburger Menu for Categories — `src/components/Header.tsx`
-
-Currently the nav bar shows all 10 categories in a horizontally scrollable list. On a 390px viewport this is unusable.
-
-**Change**: On mobile (`sm` and below), replace the horizontal category list with a hamburger menu icon that opens a `Sheet` (slide-in drawer) containing the full category list as vertical links.
-
-- Import `Sheet`, `SheetContent`, `SheetTrigger`, `SheetTitle` from `@/components/ui/sheet`
-- Import `Menu` from `lucide-react`
-- Add state `const [menuOpen, setMenuOpen] = useState(false)`
-- Desktop (`hidden md:flex`): keep existing horizontal `<ul>` nav
-- Mobile (`md:hidden`): show a `<Menu>` hamburger button that opens a `Sheet` with vertical category links
-- Each category link closes the sheet on click
-
-### 3. iOS Font Readability — `src/index.css`
-
-Add `-webkit-text-size-adjust: 100%` to `html` to prevent iOS Safari from inflating font sizes. Add `font-smoothing` properties for consistent rendering across Android/iOS:
-
-```css
-html {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+[RO EN] [Weather]        [Search]
+      Transilvania Times
+[☰ Categories]  ← hamburger is here, below masthead
 ```
 
-Also set a minimum `font-size: 16px` on inputs to prevent iOS zoom on focus (already likely handled, but verify).
+New layout (mobile):
+```
+[☰] [RO EN] [Weather]   [Search]
+      Transilvania Times
+```
 
-### 4. Subcategory Consistency on Category Page
+- Move the `Sheet` + hamburger trigger INTO the top bar div (line 82), as the first element in the left flex group — visible only on `md:hidden`
+- Remove the entire separate "Mobile hamburger nav" div (lines 142-175)
+- The hamburger icon sits at the far left of the top bar on mobile, before the language switcher
 
-The subcategory tabs show on ALL categories, but not all categories have meaningful subcategories. The subcategories (regional/national/international) are geographic scopes that apply to categories like news, politics, sports, etc.
+#### 2. `src/pages/Category.tsx` — Replace horizontal scroll tabs with dropdown on mobile
 
-**Fix**: The tabs already work correctly — they filter by subcategory column. The issue is purely that the same 3 tabs show even for categories where subcategories may not exist in the data. This is acceptable behavior (tabs will show empty results). No structural change needed — the current implementation is consistent.
+CNN/CBS approach: On mobile, subcategory filters become a **dropdown select** instead of horizontal tabs. On desktop, keep the underline tabs.
 
-### 5. Mobile Layout Fixes — `src/pages/Index.tsx`
-
-The 3-zone hero spread doesn't stack well on mobile. Fix:
-- Hero section: On mobile, stack vertically (already `grid-cols-1` default). Ensure left image has `aspect-video` on mobile instead of full-height.
-- Editorial block: On mobile, each column stacks full-width (already `grid-cols-1` default). Ensure padding is consistent.
-- Reduce hero title size on mobile: `text-2xl sm:text-3xl md:text-4xl lg:text-5xl`
-
-### 6. Console Warning Fix — `LangSwitcher` and `WeatherWidget`
-
-Both components get a "cannot be given refs" warning. Wrap them with `React.forwardRef` or wrap the usage sites. Quick fix: the Header passes no refs — this warning comes from Tooltip wrapping. Add `forwardRef` to both components.
+- Wrap current tab links in `hidden md:flex` so they only show on desktop
+- Add a `md:hidden` block with a styled `<select>` dropdown for subcategories
+- On change, navigate to `/category/${name}/${value}` or `/category/${name}` for "all"
+- No ugly scrollbar, clean mobile UX
 
 ### Files
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Add null guards to `getTitle`/`getExcerpt`/`getSummary`. Responsive hero title sizes. Mobile padding adjustments. |
-| `src/components/Header.tsx` | Add hamburger menu with Sheet for mobile categories. Keep horizontal nav for `md+`. |
-| `src/index.css` | Add `-webkit-text-size-adjust: 100%` and font smoothing for iOS/Android consistency. |
-| `src/components/LangSwitcher.tsx` | Wrap with `forwardRef` to fix console warning. |
-| `src/components/WeatherWidget.tsx` | Wrap with `forwardRef` to fix console warning. |
+| `src/components/Header.tsx` | Move hamburger into top bar (before LangSwitcher, `md:hidden`). Remove separate mobile nav section. |
+| `src/pages/Category.tsx` | Add mobile dropdown for subcategory filtering (`md:hidden`). Hide horizontal tabs on mobile (`hidden md:flex`). |
 
