@@ -71,6 +71,8 @@ const BlogEditor = () => {
   const inlineInputRef = useRef<HTMLInputElement>(null);
 
   const [lang, setLang] = useState<'en' | 'ro'>('en');
+  const [coverLoading, setCoverLoading] = useState(false);
+  const [coverError, setCoverError] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [aiMessages, setAiMessages] = useState<Array<{ role: string; content: string }>>([]);
