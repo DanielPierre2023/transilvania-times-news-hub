@@ -16,17 +16,16 @@ i18n
           support_us: "Support Us",
           search_placeholder: "Search articles...",
           // Categories
+          cat_news: "News",
           cat_politics: "Politics",
-          cat_world: "World",
           cat_technology: "Technology",
           cat_business: "Business",
           cat_culture: "Culture",
-          cat_opinion: "Opinion",
           cat_travel: "Travel",
           cat_education: "Education",
           cat_sports: "Sports",
           cat_health: "Health",
-          cat_news: "News",
+          cat_opinion: "Opinion",
 
           // Subcategories
           subcat_regional: "Regional",
