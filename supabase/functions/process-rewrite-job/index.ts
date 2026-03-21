@@ -63,11 +63,12 @@ const ROMANIAN_RULES = `REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 1. ZERO subtitluri. Proză continuă. NU concluzie.
 2. CUVINTE INTERZISE: crucial, esențial, robust, vital, paradigmă, ecosistem, sinergie, peisajul, fundamental, semnificativ, remarcabil.
 3. Sentence case. Scrie ca un jurnalist nativ român — NU traduce din engleză.
-4. TITLU ROMÂNESC: Gramatică nativă românească — inversiune subiect-verb unde e natural. NU traduce literal din engleză. Exemplu corect: "Zvîncă anunță digitalizarea ANOFM în Cluj". Exemplu greșit: "Adrian Zvîncă's Digital Push in Cluj".
+4. TITLU ROMÂNESC: Gramatică nativă românească — inversiune subiect-verb unde e natural. NU traduce literal din engleză. FĂRĂ punct la sfârșitul titlului. FĂRĂ semnul întrebării. Folosește verbe puternice la timpul prezent. Exemplu corect: "România reduce timpii de așteptare în spitale cu 40%". Exemplu greșit: "Noi dezvoltări în domeniul sănătății."
 5. Propoziția de deschidere: Cine/Ce/Unde/Când în primele 2 propoziții. Max 35 cuvinte prima propoziție.
 6. Atribuire: Folosește "a declarat" pentru citate. NU "a subliniat", "a evidențiat", "a menționat".
 7. Piramida inversată: Cele mai importante fapte în primele 3 paragrafe.
-8. NU începe cu o referință la dată precum "Sâmbătă, 21 martie 2026" sau "Astăzi". Începe cu ȘTIREA.`;
+8. NU începe cu o referință la dată precum "Sâmbătă, 21 martie 2026" sau "Astăzi". Începe cu ȘTIREA.
+9. Tags RO: 6-9 taguri SEO lowercase cu cratimă în ROMÂNĂ. Exemplu: ["sanatate-digitala-romania", "reforma-spitale-2026"]. NU: ["Sănătate Digitală", "Reforma Spitalelor"]. FIECARE tag TREBUIE să fie cu cratimă, lowercase, 2-5 cuvinte.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
