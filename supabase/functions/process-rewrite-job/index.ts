@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { sanitizeContent, humanizeContent } from "../_shared/sanitize.ts";
+import { sanitizeContent, humanizeContent, normalizeTags, sanitizeTitle } from "../_shared/sanitize.ts";
 import { callGemini } from "../_shared/gemini.ts";
 
 const corsHeaders = {
@@ -32,7 +32,7 @@ const CATEGORY_DEPTH: Record<string, string> = {
   opinion: `DEPTH REQUIREMENTS: State the thesis in the first paragraph. Support with at least 3 distinct evidence points. Acknowledge the strongest counterargument. Provide specific examples, not abstractions.`,
 };
 
-const RULES = `ABSOLUTE RULES FOR BROADCAST-GRADE JOURNALISM:
+const RULES = `ABSOLUTE RULES FOR NYT/WAPO-GRADE JOURNALISM:
 1. ZERO subheadings (no ## or ###). Flow as continuous prose.
 2. No bold-on-own-line. NO conclusion paragraph.
 3. INVERTED PYRAMID: Most newsworthy facts in the first 3 paragraphs. Supporting detail follows. Background context last.
@@ -43,21 +43,32 @@ const RULES = `ABSOLUTE RULES FOR BROADCAST-GRADE JOURNALISM:
 8. Specific numbers, dates, proper nouns — no vague language ("many", "significant", "various").
 9. ZERO AI fingerprints. BANNED words: delve, landscape, game-changer, revolutionize, cutting-edge, leverage, navigate, paradigm, holistic, robust, comprehensive, essential, crucial, vital, pivotal, foster, bolster, harness, streamline, synergy, ecosystem, spearhead, underpin, unlock, empower.
 10. Sentence-case only. 100% original prose.
-11. Tags: 6-9 lowercase hyphenated SEO tags.
-12. TITLE (EN): Active voice, present tense for breaking news, sentence case, max 10 words, no clickbait, no questions.
-13. SUMMARY: 2-3 sentences. News wire abstract format — who did what, where, when, why it matters. Not a hook.
-14. EXCERPT: 1-2 sentence hook for social media / preview cards.
-15. Do NOT start with a date reference like "On March 21, 2026" or "Today, March 21". Start with the NEWS.`;
+11. TITLE (EN): Active verb, present tense, sentence case, 6-10 words. NO period at the end. NO question marks. NO trailing punctuation. Name the actor and the action. Use strong specific verbs: launches, cuts, blocks, faces, reveals, expands, warns, defies. AVOID weak verbs: announces, discusses, addresses, focuses, highlights. Imply stakes or conflict. Bad: "New developments in healthcare." Good: "Romania slashes hospital wait times by 40%"
+12. SUMMARY: 2-3 sentences. News wire abstract format — who did what, where, when, why it matters. Not a hook.
+13. EXCERPT: 1-2 sentence hook for social media / preview cards.
+14. Do NOT start with a date reference like "On March 21, 2026" or "Today, March 21". Start with the NEWS.
+15. Tags EN: Each tag is a lowercase hyphenated slug. Example: ["digital-health-romania", "hospital-reform-2026", "cluj-medical-center"]. NOT: ["Digital Health", "Hospital Reform"]. Every tag MUST be hyphenated, lowercase, 2-5 words.
+
+ARTICLE STRUCTURE (NYT/WAPO STANDARD):
+- Paragraph 1-2: The lede. Most newsworthy fact. Who did what, with what consequence. No throat-clearing.
+- Paragraph 3-4: The "nut graf." Why this matters NOW. What changed. What is at stake.
+- Paragraph 5-7: Evidence. Specific data, quotes, institutional reactions.
+- Paragraph 8-10: Context. Historical precedent, comparable situations, expert analysis.
+- Paragraph 11+: Background, methodology, caveats, opposing viewpoints.
+- EVERY paragraph must contain at least one specific fact (name, number, date, or place).
+- NO filler paragraphs. NO generic context that could apply to any article on the topic.
+- If you cannot add a specific fact to a paragraph, cut the paragraph.`;
 
 const ROMANIAN_RULES = `REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 1. ZERO subtitluri. Proză continuă. NU concluzie.
 2. CUVINTE INTERZISE: crucial, esențial, robust, vital, paradigmă, ecosistem, sinergie, peisajul, fundamental, semnificativ, remarcabil.
 3. Sentence case. Scrie ca un jurnalist nativ român — NU traduce din engleză.
-4. TITLU ROMÂNESC: Gramatică nativă românească — inversiune subiect-verb unde e natural. NU traduce literal din engleză. Exemplu corect: "Zvîncă anunță digitalizarea ANOFM în Cluj". Exemplu greșit: "Adrian Zvîncă's Digital Push in Cluj".
+4. TITLU ROMÂNESC: Gramatică nativă românească — inversiune subiect-verb unde e natural. NU traduce literal din engleză. FĂRĂ punct la sfârșitul titlului. FĂRĂ semnul întrebării. Folosește verbe puternice la timpul prezent. Exemplu corect: "România reduce timpii de așteptare în spitale cu 40%". Exemplu greșit: "Noi dezvoltări în domeniul sănătății."
 5. Propoziția de deschidere: Cine/Ce/Unde/Când în primele 2 propoziții. Max 35 cuvinte prima propoziție.
 6. Atribuire: Folosește "a declarat" pentru citate. NU "a subliniat", "a evidențiat", "a menționat".
 7. Piramida inversată: Cele mai importante fapte în primele 3 paragrafe.
-8. NU începe cu o referință la dată precum "Sâmbătă, 21 martie 2026" sau "Astăzi". Începe cu ȘTIREA.`;
+8. NU începe cu o referință la dată precum "Sâmbătă, 21 martie 2026" sau "Astăzi". Începe cu ȘTIREA.
+9. Tags RO: 6-9 taguri SEO lowercase cu cratimă în ROMÂNĂ. Exemplu: ["sanatate-digitala-romania", "reforma-spitale-2026"]. NU: ["Sănătate Digitală", "Reforma Spitalelor"]. FIECARE tag TREBUIE să fie cu cratimă, lowercase, 2-5 cuvinte.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -209,13 +220,15 @@ MASTER HUMANIZING CONSTRAINTS:
 - Lead paragraph: Answer Who/What/Where/When. Opening sentence max 35 words. Active voice.
 - Summary: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
 - Excerpt: 1-2 sentence hook for preview cards.
-- Title EN: Active voice, present tense, sentence case, max 10 words.
-- Title RO: Native Romanian grammar, not a translation of the English title.
-- Tags EN: 6-9 specific English SEO keyword phrases.
-- Tags RO: 6-9 specific Romanian SEO keyword phrases (NOT translations of English tags — independent Romanian search terms).
+- Title EN: Active verb, present tense, sentence case, 6-10 words. NO period. NO question mark. Name the actor and the action. Strong verbs only.
+- Title RO: Native Romanian grammar, NOT a translation. NO period. NO question mark. Strong verbs, subject-verb inversion where natural.
+- Tags EN: 6-9 lowercase hyphenated SEO slugs. Example: ["digital-health-romania", "eu-ai-regulation-2026"]. NOT: ["Digital Health", "EU AI Regulation"].
+- Tags RO: 6-9 lowercase hyphenated Romanian SEO slugs. Example: ["sanatate-digitala-romania", "reforma-spitale-cluj"]. NOT: ["Sănătate Digitală"]. Independent Romanian search terms, NOT translations.
+- SEO Title: Under 60 chars. NO period at end.
+- SEO Description: Under 160 chars. NO period at end unless it's a complete sentence.
 
 Respond with valid JSON:
-{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags_en":["6-9 English SEO tags"],"tags_ro":["6-9 taguri SEO în ROMÂNĂ"],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
+{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags_en":["lowercase-hyphenated-tag"],"tags_ro":["tag-romanesc-lowercase"],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -309,19 +322,29 @@ Respond with valid JSON:
       console.warn(`[${jobId}] Cover image generation error: ${(imgErr as Error).message}`);
     }
 
+    // ═══════════════════════════════════════════════════
+    // POST-PROCESS: Normalize tags and sanitize titles
+    // ═══════════════════════════════════════════════════
+    const normalizedTagsEn = normalizeTags(parsed.tags_en || parsed.tags || []);
+    const normalizedTagsRo = normalizeTags(parsed.tags_ro || []);
+    const cleanTitleEn = sanitizeTitle(sanitizeContent(parsed.title_en || article.original_title, 'en'));
+    const cleanTitleRo = sanitizeTitle(sanitizeContent(parsed.title_ro || article.original_title, 'ro'));
+    const cleanSeoTitleEn = sanitizeTitle(sanitizeContent(parsed.seo_title_en || '', 'en'));
+    const cleanSeoTitleRo = sanitizeTitle(sanitizeContent(parsed.seo_title_ro || '', 'ro'));
+
     const { error: articleUpdateErr } = await supabaseAdmin.from('scraped_articles').update({
       rewritten_en: contentEn, rewritten_ro: contentRo,
-      title_en: sanitizeContent(parsed.title_en || article.original_title, 'en'),
-      title_ro: sanitizeContent(parsed.title_ro || article.original_title, 'ro'),
+      title_en: cleanTitleEn,
+      title_ro: cleanTitleRo,
       excerpt_en: sanitizeContent(parsed.excerpt_en || '', 'en'),
       excerpt_ro: sanitizeContent(parsed.excerpt_ro || '', 'ro'),
       summary_en: sanitizeContent(parsed.summary_en || '', 'en'),
       summary_ro: sanitizeContent(parsed.summary_ro || '', 'ro'),
-      rewrite_tags: parsed.tags_en || parsed.tags || [],
-      rewrite_tags_en: parsed.tags_en || parsed.tags || [],
-      rewrite_tags_ro: parsed.tags_ro || [],
-      seo_title_en: sanitizeContent(parsed.seo_title_en || '', 'en'),
-      seo_title_ro: sanitizeContent(parsed.seo_title_ro || '', 'ro'),
+      rewrite_tags: normalizedTagsEn,
+      rewrite_tags_en: normalizedTagsEn,
+      rewrite_tags_ro: normalizedTagsRo,
+      seo_title_en: cleanSeoTitleEn,
+      seo_title_ro: cleanSeoTitleRo,
       seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),
       seo_description_ro: sanitizeContent(parsed.seo_description_ro || '', 'ro'),
       cover_image: coverImageUrl,
