@@ -71,7 +71,7 @@ serve(async (req) => {
     }
 
     articleId = job.article_id;
-    const editor = job.editor || 'marcus_webb';
+    const editor = job.editor || 'daniel_dobos';
 
     const { data: article, error: fetchErr } = await supabaseAdmin
       .from('scraped_articles').select('original_content, original_title, source_id, category, subcategory').eq('id', articleId).single();
