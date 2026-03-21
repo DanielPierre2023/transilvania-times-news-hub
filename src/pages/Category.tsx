@@ -22,6 +22,7 @@ const PAGE_SIZE = 12;
 
 const Category = () => {
   const { name, sub } = useParams<{ name: string; sub?: string }>();
+  const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const isRo = i18n.language.startsWith("ro");
   const categoryLabel = name ? t(categoryI18nKey(name)) : "";
