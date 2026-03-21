@@ -55,6 +55,9 @@ const Footer = () => {
           <h2 className="text-2xl font-serif font-bold text-primary italic tracking-tight">
             Transilvania Times
           </h2>
+          <p className="text-[10px] text-foreground/50 font-sans uppercase tracking-[0.15em] mt-1">
+            {t("footer_company_line")}
+          </p>
           <div className="w-full h-px bg-primary/30 mt-4" />
         </div>
 
@@ -79,7 +82,7 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Contact Us */}
+        {/* Contact Us */}
           <div>
             <h4 className="font-serif font-bold text-primary text-lg mb-4">
               {t("contact_us")}
@@ -88,19 +91,28 @@ const Footer = () => {
               <div className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                 <div>
+                  <p className="font-bold text-foreground/90">{t("footer_editorial_desk")}</p>
                   <p>str. Memorandumului nr 2</p>
                   <p>Cluj-Napoca, Transilvania</p>
                 </div>
               </div>
+              <div className="flex items-start gap-2">
+                <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-bold text-foreground/90">{t("footer_corporate_hq")}</p>
+                  <p>Sunset Valley, 7081 Pyla</p>
+                  <p>Cyprus</p>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-primary shrink-0" />
-                <a href="mailto:needhelp@transilvaniatimes.com" className="hover:text-primary transition-colors">
-                  needhelp@transilvaniatimes.com
+                <a href="mailto:contact@add-individual-solutions.com" className="hover:text-primary transition-colors">
+                  contact@add-individual-solutions.com
                 </a>
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-primary shrink-0" />
-                <span>+40 264 123 456</span>
+                <span>+357 96 919 606</span>
               </div>
             </div>
           </div>
@@ -160,9 +172,10 @@ const Footer = () => {
 
         {/* Bottom bar */}
         <div className="border-t border-primary/30 pt-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs font-sans text-foreground/50">
-            {t("copyright")}
-          </p>
+          <div className="text-xs font-sans text-foreground/50">
+            <p>{t("copyright")}</p>
+            <p className="mt-0.5">VAT: CY10439793M</p>
+          </div>
           <div className="flex items-center gap-3">
             <a href="#" aria-label="Facebook" className="text-foreground/50 hover:text-primary transition-colors">
               <Facebook className="w-4 h-4" />

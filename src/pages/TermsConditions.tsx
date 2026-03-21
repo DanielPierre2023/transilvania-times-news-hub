@@ -45,16 +45,20 @@ const TermsConditions = () => {
             </h2>
             <div className="text-base space-y-1">
               <p className="font-bold">{t("terms_hq")}</p>
-              <p>str. Memorandumului nr 2</p>
-              <p>Cluj-Napoca, Transilvania</p>
+              <p>Sunset Valley, 7081 Pyla, Cyprus</p>
+              <p>{t("terms_reg")}: ADD Individual Solutions Ltd.</p>
+              <p>VAT: CY10439793M</p>
               <p className="mt-3">
                 Email:{" "}
                 <a
-                  href="mailto:needhelp@transilvaniatimes.com"
+                  href="mailto:contact@add-individual-solutions.com"
                   className="text-primary hover:underline"
                 >
-                  needhelp@transilvaniatimes.com
+                  contact@add-individual-solutions.com
                 </a>
+              </p>
+              <p>
+                {t("contact_phone")}:{" "}+357 96 919 606
               </p>
             </div>
           </section>

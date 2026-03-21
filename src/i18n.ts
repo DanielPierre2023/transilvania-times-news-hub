@@ -55,6 +55,9 @@ i18n
           terms_conditions: "Terms & Conditions",
           copyright: "© 2026 Transilvania Times. All rights reserved.",
           footer_accessibility: "Accessibility",
+          footer_company_line: "A media project by ADD Individual Solutions Ltd.",
+          footer_editorial_desk: "Editorial Desk",
+          footer_corporate_hq: "Corporate Headquarters",
 
           // Newsletter
           newsletter_title: "Newsletter",
@@ -107,7 +110,8 @@ i18n
           terms_s4_title: "4. User Conduct",
           terms_s4_body: "Users must not use this site for any fraudulent purposes or to distribute malware. We actively fortify our essential systems to ensure that our readers remain protected in an ever-changing digital threat landscape.",
           terms_contact_title: "Contact Our Legal Desk",
-          terms_hq: "Transilvania Times HQ",
+          terms_hq: "ADD Individual Solutions Ltd.",
+          terms_reg: "Registration",
           terms_back: "Back to Homepage",
 
           // Privacy Policy
@@ -129,6 +133,7 @@ i18n
           privacy_s7_title: "7. Changes to This Policy",
           privacy_s7_body: "We may update this Privacy Policy from time to time. Any changes will be posted on this page with an updated revision date. We encourage you to review this policy periodically.",
           privacy_contact_title: "Contact Our Data Protection Team",
+          privacy_dpa: "Lead Data Protection Authority: Commissioner for Personal Data Protection, Cyprus.",
           privacy_back: "Back to Homepage",
 
           // Category page
@@ -191,6 +196,9 @@ i18n
           terms_conditions: "Termeni și Condiții",
           copyright: "© 2026 Transilvania Times. Toate drepturile rezervate.",
           footer_accessibility: "Accesibilitate",
+          footer_company_line: "Un proiect media al ADD Individual Solutions Ltd.",
+          footer_editorial_desk: "Redacția Editorială",
+          footer_corporate_hq: "Sediul Social",
 
           // Newsletter
           newsletter_title: "Buletin Informativ",
@@ -243,7 +251,8 @@ i18n
           terms_s4_title: "4. Conduita Utilizatorilor",
           terms_s4_body: "Utilizatorii nu trebuie să folosească acest site în scopuri frauduloase sau pentru a distribui programe malware. Ne fortificăm activ sistemele esențiale pentru a ne asigura că cititorii noștri rămân protejați într-un peisaj digital în continuă schimbare.",
           terms_contact_title: "Contactați Biroul Legal",
-          terms_hq: "Sediul Transilvania Times",
+          terms_hq: "ADD Individual Solutions Ltd.",
+          terms_reg: "Înregistrare",
           terms_back: "Înapoi la Pagina Principală",
 
           // Privacy Policy
@@ -265,6 +274,7 @@ i18n
           privacy_s7_title: "7. Modificări ale Acestei Politici",
           privacy_s7_body: "Putem actualiza această Politică de Confidențialitate din când în când. Orice modificări vor fi publicate pe această pagină cu o dată de revizuire actualizată. Vă încurajăm să revizuiți periodic această politică.",
           privacy_contact_title: "Contactați Echipa de Protecție a Datelor",
+          privacy_dpa: "Autoritatea de Protecție a Datelor: Comisarul pentru Protecția Datelor cu Caracter Personal, Cipru.",
           privacy_back: "Înapoi la Pagina Principală",
 
           // Category page
