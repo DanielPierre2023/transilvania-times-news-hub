@@ -249,12 +249,16 @@ const BlogEditor = () => {
 
   const saveMut = useMutation({
     mutationFn: async () => {
+      const tagsEn = form.tags_en.split(',').map(t => t.trim()).filter(Boolean);
+      const tagsRo = form.tags_ro.split(',').map(t => t.trim()).filter(Boolean);
       const payload: any = {
         title_en: form.title_en, title_ro: form.title_ro, slug: form.slug,
         excerpt_en: form.excerpt_en, excerpt_ro: form.excerpt_ro,
         summary_en: form.summary_en || null, summary_ro: form.summary_ro || null,
         content_en: form.content_en, content_ro: form.content_ro,
-        tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+        tags: tagsEn, // backward compat
+        tags_en: tagsEn,
+        tags_ro: tagsRo,
         cover_image: form.cover_image || null, status: form.status,
         category: form.category, subcategory: form.subcategory || 'international',
         author_name: form.author_name,
