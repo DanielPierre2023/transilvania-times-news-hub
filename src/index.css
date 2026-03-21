@@ -109,3 +109,49 @@
 .animate-slide-up {
   animation: slideUp 0.4s ease-out;
 }
+
+/* ═══ Article Body — Broadcast-grade typography ═══ */
+.article-body {
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  font-size: 1.125rem;
+  line-height: 1.8;
+}
+
+.article-body p {
+  margin-bottom: 1.25em;
+}
+
+.article-body ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin-bottom: 1.25em;
+}
+
+.article-body figure {
+  margin: 2em 0;
+}
+
+.article-body figure img {
+  width: 100%;
+  border: 1px solid hsl(var(--foreground) / 0.05);
+}
+
+/* ═══ Lede — Drop-cap ═══ */
+.article-lede {
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+.article-lede::first-letter {
+  float: left;
+  font-size: 3.5em;
+  line-height: 0.8;
+  font-weight: 700;
+  font-family: var(--font-serif, 'Lora', serif);
+  margin-right: 0.08em;
+  margin-top: 0.05em;
+  color: hsl(var(--primary));
+}

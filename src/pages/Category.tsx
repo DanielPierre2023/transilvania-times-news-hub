@@ -233,7 +233,9 @@ const Category = () => {
                   <PaginationNext
                     onClick={() => goToPage(page + 1)}
                     className="cursor-pointer"
-                  />
+                  >
+                    {t("next")}
+                  </PaginationNext>
                 </PaginationItem>
               )}
             </PaginationContent>

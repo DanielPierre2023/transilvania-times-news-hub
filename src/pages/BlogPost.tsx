@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -10,6 +11,9 @@ import { format, parseISO } from "date-fns";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
 import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 import { mdToHtml } from "@/lib/markdown";
+
+const SITE_NAME = "Transilvania Times";
+const CANONICAL_DOMAIN = "https://transilvaniatimes.com";
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -75,6 +79,107 @@ const BlogPost = () => {
     },
     enabled: !!post?.published_at && !!post?.id,
   });
+
+  // ═══════════════════════════════════════════════════
+  // SEO META INJECTION
+  // ═══════════════════════════════════════════════════
+  useEffect(() => {
+    if (!post) return;
+
+    const title = isRo ? post.title_ro || post.title_en : post.title_en;
+    const summary = isRo
+      ? (post as any).seo_description_ro || (post as any).summary_ro || (post as any).seo_description_en || (post as any).summary_en
+      : (post as any).seo_description_en || (post as any).summary_en;
+    const imageUrl = post.cover_image ? toPublicMediaUrl(post.cover_image) : "";
+    const fullImageUrl = imageUrl.startsWith("/") ? `${CANONICAL_DOMAIN}${imageUrl}` : imageUrl;
+    const articleUrl = `${CANONICAL_DOMAIN}/blog/${slug}`;
+    const locale = isRo ? "ro_RO" : "en_US";
+    const altLocale = isRo ? "en_US" : "ro_RO";
+
+    document.title = `${title} | ${SITE_NAME}`;
+
+    const injected: HTMLElement[] = [];
+
+    const setMeta = (attr: string, key: string, content: string) => {
+      let el = document.querySelector(`meta[${attr}="${key}"]`) as HTMLMetaElement;
+      if (!el) {
+        el = document.createElement("meta");
+        el.setAttribute(attr, key);
+        document.head.appendChild(el);
+        injected.push(el);
+      }
+      el.setAttribute("content", content);
+    };
+
+    // Open Graph
+    setMeta("property", "og:title", title || "");
+    setMeta("property", "og:description", summary || "");
+    setMeta("property", "og:image", fullImageUrl);
+    setMeta("property", "og:url", articleUrl);
+    setMeta("property", "og:type", "article");
+    setMeta("property", "og:site_name", SITE_NAME);
+    setMeta("property", "og:locale", locale);
+    setMeta("property", "og:locale:alternate", altLocale);
+
+    // Twitter Card
+    setMeta("name", "twitter:card", "summary_large_image");
+    setMeta("name", "twitter:title", title || "");
+    setMeta("name", "twitter:description", summary || "");
+    setMeta("name", "twitter:image", fullImageUrl);
+
+    // Canonical
+    let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement;
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.setAttribute("rel", "canonical");
+      document.head.appendChild(canonical);
+      injected.push(canonical);
+    }
+    canonical.setAttribute("href", articleUrl);
+
+    // Hreflang
+    const hreflangs = [
+      { lang: "en", href: `${CANONICAL_DOMAIN}/blog/${slug}` },
+      { lang: "ro", href: `${CANONICAL_DOMAIN}/blog/${slug}` },
+      { lang: "x-default", href: `${CANONICAL_DOMAIN}/blog/${slug}` },
+    ];
+    hreflangs.forEach(({ lang: hl, href }) => {
+      const link = document.createElement("link");
+      link.setAttribute("rel", "alternate");
+      link.setAttribute("hreflang", hl);
+      link.setAttribute("href", href);
+      document.head.appendChild(link);
+      injected.push(link);
+    });
+
+    // JSON-LD NewsArticle
+    const jsonLd = document.createElement("script");
+    jsonLd.setAttribute("type", "application/ld+json");
+    jsonLd.textContent = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "NewsArticle",
+      headline: title,
+      description: summary,
+      image: fullImageUrl ? [fullImageUrl] : [],
+      datePublished: post.published_at,
+      dateModified: post.updated_at || post.published_at,
+      author: { "@type": "Person", name: post.author_name || SITE_NAME },
+      publisher: {
+        "@type": "Organization",
+        name: SITE_NAME,
+        url: CANONICAL_DOMAIN,
+      },
+      mainEntityOfPage: { "@type": "WebPage", "@id": articleUrl },
+      inLanguage: isRo ? "ro" : "en",
+    });
+    document.head.appendChild(jsonLd);
+    injected.push(jsonLd);
+
+    return () => {
+      injected.forEach((el) => el.parentNode?.removeChild(el));
+      document.title = SITE_NAME;
+    };
+  }, [post, isRo, slug]);
 
   if (isLoading) {
     return (
@@ -161,14 +266,14 @@ const BlogPost = () => {
 
         {/* Lede — professional lead paragraph */}
         {summary && (
-          <p className="text-xl text-foreground font-serif leading-relaxed mb-8 first-letter:text-5xl first-letter:font-bold first-letter:float-left first-letter:mr-2 first-letter:mt-1">
+          <p className="article-lede text-xl text-foreground font-serif leading-relaxed mb-8">
             {summary}
           </p>
         )}
 
         {/* Article body — markdown converted to HTML */}
         <div
-          className="prose prose-lg max-w-none font-sans text-foreground prose-p:mb-5 prose-p:leading-relaxed prose-a:text-primary prose-a:underline"
+          className="article-body prose prose-lg max-w-none font-sans text-foreground prose-p:leading-relaxed prose-a:text-primary prose-a:underline"
           dangerouslySetInnerHTML={{ __html: content }}
         />
 
@@ -176,7 +281,7 @@ const BlogPost = () => {
         {post.tags && post.tags.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-10">
             {post.tags.map((tag: string) => (
-              <span key={tag} className="bg-espresso text-paper px-3 py-1 text-[10px] font-bold uppercase tracking-widest">
+              <span key={tag} className="bg-foreground text-background px-3 py-1 text-[10px] font-bold uppercase tracking-widest">
                 #{tag}
               </span>
             ))}
@@ -192,7 +297,7 @@ const BlogPost = () => {
                 className="group flex flex-col items-start max-w-[45%]"
               >
                 <span className="text-[10px] font-sans uppercase tracking-widest text-muted-foreground mb-1">
-                  ← {t("previous") || "Previous"}
+                  ← {t("previous")}
                 </span>
                 <span className="text-sm font-serif font-bold text-foreground group-hover:text-primary transition-colors leading-tight">
                   {isRo ? adjacentPosts.prev.title_ro || adjacentPosts.prev.title_en : adjacentPosts.prev.title_en}
@@ -205,7 +310,7 @@ const BlogPost = () => {
                 className="group flex flex-col items-end max-w-[45%] text-right"
               >
                 <span className="text-[10px] font-sans uppercase tracking-widest text-muted-foreground mb-1">
-                  {t("next") || "Next"} →
+                  {t("next")} →
                 </span>
                 <span className="text-sm font-serif font-bold text-foreground group-hover:text-primary transition-colors leading-tight">
                   {isRo ? adjacentPosts.next.title_ro || adjacentPosts.next.title_en : adjacentPosts.next.title_en}
@@ -219,7 +324,7 @@ const BlogPost = () => {
         {relatedPosts.length > 0 && (
           <div className="mt-12 pt-8 border-t border-foreground/10">
             <h2 className="text-lg font-serif font-bold text-foreground mb-6 uppercase tracking-tight">
-              {t("related_articles") || "Related Articles"}
+              {t("related_articles")}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {relatedPosts.map((rp: any) => (
