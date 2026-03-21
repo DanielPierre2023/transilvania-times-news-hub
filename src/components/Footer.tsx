@@ -25,8 +25,27 @@ const categorySlugs: Record<string, string> = {
 };
 
 const Footer = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [email, setEmail] = useState("");
+  const [subscribing, setSubscribing] = useState(false);
+
+  const handleSubscribe = async () => {
+    if (!email || !email.includes("@")) return;
+    setSubscribing(true);
+    try {
+      const lang = i18n.language.startsWith("ro") ? "ro" : "en";
+      const { error } = await supabase.functions.invoke("confirm-newsletter", {
+        body: { email: email.trim(), language: lang },
+      });
+      if (error) throw error;
+      toast.success(t("newsletter_success") || "Subscribed successfully!");
+      setEmail("");
+    } catch (err: any) {
+      toast.error(err.message || "Subscription failed");
+    } finally {
+      setSubscribing(false);
+    }
+  };
 
   return (
     <footer className="bg-background border-t border-foreground/10 pt-12 pb-6 px-4">
