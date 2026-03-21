@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { MapPin, Mail, Phone, Facebook, Twitter, Instagram, Github } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const categoryKeys = [
   "cat_politics", "cat_world", "cat_technology", "cat_business",
