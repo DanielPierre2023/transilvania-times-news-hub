@@ -92,7 +92,7 @@ const Index = () => {
                 </div>
               </Link>
             </div>
-            <div className="lg:col-span-4 p-6">
+            <div className="lg:col-span-4 p-6 bg-primary/5">
               <MostReadSidebar />
             </div>
           </section>
