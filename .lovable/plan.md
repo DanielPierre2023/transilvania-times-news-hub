@@ -1,71 +1,60 @@
 
 
-## Updated Plan: Three-Desk Pipeline with Bidirectional Translation
+## Plan: Auto-Generate Cover Images via Pollinations.ai
 
-### The Gap
+### What Changes
 
-The current `process-rewrite-job` doesn't track source language. It sends raw content to GPT-4o with "Rewrite in BOTH English and Romanian" — but if the source is Romanian (e.g., Digi24, HotNews), the LLM tends to preserve Romanian phrasing and produce weaker English. Vice versa for English sources producing weak Romanian.
+**1. RSS Pipeline (`process-rewrite-job/index.ts`)**
 
-### Fix: Language-Aware Three-Desk Pipeline
+After the quality gate saves the rewritten article, auto-generate a Pollinations.ai cover image URL from the English title + excerpt and save it to `scraped_articles`. Every rewritten article gets a cover image automatically — zero cost, zero delay.
 
-**Database**: Add `source_language text DEFAULT 'en'` to `rss_sources` table (alongside the `category` column already planned).
-
-**Desk 1 (Gemini Flash Extraction)**: The extraction prompt will auto-detect and declare source language, plus extract facts in a language-neutral numbered list.
-
-```text
-"Detect the language of this article (output 'en' or 'ro' on line 1).
-Then extract ONLY factual claims as a numbered list in English.
-No opinions, no prose, no original phrasing."
+Add after the `scraped_articles.update()` block:
+```typescript
+const seed = Math.floor(Math.random() * 100000);
+const imgSubject = `${parsed.title_en} ${parsed.excerpt_en || ''}`.substring(0, 120);
+const imgPrompt = `Professional news photography, high-detail, editorial style, regarding: ${imgSubject}`;
+const coverUrl = `https://pollinations.ai/p/${encodeURIComponent(imgPrompt)}?width=1200&height=630&model=flux&seed=${seed}`;
 ```
 
-**Desk 2+3 (GPT-4o Synthesis + Style)**: Language-aware instructions:
+This URL is saved alongside the other fields in the `scraped_articles` update. Note: `scraped_articles` doesn't have a `cover_image` column yet — we need a migration.
 
-```text
-"Source language: {detected_lang}.
-Build an ORIGINAL article from these facts.
-- English version: write as a native English journalist. If source was EN, 
-  do NOT reuse any original phrasing — rebuild completely.
-- Romanian version: write NATIVELY in Romanian, not translated from English. 
-  If source was RO, do NOT reuse any original phrasing — rebuild completely.
-Both versions must be independently structured (different paragraph order, 
-different opening hooks, different narrative flow)."
-```
+**2. BlogEditor (`BlogEditor.tsx`)**
 
-This ensures:
-- EN source → original EN article (no copy) + native RO article (not translated)
-- RO source → native RO article (no copy) + original EN article (not translated)
+- Add a `generateCoverImage()` function that builds a Pollinations URL from `form.title_en` + `form.excerpt_en`
+- Add **"✨ Generate Cover"** button next to "Upload Cover"
+- Add **"🔄 Regenerate"** button (visible when cover already exists) — generates a new image with a different seed
+- Auto-generate cover when AI article generation completes (after `ai-generate-article` returns)
+- Auto-generate cover when loading from RSS (`from_rss`) if no cover exists yet
+- Admin can always overwrite with manual upload or regenerate
 
-**Desk 3 (Humanization)**: Unchanged — parallel `humanizeContent()` for EN and RO.
+**3. Database Migration**
 
-### RssScraper UI
+Add `cover_image text` column to `scraped_articles` table so the pipeline can store the generated URL.
 
-Add a "Language" dropdown (EN/RO) per RSS source alongside the category dropdown. This value is stored in `rss_sources.source_language` and passed through to `scraped_articles` for the pipeline to use.
-
-### Complete File Changes
+### Files to Modify
 
 | File | Change |
 |------|--------|
-| **Migration** | Add `category text DEFAULT 'technology'` and `source_language text DEFAULT 'en'` to `rss_sources` |
-| `supabase/functions/scrape-rss/index.ts` | Increase snippet limit 3000→8000 |
-| `supabase/functions/process-rewrite-job/index.ts` | Three-Desk: Gemini extraction (with language detection) → GPT-4o synthesis with language-aware prompts → parallel humanization |
-| `src/pages/admin/RssScraper.tsx` | Add category + language dropdowns per source, "Scrape All" button, category badges |
-| `src/pages/admin/BlogEditor.tsx` | Auto-populate category from URL params |
+| **Migration** | Add `cover_image text` to `scraped_articles` |
+| `supabase/functions/process-rewrite-job/index.ts` | Auto-generate Pollinations URL after rewrite, save to `cover_image` |
+| `src/pages/admin/BlogEditor.tsx` | Add "Generate Cover" + "Regenerate" buttons. Auto-generate on AI creation and RSS load. |
 
-### Pipeline Flow
+### UI Layout (BlogEditor cover section)
 
 ```text
-RSS Source (lang: en/ro, category: politics)
-  ↓
-scrape-rss (8000 char snippets)
-  ↓
-scraped_articles (source_language stored)
-  ↓
-Desk 1: Gemini Flash — extract facts in English (language-neutral)
-  ↓
-Desk 2+3: GPT-4o — build EN article (original) + RO article (native, not translated)
-  ↓
-Desk 3: Parallel humanization (EN + RO simultaneously)
-  ↓
-Quality gate → Save to scraped_articles → Ready for blog publish
+Current:  [Upload Cover] [thumbnail]
+After:    [Upload Cover] [✨ Generate] [🔄 Regenerate] [thumbnail]
 ```
+
+- "Generate" visible when no cover exists
+- "Regenerate" visible when cover already exists (new random seed = new image)
+- Manual upload always overrides the generated image
+- Thumbnail preview updates instantly
+
+### Auto-Generation Triggers
+
+1. **RSS pipeline**: Every rewritten article gets a cover automatically
+2. **AI article generation**: After `ai-generate-article` returns, auto-set cover
+3. **RSS load in editor**: When opening `from_rss`, if cover is empty, auto-generate
+4. **Manual**: Admin clicks "Generate" or "Regenerate" anytime
 
