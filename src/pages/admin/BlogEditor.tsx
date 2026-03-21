@@ -13,6 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { toast } from 'sonner';
 import { Save, Eye, Wand2, Send, Bold, Italic, Heading, Link, Image, Code, List, ChevronRight, ChevronDown, Sparkles, Upload, AlignLeft, AlignCenter, AlignRight, Square, ShieldCheck, Loader2, RefreshCw, ImagePlus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { toPublicMediaUrl } from '@/lib/mediaUrl';
 
 const EDITORS = [
   { value: 'marcus_webb', label: 'Marcus Webb — Investigative' },
