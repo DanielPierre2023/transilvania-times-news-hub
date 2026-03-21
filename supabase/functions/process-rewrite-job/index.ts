@@ -187,6 +187,13 @@ Respond with valid JSON:
     const needsReview = (aiScore !== null && aiScore < 50) || (plagiarismScore !== null && plagiarismScore > 25);
     const finalStatus = needsReview ? 'needs_review' : 'rewritten';
 
+    // Auto-generate cover image via Pollinations.ai (zero-cost)
+    const imgSeed = Math.floor(Math.random() * 100000);
+    const imgSubject = `${(parsed.title_en || article.original_title)} ${parsed.excerpt_en || ''}`.substring(0, 120);
+    const imgPrompt = `Professional news photography, high-detail, editorial style, regarding: ${imgSubject}`;
+    const coverImageUrl = `https://pollinations.ai/p/${encodeURIComponent(imgPrompt)}?width=1200&height=630&model=flux&seed=${imgSeed}`;
+    console.log(`[${jobId}] Auto-generated cover image URL with seed ${imgSeed}`);
+
     await supabaseAdmin.from('scraped_articles').update({
       rewritten_en: contentEn, rewritten_ro: contentRo,
       title_en: sanitizeContent(parsed.title_en || article.original_title, 'en'),
@@ -200,6 +207,7 @@ Respond with valid JSON:
       seo_title_ro: sanitizeContent(parsed.seo_title_ro || '', 'ro'),
       seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),
       seo_description_ro: sanitizeContent(parsed.seo_description_ro || '', 'ro'),
+      cover_image: coverImageUrl,
       status: finalStatus, rewrite_error: null, rewrite_finished_at: new Date().toISOString(),
       ai_score: aiScore, plagiarism_score: plagiarismScore, quality_checked_at: new Date().toISOString(),
     } as any).eq('id', articleId);
