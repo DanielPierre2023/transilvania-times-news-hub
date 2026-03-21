@@ -66,6 +66,7 @@ export type Database = {
           excerpt_en: string | null
           excerpt_ro: string | null
           id: string
+          is_breaking: boolean | null
           published_at: string | null
           reading_time_min: number | null
           seo_description_en: string | null
@@ -92,6 +93,7 @@ export type Database = {
           excerpt_en?: string | null
           excerpt_ro?: string | null
           id?: string
+          is_breaking?: boolean | null
           published_at?: string | null
           reading_time_min?: number | null
           seo_description_en?: string | null
@@ -118,6 +120,7 @@ export type Database = {
           excerpt_en?: string | null
           excerpt_ro?: string | null
           id?: string
+          is_breaking?: boolean | null
           published_at?: string | null
           reading_time_min?: number | null
           seo_description_en?: string | null
