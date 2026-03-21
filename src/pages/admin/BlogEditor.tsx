@@ -130,7 +130,7 @@ const BlogEditor = () => {
         cover_image: p.cover_image || '',
         status: p.status || 'draft', category: p.category || 'politics',
         subcategory: p.subcategory || 'international',
-        author_name: p.author_name || 'Daniel Dobos',
+        author_name: p.author_name || 'Redacția Transilvania Times',
         is_breaking: p.is_breaking || false,
         seo_title_en: p.seo_title_en || '', seo_title_ro: p.seo_title_ro || '',
         seo_description_en: p.seo_description_en || '', seo_description_ro: p.seo_description_ro || '',
