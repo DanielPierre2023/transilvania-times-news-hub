@@ -4,9 +4,8 @@ import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import ArticleCard from "@/components/ArticleCard";
 import { format, parseISO } from "date-fns";
-import { categoryI18nKey } from "@/lib/categories";
-import { toPublicMediaUrl } from "@/lib/mediaUrl";
 import {
   Pagination,
   PaginationContent,
@@ -20,8 +19,7 @@ const PAGE_SIZE = 12;
 
 const Blog = () => {
   const { t, i18n } = useTranslation();
-  const lang = i18n.language;
-  const isRo = lang.startsWith("ro");
+  const isRo = i18n.language.startsWith("ro");
   const [searchParams, setSearchParams] = useSearchParams();
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
 
@@ -57,8 +55,8 @@ const Blog = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="max-w-6xl mx-auto px-4 py-12">
-        <div className="border-b border-foreground/20 mb-10 pb-4">
+      <main className="max-w-7xl mx-auto border-x border-foreground/10 px-0">
+        <div className="border-b border-foreground/10 px-6 py-8">
           <h1 className="text-3xl font-serif font-bold text-foreground uppercase tracking-tight">
             {t("blog_title") || "Blog"}
           </h1>
@@ -72,50 +70,23 @@ const Blog = () => {
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 newspaper-grid">
               {posts.map((post) => (
-                <Link
+                <ArticleCard
                   key={post.id}
-                  to={`/blog/${post.slug}`}
-                  className="group flex flex-col"
-                >
-                  {post.cover_image && (
-                    <div className="overflow-hidden mb-4 border border-foreground/5">
-                      <img
-                        src={toPublicMediaUrl(post.cover_image)}
-                        alt={isRo ? post.title_ro || post.title_en : post.title_en}
-                        className="w-full aspect-[3/2] object-cover grayscale group-hover:grayscale-0 transition-all duration-700 transform group-hover:scale-105"
-                      />
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-2 h-2 bg-primary" />
-                    <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.1em]">
-                      {t(categoryI18nKey(post.category || "news"))}
-                    </span>
-                  </div>
-                  <h3 className="text-lg font-serif font-bold text-foreground leading-tight mb-2 group-hover:text-primary transition-colors">
-                    {isRo ? post.title_ro || post.title_en : post.title_en}
-                  </h3>
-                  <p className="text-muted-foreground font-sans text-sm line-clamp-3 mb-3">
-                    {isRo ? post.excerpt_ro || post.excerpt_en : post.excerpt_en}
-                  </p>
-                  <div className="text-muted-foreground font-sans text-xs mt-auto flex items-center gap-1">
-                    {post.author_name && <span>{post.author_name}</span>}
-                    {post.published_at && (
-                      <>
-                        <span>•</span>
-                        <span>{format(parseISO(post.published_at), "MMM dd, yyyy")}</span>
-                      </>
-                    )}
-                  </div>
-                </Link>
+                  slug={post.slug}
+                  category={post.category || "news"}
+                  subcategory={(post as any).subcategory}
+                  title={isRo ? post.title_ro || post.title_en : post.title_en}
+                  timeAgo={post.published_at ? format(parseISO(post.published_at), "MMM dd, yyyy") : undefined}
+                  image={post.cover_image || "/placeholder.svg"}
+                  linkPrefix="/blog/"
+                />
               ))}
             </div>
 
-            {/* Pagination */}
             {totalPages > 1 && (
-              <Pagination className="mt-12">
+              <Pagination className="py-10 border-t border-foreground/10">
                 <PaginationContent>
                   {page > 1 && (
                     <PaginationItem>

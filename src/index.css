@@ -90,6 +90,21 @@
   }
 }
 
+/* Newspaper grid — vertical separators between columns */
+@media (min-width: 1024px) {
+  .newspaper-grid > * {
+    border-right: 1px solid hsl(var(--foreground) / 0.1);
+  }
+  .newspaper-grid > *:last-child {
+    border-right: 0;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .newspaper-grid > *:nth-child(odd) {
+    border-right: 1px solid hsl(var(--foreground) / 0.1);
+  }
+}
+
 @keyframes marquee {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
