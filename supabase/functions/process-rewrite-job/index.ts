@@ -187,12 +187,30 @@ Respond with valid JSON:
     const needsReview = (aiScore !== null && aiScore < 50) || (plagiarismScore !== null && plagiarismScore > 25);
     const finalStatus = needsReview ? 'needs_review' : 'rewritten';
 
-    // Auto-generate cover image via Pollinations.ai (zero-cost)
-    const imgSeed = Math.floor(Math.random() * 100000);
-    const imgSubject = `${(parsed.title_en || article.original_title)} ${parsed.excerpt_en || ''}`.substring(0, 120).replace(/[^\w\s-]/g, '');
-    const imgPrompt = `Professional news photography, high-detail, editorial style, regarding: ${imgSubject}`;
-    const coverImageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1200&height=630&model=flux&seed=${imgSeed}&nologo=true`;
-    console.log(`[${jobId}] Auto-generated cover image URL with seed ${imgSeed}`);
+    // Auto-generate cover image via generate-cover-image edge function
+    let coverImageUrl: string | null = null;
+    try {
+      const imgRes = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-cover-image`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        },
+        body: JSON.stringify({
+          title: parsed.title_en || article.original_title,
+          excerpt: parsed.excerpt_en || '',
+        }),
+      });
+      const imgData = await imgRes.json();
+      if (imgData.publicUrl) {
+        coverImageUrl = imgData.publicUrl;
+        console.log(`[${jobId}] Cover image stored: ${coverImageUrl}`);
+      } else {
+        console.warn(`[${jobId}] Cover image generation failed: ${imgData.error || 'unknown'}`);
+      }
+    } catch (imgErr) {
+      console.warn(`[${jobId}] Cover image generation error: ${(imgErr as Error).message}`);
+    }
 
     await supabaseAdmin.from('scraped_articles').update({
       rewritten_en: contentEn, rewritten_ro: contentRo,

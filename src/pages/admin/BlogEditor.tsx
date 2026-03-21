@@ -148,7 +148,7 @@ const BlogEditor = () => {
         seo_title_en: r.seo_title_en || '', seo_title_ro: r.seo_title_ro || '',
         seo_description_en: r.seo_description_en || '', seo_description_ro: r.seo_description_ro || '',
         tags: (r.rewrite_tags || []).join(', '),
-        cover_image: rssCover || generatePollinationsUrl(r.title_en || r.original_title || '', r.excerpt_en || ''),
+        cover_image: rssCover || '',
         status: 'draft',
         category: categoryFromUrl || 'politics',
         author_name: 'Marcus Webb',
@@ -157,11 +157,22 @@ const BlogEditor = () => {
     }
   }, [rssArticle, isEdit, searchParams]);
 
-  const generatePollinationsUrl = (title: string, excerpt: string) => {
-    const seed = Math.floor(Math.random() * 100000);
-    const subject = `${title} ${excerpt}`.substring(0, 120).replace(/[^\w\s-]/g, '');
-    const prompt = `Professional news photography, high-detail, editorial style, regarding: ${subject}`;
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1200&height=630&model=flux&seed=${seed}&nologo=true`;
+  const generateCoverViaEdgeFunction = async (title: string, excerpt: string): Promise<string | null> => {
+    setCoverLoading(true);
+    setCoverError(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-cover-image', {
+        body: { title, excerpt },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data.publicUrl;
+    } catch (e: any) {
+      console.error('Cover generation failed:', e.message);
+      setCoverError(true);
+      setCoverLoading(false);
+      return null;
+    }
   };
 
   // Reset cover loading/error state whenever cover URL changes
@@ -172,11 +183,16 @@ const BlogEditor = () => {
     }
   }, [form.cover_image]);
 
-  const generateCoverImage = () => {
+  const generateCoverImage = async () => {
     if (!form.title_en.trim()) { toast.error('Enter a title first'); return; }
-    const url = generatePollinationsUrl(form.title_en, form.excerpt_en || form.summary_en || '');
-    handleChange('cover_image', url);
-    toast.success('Cover image generated!');
+    const url = await generateCoverViaEdgeFunction(form.title_en, form.excerpt_en || form.summary_en || '');
+    if (url) {
+      handleChange('cover_image', url);
+      setCoverLoading(false);
+      toast.success('Cover image generated and stored!');
+    } else {
+      toast.error('Image generation failed — try again or upload manually');
+    }
   };
 
   const handleChange = (field: string, value: string) => {
@@ -290,9 +306,16 @@ const BlogEditor = () => {
           seo_title_en: data.seo_title_en || prev.seo_title_en, seo_title_ro: data.seo_title_ro || prev.seo_title_ro,
           seo_description_en: data.seo_description_en || prev.seo_description_en, seo_description_ro: data.seo_description_ro || prev.seo_description_ro,
         };
-        // Auto-generate cover image
-        if (!newForm.cover_image) {
-          newForm.cover_image = generatePollinationsUrl(newForm.title_en, newForm.excerpt_en);
+        // Auto-generate cover image via edge function after state update
+        if (!newForm.cover_image && newForm.title_en) {
+          setTimeout(async () => {
+            const url = await generateCoverViaEdgeFunction(newForm.title_en, newForm.excerpt_en);
+            if (url) {
+              setForm(prev => ({ ...prev, cover_image: url }));
+              setCoverLoading(false);
+              toast.success('Cover image auto-generated!');
+            }
+          }, 100);
         }
         return newForm;
       });
