@@ -8,7 +8,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AdUnit from "@/components/AdUnit";
 import ArticleCard from "@/components/ArticleCard";
-import MostReadSidebar from "@/components/MostReadSidebar";
+import { formatDistanceToNow } from "date-fns";
 import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
