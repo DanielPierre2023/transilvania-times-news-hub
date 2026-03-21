@@ -29,9 +29,18 @@ const Index = () => {
     },
   });
 
-  const getTitle = (post: any) => isRo ? post.title_ro || post.title_en : post.title_en;
-  const getExcerpt = (post: any) => isRo ? post.excerpt_ro || post.excerpt_en : post.excerpt_en;
-  const getSummary = (post: any) => isRo ? post.summary_ro || post.summary_en : post.summary_en;
+  const getTitle = (post: any) => {
+    if (!post) return "";
+    return isRo ? post.title_ro || post.title_en : post.title_en;
+  };
+  const getExcerpt = (post: any) => {
+    if (!post) return "";
+    return isRo ? post.excerpt_ro || post.excerpt_en : post.excerpt_en;
+  };
+  const getSummary = (post: any) => {
+    if (!post) return "";
+    return isRo ? post.summary_ro || post.summary_en : post.summary_en;
+  };
 
   // Hero uses posts 0, 1, 2. Secondary spread uses 3, 4. Grid uses 5-8. Rest grouped by category.
   const heroMain = allPosts[0] || null;
