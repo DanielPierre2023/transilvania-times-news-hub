@@ -269,6 +269,16 @@ i18n
 
           // Category page
           all_articles: "Toate Articolele",
+
+          // Comments & Sharing
+          comments_title: "Discuții și Comentarii",
+          comments_name: "Numele tău",
+          comments_email: "Email (opțional)",
+          comments_placeholder: "Împărtășește-ți gândurile…",
+          comments_submit: "Postează comentariu",
+          comments_pending: "Comentariu trimis! Va apărea după moderare.",
+          comments_none: "Fii primul care comentează acest articol.",
+          share_label: "Distribuie",
         },
       },
     },
