@@ -17,7 +17,7 @@ const ArticleSEO = ({ article }: { article: Article }) => {
       "@context": "https://schema.org",
       "@type": "NewsArticle",
       headline,
-      image: [article.image],
+      image: [toPublicMediaUrl(article.image)],
       datePublished: new Date().toISOString(),
       dateModified: new Date().toISOString(),
       author: [{ "@type": "Person", name: article.author }],
