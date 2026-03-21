@@ -8,10 +8,11 @@ import ShareSuite from "@/components/ShareSuite";
 import CommentSection from "@/components/CommentSection";
 import { format, parseISO } from "date-fns";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
+import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
-  const { i18n } = useTranslation();
+  const { i18n, t: _t } = useTranslation();
   const isRo = i18n.language.startsWith("ro");
 
   const { data: post, isLoading } = useQuery({
@@ -50,6 +51,7 @@ const BlogPost = () => {
     );
   }
 
+  const { t } = useTranslation();
   const title = isRo ? post.title_ro || post.title_en : post.title_en;
   const content = isRo ? post.content_ro || post.content_en : post.content_en;
   const summary = isRo ? post.summary_ro || post.summary_en : post.summary_en;
@@ -63,8 +65,13 @@ const BlogPost = () => {
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 bg-primary" />
               <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.2em]">
-                {post.category}
+                {t(categoryI18nKey(post.category))}
               </span>
+              {(post as any).subcategory && (
+                <span className="text-muted-foreground font-sans text-[10px] uppercase tracking-[0.1em] ml-2">
+                  · {t(subcategoryI18nKey((post as any).subcategory))}
+                </span>
+              )}
             </div>
           )}
           <h1 className="text-3xl md:text-4xl font-serif font-bold text-foreground leading-tight mb-4">

@@ -74,6 +74,7 @@ export type Database = {
           seo_title_ro: string | null
           slug: string
           status: string
+          subcategory: string | null
           summary_en: string | null
           summary_ro: string | null
           tags: string[] | null
@@ -99,6 +100,7 @@ export type Database = {
           seo_title_ro?: string | null
           slug: string
           status?: string
+          subcategory?: string | null
           summary_en?: string | null
           summary_ro?: string | null
           tags?: string[] | null
@@ -124,6 +126,7 @@ export type Database = {
           seo_title_ro?: string | null
           slug?: string
           status?: string
+          subcategory?: string | null
           summary_en?: string | null
           summary_ro?: string | null
           tags?: string[] | null
@@ -397,6 +400,7 @@ export type Database = {
       scraped_articles: {
         Row: {
           ai_score: number | null
+          category: string | null
           cover_image: string | null
           created_at: string
           excerpt_en: string | null
@@ -421,6 +425,7 @@ export type Database = {
           seo_title_ro: string | null
           source_id: string | null
           status: string
+          subcategory: string | null
           summary_en: string | null
           summary_ro: string | null
           title_en: string | null
@@ -428,6 +433,7 @@ export type Database = {
         }
         Insert: {
           ai_score?: number | null
+          category?: string | null
           cover_image?: string | null
           created_at?: string
           excerpt_en?: string | null
@@ -452,6 +458,7 @@ export type Database = {
           seo_title_ro?: string | null
           source_id?: string | null
           status?: string
+          subcategory?: string | null
           summary_en?: string | null
           summary_ro?: string | null
           title_en?: string | null
@@ -459,6 +466,7 @@ export type Database = {
         }
         Update: {
           ai_score?: number | null
+          category?: string | null
           cover_image?: string | null
           created_at?: string
           excerpt_en?: string | null
@@ -483,6 +491,7 @@ export type Database = {
           seo_title_ro?: string | null
           source_id?: string | null
           status?: string
+          subcategory?: string | null
           summary_en?: string | null
           summary_ro?: string | null
           title_en?: string | null

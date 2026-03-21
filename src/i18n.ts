@@ -26,6 +26,12 @@ i18n
           cat_education: "Education",
           cat_sports: "Sports",
           cat_health: "Health",
+          cat_news: "News",
+
+          // Subcategories
+          subcat_regional: "Regional",
+          subcat_national: "National",
+          subcat_international: "International",
 
           // Breaking headlines
           breaking_1: "Opposition Leader Calls for Early Elections Amid Growing Public Discontent",
@@ -167,6 +173,12 @@ i18n
           cat_education: "Educație",
           cat_sports: "Sport",
           cat_health: "Sănătate",
+          cat_news: "Știri",
+
+          // Subcategories
+          subcat_regional: "Regional",
+          subcat_national: "Național",
+          subcat_international: "Internațional",
 
           // Breaking headlines
           breaking_1: "Liderul Opoziției solicită alegeri anticipate pe fondul nemulțumirii publice crescânde",

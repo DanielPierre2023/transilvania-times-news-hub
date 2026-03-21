@@ -28,7 +28,8 @@ const EDITORS = [
   { value: 'daniel_novak', label: 'Daniel Novak' },
 ];
 
-const CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health'];
+import { CATEGORIES, SUBCATEGORIES, categoryI18nKey, subcategoryI18nKey } from '@/lib/categories';
+const CATEGORY_OPTIONS = ['auto-detect', ...CATEGORIES] as const;
 const LANGUAGES = [
   { value: 'en', label: '🇬🇧 English' },
   { value: 'ro', label: '🇷🇴 Română' },
@@ -127,9 +128,11 @@ const RssScraper = () => {
           // Check DB for dedup
           const { data: existing } = await supabase.from('scraped_articles').select('id').eq('original_url', art.url).maybeSingle();
           if (!existing) {
+            const articleCategory = source.category === 'auto-detect' ? null : source.category;
             await supabase.from('scraped_articles').insert({
               original_title: art.title, original_url: art.url, original_content: art.content_snippet, source_id: source.id,
-            });
+              category: articleCategory,
+            } as any);
             added++;
           }
         }
@@ -180,8 +183,9 @@ const RssScraper = () => {
   };
 
   const editAndPublish = (article: any) => {
-    const sourceCategory = (article as any).rss_sources?.category || 'politics';
-    navigate(`/admin/blog/new?from_rss=${article.id}&category=${sourceCategory}`);
+    const artCategory = article.category || (article as any).rss_sources?.category || 'news';
+    const artSubcategory = article.subcategory || '';
+    navigate(`/admin/blog/new?from_rss=${article.id}&category=${artCategory}&subcategory=${artSubcategory}`);
   };
 
   const canPublish = (article: any) => {
@@ -220,9 +224,14 @@ const RssScraper = () => {
   };
 
   const getSourceCategory = (article: any) => {
-    const cat = (article as any).rss_sources?.category;
-    if (!cat) return null;
-    return <Badge variant="outline" className="text-[10px] capitalize">{cat}</Badge>;
+    const cat = article.category || (article as any).rss_sources?.category;
+    const sub = article.subcategory;
+    return (
+      <div className="flex items-center gap-1">
+        {cat && <Badge variant="outline" className="text-[10px] capitalize">{cat}</Badge>}
+        {sub && <Badge variant="secondary" className="text-[10px] capitalize">{sub}</Badge>}
+      </div>
+    );
   };
 
   const getSourceLang = (article: any) => {
@@ -254,7 +263,10 @@ const RssScraper = () => {
             <Input placeholder="Name (optional)" value={newName} onChange={e => setNewName(e.target.value)} className="w-40" />
             <Select value={newCategory} onValueChange={setNewCategory}>
               <SelectTrigger className="w-32 text-xs"><SelectValue placeholder="Category" /></SelectTrigger>
-              <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}</SelectContent>
+              <SelectContent>
+                <SelectItem value="auto-detect" className="text-xs">🤖 Auto-Detect</SelectItem>
+                {CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}
+              </SelectContent>
             </Select>
             <Select value={newLang} onValueChange={setNewLang}>
               <SelectTrigger className="w-32 text-xs"><SelectValue placeholder="Language" /></SelectTrigger>
@@ -277,7 +289,10 @@ const RssScraper = () => {
                 </div>
                 <Select value={s.category || 'technology'} onValueChange={v => updateSourceField.mutate({ id: s.id, field: 'category', value: v })}>
                   <SelectTrigger className="w-28 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    <SelectItem value="auto-detect" className="text-xs">🤖 Auto-Detect</SelectItem>
+                    {CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}
+                  </SelectContent>
                 </Select>
                 <Select value={s.source_language || 'en'} onValueChange={v => updateSourceField.mutate({ id: s.id, field: 'source_language', value: v })}>
                   <SelectTrigger className="w-28 text-xs"><SelectValue /></SelectTrigger>

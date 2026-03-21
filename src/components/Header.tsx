@@ -4,25 +4,7 @@ import { Search, X, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import WeatherWidget from "./WeatherWidget";
 import LangSwitcher from "./LangSwitcher";
-
-const categoryKeys = [
-  "cat_politics", "cat_world", "cat_technology", "cat_business",
-  "cat_culture", "cat_opinion", "cat_travel", "cat_education",
-  "cat_sports", "cat_health",
-] as const;
-
-const categorySlugs: Record<string, string> = {
-  cat_politics: "politics",
-  cat_world: "world",
-  cat_technology: "technology",
-  cat_business: "business",
-  cat_culture: "culture",
-  cat_opinion: "opinion",
-  cat_travel: "travel",
-  cat_education: "education",
-  cat_sports: "sports",
-  cat_health: "health",
-};
+import { NAV_CATEGORIES } from "@/lib/categories";
 
 const Header = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -112,13 +94,13 @@ const Header = () => {
 
         <nav className="border-b border-foreground/20">
           <ul className="flex items-center justify-center gap-6 py-2.5 overflow-x-auto">
-            {categoryKeys.map((key) => (
-              <li key={key}>
+            {NAV_CATEGORIES.map(({ slug, i18nKey }) => (
+              <li key={slug}>
                 <Link
-                  to={`/category/${categorySlugs[key]}`}
+                  to={`/category/${slug}`}
                   className="text-sm font-sans font-medium text-foreground hover:text-primary transition-colors whitespace-nowrap"
                 >
-                  {t(key)}
+                  {t(i18nKey)}
                 </Link>
               </li>
             ))}

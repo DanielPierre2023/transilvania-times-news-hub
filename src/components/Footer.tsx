@@ -4,25 +4,7 @@ import { useTranslation } from "react-i18next";
 import { MapPin, Mail, Phone, Facebook, Twitter, Instagram, Github } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-const categoryKeys = [
-  "cat_politics", "cat_world", "cat_technology", "cat_business",
-  "cat_culture", "cat_opinion", "cat_travel", "cat_education",
-  "cat_sports", "cat_health",
-] as const;
-
-const categorySlugs: Record<string, string> = {
-  cat_politics: "politics",
-  cat_world: "world",
-  cat_technology: "technology",
-  cat_business: "business",
-  cat_culture: "culture",
-  cat_opinion: "opinion",
-  cat_travel: "travel",
-  cat_education: "education",
-  cat_sports: "sports",
-  cat_health: "health",
-};
+import { NAV_CATEGORIES } from "@/lib/categories";
 
 const Footer = () => {
   const { t, i18n } = useTranslation();
@@ -69,13 +51,13 @@ const Footer = () => {
               {t("popular_categories")}
             </h4>
             <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 font-sans text-sm">
-              {categoryKeys.map((key) => (
-                <li key={key}>
+              {NAV_CATEGORIES.map(({ slug, i18nKey }) => (
+                <li key={slug}>
                   <Link
-                    to={`/category/${categorySlugs[key]}`}
+                    to={`/category/${slug}`}
                     className="text-foreground/80 hover:text-primary transition-colors"
                   >
-                    {t(key)}
+                    {t(i18nKey)}
                   </Link>
                 </li>
               ))}

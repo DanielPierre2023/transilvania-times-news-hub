@@ -46,6 +46,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/article/:slug" element={<Article />} />
           <Route path="/category/:name" element={<Category />} />
+          <Route path="/category/:name/:sub" element={<Category />} />
           <Route path="/search" element={<SearchResults />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:slug" element={<BlogPost />} />

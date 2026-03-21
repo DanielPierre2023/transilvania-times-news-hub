@@ -52,16 +52,20 @@ serve(async (req) => {
     const editor = job.editor || 'marcus_webb';
 
     const { data: article, error: fetchErr } = await supabaseAdmin
-      .from('scraped_articles').select('original_content, original_title, source_id').eq('id', articleId).single();
+      .from('scraped_articles').select('original_content, original_title, source_id, category, subcategory').eq('id', articleId).single();
 
     if (fetchErr || !article) throw new Error(`Article not found: ${fetchErr?.message}`);
 
-    // Detect source language from rss_sources
+    // Detect source language and category from rss_sources
     let sourceLang = 'en';
+    let sourceCategory: string | null = article.category || null;
     if (article.source_id) {
       const { data: source } = await supabaseAdmin
-        .from('rss_sources').select('source_language').eq('id', article.source_id).single();
+        .from('rss_sources').select('source_language, category').eq('id', article.source_id).single();
       if (source?.source_language) sourceLang = source.source_language;
+      if (!sourceCategory && source?.category && source.category !== 'auto-detect') {
+        sourceCategory = source.category;
+      }
     }
 
     const apiKey = Deno.env.get('OPENAI_API_KEY');
@@ -71,9 +75,14 @@ serve(async (req) => {
     // DESK 1: EXTRACTION (Gemini Flash — fast, cheap)
     // Strips original to language-neutral facts only
     // ═══════════════════════════════════════════════════
-    console.log(`[${jobId}] Desk 1: Extracting facts via Gemini Flash...`);
+    console.log(`[${jobId}] Desk 1: Extracting facts + classifying via Gemini Flash...`);
+    const needsClassification = !sourceCategory || !article.subcategory;
+    const classificationInstruction = needsClassification
+      ? `\n\nAfter the numbered facts, on the LAST two lines output:\nCATEGORY: {one of: politics, world, technology, business, culture, opinion, travel, education, sports, health, news}\nSUBCATEGORY: {one of: regional, national, international}\n\nClassification rules:\n- regional = about Transilvania, Cluj-Napoca, Sibiu, Brașov, Alba Iulia, Târgu Mureș, or other Transylvanian cities/counties\n- national = about Romania as a whole (Bucharest, Romanian government, national events)\n- international = everything else (world events, global tech, foreign politics)\n- If the article does not fit politics/world/technology/business/culture/opinion/travel/education/sports/health, use "news"`
+      : '';
+
     const extractionResult = await callGemini({
-      systemInstruction: `You are a senior fact-checker and data extraction specialist. Your job is to extract ONLY the factual claims from articles. Output a numbered list of facts in English. No opinions, no adjectives, no prose, no original phrasing. Just raw facts with numbers, names, dates, locations, and events. If the source is not in English, translate the facts to English. Do NOT preserve the original article's sentence structures or narrative flow.`,
+      systemInstruction: `You are a senior fact-checker and data extraction specialist. Your job is to extract ONLY the factual claims from articles. Output a numbered list of facts in English. No opinions, no adjectives, no prose, no original phrasing. Just raw facts with numbers, names, dates, locations, and events. If the source is not in English, translate the facts to English. Do NOT preserve the original article's sentence structures or narrative flow.${classificationInstruction}`,
       userMessage: `Extract all factual claims from this article as a numbered list:\n\nTitle: ${article.original_title}\n\nContent:\n${article.original_content}`,
       temperature: 0.3,
       maxTokens: 3000,
@@ -91,10 +100,32 @@ serve(async (req) => {
     }
     console.log(`[${jobId}] Desk 1 complete: ${extractedFacts.length} chars of facts extracted`);
 
-    // ═══════════════════════════════════════════════════
-    // DESK 2+3: SYNTHESIS + STYLING (GPT-4o — single call)
-    // Builds original bilingual article from facts using editor persona
-    // ═══════════════════════════════════════════════════
+    // Parse category/subcategory from extracted facts if needed
+    const VALID_CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health', 'news'];
+    const VALID_SUBCATEGORIES = ['regional', 'national', 'international'];
+    const CAT_ALIASES: Record<string, string> = { tech: 'technology', sport: 'sports', economia: 'business', economie: 'business', politica: 'politics', știri: 'news', stiri: 'news', science: 'technology', entertainment: 'culture', lifestyle: 'culture', finance: 'business' };
+    const SUB_ALIASES: Record<string, string> = { local: 'regional', transilvania: 'regional', transylvania: 'regional', romania: 'national', global: 'international', mondial: 'international', extern: 'international' };
+
+    let detectedCategory = sourceCategory;
+    let detectedSubcategory = article.subcategory || null;
+
+    if (needsClassification) {
+      const catMatch = extractedFacts.match(/CATEGORY:\s*(.+)/i);
+      const subMatch = extractedFacts.match(/SUBCATEGORY:\s*(.+)/i);
+      if (catMatch && !detectedCategory) {
+        const raw = catMatch[1].trim().toLowerCase();
+        detectedCategory = CAT_ALIASES[raw] || (VALID_CATEGORIES.includes(raw) ? raw : 'news');
+      }
+      if (subMatch && !detectedSubcategory) {
+        const raw = subMatch[1].trim().toLowerCase();
+        detectedSubcategory = SUB_ALIASES[raw] || (VALID_SUBCATEGORIES.includes(raw) ? raw : 'international');
+      }
+    }
+
+    if (!detectedCategory) detectedCategory = 'news';
+    if (!detectedSubcategory) detectedSubcategory = 'international';
+
+    console.log(`[${jobId}] Classification: ${detectedCategory} / ${detectedSubcategory}`);
     console.log(`[${jobId}] Desk 2+3: Synthesizing with ${editor} persona...`);
     const synthesisPrompt = `Current date: March 2026.
 
@@ -226,6 +257,8 @@ Respond with valid JSON:
       seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),
       seo_description_ro: sanitizeContent(parsed.seo_description_ro || '', 'ro'),
       cover_image: coverImageUrl,
+      category: detectedCategory,
+      subcategory: detectedSubcategory,
       status: finalStatus, rewrite_error: null, rewrite_finished_at: new Date().toISOString(),
       ai_score: aiScore, plagiarism_score: plagiarismScore, quality_checked_at: new Date().toISOString(),
     } as any).eq('id', articleId);

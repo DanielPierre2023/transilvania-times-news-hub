@@ -41,7 +41,7 @@ const AI_CHIPS = [
   { action: 'generate_tags', label: 'Generate Tags' },
 ];
 
-const CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health'];
+import { CATEGORIES, SUBCATEGORIES } from '@/lib/categories';
 const WORD_COUNTS = [800, 1200, 1800, 2500, 3500];
 const slugify = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
@@ -94,7 +94,8 @@ const BlogEditor = () => {
     title_en: '', title_ro: '', slug: '', excerpt_en: '', excerpt_ro: '',
     summary_en: '', summary_ro: '',
     content_en: '', content_ro: '', tags: '' as string, cover_image: '',
-    status: 'draft', category: 'politics', author_name: 'Kara Newman',
+    status: 'draft', category: 'politics', subcategory: 'international' as string,
+    author_name: 'Kara Newman',
     seo_title_en: '', seo_title_ro: '', seo_description_en: '', seo_description_ro: '',
   });
 
@@ -127,6 +128,7 @@ const BlogEditor = () => {
         content_en: p.content_en || '', content_ro: p.content_ro || '',
         tags: (p.tags || []).join(', '), cover_image: p.cover_image || '',
         status: p.status || 'draft', category: p.category || 'politics',
+        subcategory: p.subcategory || 'international',
         author_name: p.author_name || 'Kara Newman',
         seo_title_en: p.seo_title_en || '', seo_title_ro: p.seo_title_ro || '',
         seo_description_en: p.seo_description_en || '', seo_description_ro: p.seo_description_ro || '',
@@ -138,6 +140,7 @@ const BlogEditor = () => {
     if (rssArticle && !isEdit) {
       const r = rssArticle as any;
       const categoryFromUrl = searchParams.get('category');
+      const subcategoryFromUrl = searchParams.get('subcategory');
       const rssCover = r.cover_image || '';
       setForm({
         title_en: r.title_en || r.original_title || '',
@@ -151,7 +154,8 @@ const BlogEditor = () => {
         tags: (r.rewrite_tags || []).join(', '),
         cover_image: rssCover || '',
         status: 'draft',
-        category: categoryFromUrl || 'politics',
+        category: r.category || categoryFromUrl || 'news',
+        subcategory: r.subcategory || subcategoryFromUrl || 'international',
         author_name: 'Marcus Webb',
       });
       setGenOpen(false);
@@ -252,7 +256,8 @@ const BlogEditor = () => {
         content_en: form.content_en, content_ro: form.content_ro,
         tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
         cover_image: form.cover_image || null, status: form.status,
-        category: form.category, author_name: form.author_name,
+        category: form.category, subcategory: form.subcategory || 'international',
+        author_name: form.author_name,
         seo_title_en: form.seo_title_en || null, seo_title_ro: form.seo_title_ro || null,
         seo_description_en: form.seo_description_en || null, seo_description_ro: form.seo_description_ro || null,
         reading_time_min: readingTime,
@@ -483,6 +488,10 @@ const BlogEditor = () => {
             <Select value={form.category} onValueChange={v => handleChange('category', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={form.subcategory} onValueChange={v => handleChange('subcategory', v)}>
+              <SelectTrigger><SelectValue placeholder="Subcategory" /></SelectTrigger>
+              <SelectContent>{SUBCATEGORIES.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={Object.keys(EDITOR_NAMES).find(k => EDITOR_NAMES[k] === form.author_name) || 'marcus_webb'} onValueChange={v => handleChange('author_name', EDITOR_NAMES[v] || v)}>
               <SelectTrigger className="text-xs"><SelectValue placeholder="Author" /></SelectTrigger>

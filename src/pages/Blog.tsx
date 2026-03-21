@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { format, parseISO } from "date-fns";
+import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
+import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
 const Blog = () => {
   const { t, i18n } = useTranslation();
@@ -50,7 +52,7 @@ const Blog = () => {
                 {post.cover_image && (
                   <div className="overflow-hidden mb-4 border border-foreground/5">
                     <img
-                      src={post.cover_image}
+                      src={toPublicMediaUrl(post.cover_image)}
                       alt={isRo ? post.title_ro || post.title_en : post.title_en}
                       className="w-full aspect-[3/2] object-cover grayscale group-hover:grayscale-0 transition-all duration-700 transform group-hover:scale-105"
                     />
@@ -59,7 +61,7 @@ const Blog = () => {
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-2 h-2 bg-primary" />
                   <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.1em]">
-                    {post.category || "news"}
+                    {t(categoryI18nKey(post.category || "news"))}
                   </span>
                 </div>
                 <h3 className="text-lg font-serif font-bold text-foreground leading-tight mb-2 group-hover:text-primary transition-colors">
