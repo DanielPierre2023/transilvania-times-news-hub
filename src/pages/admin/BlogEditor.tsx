@@ -94,7 +94,8 @@ const BlogEditor = () => {
     title_en: '', title_ro: '', slug: '', excerpt_en: '', excerpt_ro: '',
     summary_en: '', summary_ro: '',
     content_en: '', content_ro: '', tags: '' as string, cover_image: '',
-    status: 'draft', category: 'politics', author_name: 'Kara Newman',
+    status: 'draft', category: 'politics', subcategory: 'international' as string,
+    author_name: 'Kara Newman',
     seo_title_en: '', seo_title_ro: '', seo_description_en: '', seo_description_ro: '',
   });
 
