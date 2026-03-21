@@ -32,7 +32,8 @@ const Index = () => {
   });
 
   const hero = allPosts[0] || null;
-  const restPosts = allPosts.slice(1);
+  const gridArticles = allPosts.slice(1, 5);
+  const restPosts = allPosts.slice(5);
 
   // Group remaining posts by category
   const categoryGroups = useMemo(() => {
@@ -49,35 +50,41 @@ const Index = () => {
   const getExcerpt = (post: any) => isRo ? post.excerpt_ro || post.excerpt_en : post.excerpt_en;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground">
       <Header />
 
+      {/* GLOBAL AD SLOT — above main shell */}
+      <div className="w-full border-b border-foreground/10 py-6">
+        <AdUnit type="leaderboard" />
+      </div>
+
       <main className="max-w-7xl mx-auto border-x border-foreground/10">
-        {/* ═══ HERO + MOST READ ═══ */}
+
+        {/* ═══ HERO + MOST READ SIDEBAR ═══ */}
         {hero ? (
           <section className="grid grid-cols-1 lg:grid-cols-12 border-b border-foreground/10">
             <div className="lg:col-span-8 p-6 lg:border-r border-foreground/10">
-              <Link to={`/blog/${hero.slug}`} className="block group">
-                <div className="relative overflow-hidden border border-foreground/5">
+              <Link to={`/blog/${hero.slug}`} className="block group cursor-pointer">
+                <div className="relative overflow-hidden mb-6 aspect-video border-4 border-background shadow-xl">
                   {hero.cover_image && (
                     <img
                       src={toPublicMediaUrl(hero.cover_image)}
                       alt={getTitle(hero)}
-                      className="w-full aspect-video object-cover grayscale group-hover:grayscale-0 transition-all duration-700 ease-in-out transform group-hover:scale-105"
+                      className="w-full h-full object-cover transition-all duration-1000 grayscale group-hover:grayscale-0"
                     />
                   )}
-                  <div className="absolute bottom-0 left-0 bg-primary text-primary-foreground px-2.5 py-1 text-[9px] font-sans font-bold uppercase tracking-widest flex items-center gap-1.5">
+                  <div className="absolute top-0 left-0 bg-primary text-primary-foreground px-3 py-1 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5">
                     {t(categoryI18nKey(hero.category || "news"))}
-                    {(hero as any).subcategory && (
-                      <span className="opacity-80">· {t(subcategoryI18nKey((hero as any).subcategory))}</span>
+                    {hero.subcategory && (
+                      <span className="opacity-80">· {t(subcategoryI18nKey(hero.subcategory))}</span>
                     )}
                   </div>
                 </div>
-                <h2 className="mt-4 text-2xl md:text-3xl font-serif font-bold text-foreground leading-tight group-hover:text-primary transition-colors">
+                <h1 className="text-4xl md:text-7xl font-serif font-bold leading-[0.95] italic tracking-tighter mb-4 text-foreground group-hover:text-primary transition-colors">
                   {getTitle(hero)}
-                </h2>
+                </h1>
                 {getExcerpt(hero) && (
-                  <p className="mt-2 text-muted-foreground font-sans text-sm leading-relaxed line-clamp-3">
+                  <p className="text-muted-foreground text-lg font-sans max-w-2xl leading-relaxed">
                     {getExcerpt(hero)}
                   </p>
                 )}
@@ -92,9 +99,9 @@ const Index = () => {
                 </div>
               </Link>
             </div>
-            <div className="lg:col-span-4 p-6 bg-primary/5">
+            <aside className="lg:col-span-4 p-6 bg-primary/5">
               <MostReadSidebar />
-            </div>
+            </aside>
           </section>
         ) : (
           <div className="p-6 text-center text-muted-foreground font-serif italic text-xl py-20">
@@ -102,38 +109,57 @@ const Index = () => {
           </div>
         )}
 
-        {/* ═══ AD UNIT ═══ */}
-        <div className="border-b border-foreground/10">
-          <AdUnit type="leaderboard" />
-        </div>
+        {/* ═══ LATEST NEWS — 4-COLUMN GRID ═══ */}
+        {gridArticles.length > 0 && (
+          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 border-b border-foreground/10">
+            {gridArticles.map((post, i) => (
+              <ArticleCard
+                key={post.id}
+                slug={post.slug}
+                category={post.category || "news"}
+                subcategory={post.subcategory}
+                title={getTitle(post)}
+                timeAgo={post.published_at ? format(parseISO(post.published_at), "MMM dd, yyyy") : undefined}
+                image={post.cover_image || "/placeholder.svg"}
+                linkPrefix="/blog/"
+                className={i < 3 ? "lg:border-r border-foreground/10" : ""}
+              />
+            ))}
+          </section>
+        )}
+
+        {/* ═══ NEWSLETTER INTERRUPTER ═══ */}
+        <Newsletter />
 
         {/* ═══ CATEGORY SECTIONS ═══ */}
         {categoryGroups.map(([cat, posts], groupIdx) => (
           <section key={cat} className="border-b border-foreground/10">
             {/* Category header */}
             <div className="flex items-center gap-3 px-6 pt-8 pb-4">
-              <div className="w-3 h-3 bg-primary" />
+              <div className="w-2 h-2 bg-primary" />
               <Link
                 to={`/category/${cat}`}
-                className="font-sans font-bold text-xs uppercase tracking-[0.15em] text-primary hover:underline"
+                className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-primary hover:underline"
               >
                 {t(categoryI18nKey(cat))}
               </Link>
               <div className="flex-1 h-px bg-foreground/10" />
             </div>
 
-            {/* 4-column newspaper grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 newspaper-grid">
-              {posts.slice(0, 4).map((post) => (
+            {/* 3-column grid for category sections */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 px-6 pb-6 gap-0">
+              {posts.slice(0, 3).map((post, i) => (
                 <ArticleCard
                   key={post.id}
                   slug={post.slug}
                   category={post.category || "news"}
-                  subcategory={(post as any).subcategory}
+                  subcategory={post.subcategory}
                   title={getTitle(post)}
                   timeAgo={post.published_at ? format(parseISO(post.published_at), "MMM dd, yyyy") : undefined}
                   image={post.cover_image || "/placeholder.svg"}
                   linkPrefix="/blog/"
+                  variant="simple"
+                  className={i < 2 ? "lg:border-r border-foreground/10" : ""}
                 />
               ))}
             </div>
@@ -157,8 +183,6 @@ const Index = () => {
           </div>
         )}
       </main>
-
-      <Newsletter />
 
       <Footer />
     </div>

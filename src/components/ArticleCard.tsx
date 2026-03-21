@@ -11,9 +11,10 @@ interface ArticleCardProps {
   image: string;
   subcategory?: string;
   linkPrefix?: string;
-  variant?: "hero" | "grid";
+  variant?: "hero" | "grid" | "simple";
   excerpt?: string;
   author?: string;
+  className?: string;
 }
 
 const ArticleCard = ({
@@ -27,6 +28,7 @@ const ArticleCard = ({
   variant = "grid",
   excerpt,
   author,
+  className = "",
 }: ArticleCardProps) => {
   const { t } = useTranslation();
 
@@ -67,13 +69,47 @@ const ArticleCard = ({
     );
   }
 
-  // Grid variant — newspaper card
+  // Simple variant — no excerpt, minimal
+  if (variant === "simple") {
+    return (
+      <Link
+        to={`${linkPrefix}${slug}`}
+        className={`group flex flex-col p-6 cursor-pointer ${className}`}
+      >
+        <div className="relative overflow-hidden mb-4 aspect-[4/3] border border-foreground/5 shadow-sm">
+          <img
+            src={toPublicMediaUrl(image)}
+            alt={title}
+            className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700 ease-in-out transform group-hover:scale-105"
+          />
+          <div className="absolute bottom-0 left-0 bg-primary text-primary-foreground px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest flex items-center gap-1.5">
+            {t(categoryI18nKey(category))}
+            {subcategory && (
+              <span className="opacity-80">· {t(subcategoryI18nKey(subcategory))}</span>
+            )}
+          </div>
+        </div>
+        <h4 className="font-serif font-bold text-xl leading-tight text-foreground mb-2 group-hover:text-primary transition-colors">
+          {title}
+        </h4>
+        <div className="flex items-center gap-2 mt-auto pt-4 border-t border-foreground/5">
+          {timeAgo && (
+            <span className="text-[10px] font-sans font-bold text-muted-foreground uppercase tracking-widest">
+              {timeAgo}
+            </span>
+          )}
+        </div>
+      </Link>
+    );
+  }
+
+  // Grid variant — newspaper card (default)
   return (
     <Link
       to={`${linkPrefix}${slug}`}
-      className="group flex flex-col p-4"
+      className={`group flex flex-col p-6 cursor-pointer ${className}`}
     >
-      <div className="relative overflow-hidden mb-4 aspect-[4/3] border border-foreground/5">
+      <div className="relative overflow-hidden mb-4 aspect-[4/3] border border-foreground/5 shadow-sm">
         <img
           src={toPublicMediaUrl(image)}
           alt={title}
@@ -86,9 +122,14 @@ const ArticleCard = ({
           )}
         </div>
       </div>
-      <h3 className="font-serif font-bold text-lg leading-tight text-foreground mb-2 group-hover:text-primary transition-colors">
+      <h4 className="font-serif font-bold text-xl leading-tight text-foreground mb-2 group-hover:text-primary transition-colors">
         {title}
-      </h3>
+      </h4>
+      {excerpt && (
+        <p className="text-muted-foreground text-sm font-sans line-clamp-3 mb-4">
+          {excerpt}
+        </p>
+      )}
       <div className="flex items-center gap-2 mt-auto pt-4 border-t border-foreground/5">
         {timeAgo && (
           <span className="text-[10px] font-sans font-bold text-muted-foreground uppercase tracking-widest">
