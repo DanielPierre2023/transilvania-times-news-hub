@@ -189,14 +189,29 @@ const Index = () => {
         {/* ═══ SECTION 2: SECONDARY SPREAD (text | image | ad) ═══ */}
         {(secondaryText || secondaryImage) && (
           <section className="grid grid-cols-1 lg:grid-cols-3 border-b border-foreground/10">
-            {/* Col 1 — Text-only article */}
-            <div className="p-6 lg:border-r border-foreground/10 flex flex-col justify-center">
+            {/* Col 1 — Thumbnail + text article */}
+            <div className="p-6 lg:border-r border-foreground/10 flex flex-col">
               {secondaryText && (
                 <Link to={`/blog/${secondaryText.slug}`} className="group">
+                  {secondaryText.cover_image && (
+                    <div className="relative overflow-hidden mb-4 aspect-[4/3] max-h-[180px]">
+                      <img
+                        src={toPublicMediaUrl(secondaryText.cover_image)}
+                        alt={getTitle(secondaryText)}
+                        className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      />
+                      <div className="absolute bottom-0 left-0 bg-primary text-primary-foreground px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest">
+                        {t(categoryI18nKey(secondaryText.category || "news"))}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-2 h-2 bg-primary" />
                     <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-primary">
                       {t(categoryI18nKey(secondaryText.category || "news"))}
+                      {secondaryText.subcategory && (
+                        <span className="text-muted-foreground ml-1.5">· {t(subcategoryI18nKey(secondaryText.subcategory))}</span>
+                      )}
                     </span>
                   </div>
                   <h3 className="font-serif font-bold text-2xl leading-tight text-foreground mb-3 group-hover:text-primary transition-colors">
@@ -216,11 +231,11 @@ const Index = () => {
               )}
             </div>
 
-            {/* Col 2 — Large grayscale image */}
-            <div className="lg:border-r border-foreground/10">
+            {/* Col 2 — Large grayscale image + title below */}
+            <div className="lg:border-r border-foreground/10 flex flex-col">
               {secondaryImage ? (
-                <Link to={`/blog/${secondaryImage.slug}`} className="block group h-full">
-                  <div className="relative overflow-hidden h-full min-h-[280px]">
+                <Link to={`/blog/${secondaryImage.slug}`} className="block group flex-1 flex flex-col">
+                  <div className="relative overflow-hidden flex-1 min-h-[280px]">
                     {secondaryImage.cover_image && (
                       <img
                         src={toPublicMediaUrl(secondaryImage.cover_image)}
@@ -231,6 +246,25 @@ const Index = () => {
                     <div className="absolute bottom-0 left-0 bg-primary text-primary-foreground px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest">
                       {t(categoryI18nKey(secondaryImage.category || "news"))}
                     </div>
+                  </div>
+                  <div className="p-6">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 bg-primary" />
+                      <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-primary">
+                        {t(categoryI18nKey(secondaryImage.category || "news"))}
+                        {secondaryImage.subcategory && (
+                          <span className="text-muted-foreground ml-1.5">· {t(subcategoryI18nKey(secondaryImage.subcategory))}</span>
+                        )}
+                      </span>
+                    </div>
+                    <h3 className="font-serif font-bold text-xl leading-tight text-foreground group-hover:text-primary transition-colors mb-2">
+                      {getTitle(secondaryImage)}
+                    </h3>
+                    {secondaryImage.published_at && (
+                      <span className="text-[10px] font-sans font-bold text-muted-foreground uppercase tracking-widest">
+                        {format(parseISO(secondaryImage.published_at), "MMM dd, yyyy")}
+                      </span>
+                    )}
                   </div>
                 </Link>
               ) : (
