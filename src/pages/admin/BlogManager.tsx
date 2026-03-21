@@ -35,6 +35,14 @@ const BlogManager = () => {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['blog_posts'] }); toast.success('Post deleted'); },
   });
 
+  const toggleBreaking = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase.from('blog_posts').update({ is_breaking: value } as any).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blog_posts'] }); },
+  });
+
   const filtered = posts.filter((p: any) => {
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
     if (search && !(p.title_en || '').toLowerCase().includes(search.toLowerCase())) return false;
