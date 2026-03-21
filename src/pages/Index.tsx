@@ -29,9 +29,18 @@ const Index = () => {
     },
   });
 
-  const getTitle = (post: any) => isRo ? post.title_ro || post.title_en : post.title_en;
-  const getExcerpt = (post: any) => isRo ? post.excerpt_ro || post.excerpt_en : post.excerpt_en;
-  const getSummary = (post: any) => isRo ? post.summary_ro || post.summary_en : post.summary_en;
+  const getTitle = (post: any) => {
+    if (!post) return "";
+    return isRo ? post.title_ro || post.title_en : post.title_en;
+  };
+  const getExcerpt = (post: any) => {
+    if (!post) return "";
+    return isRo ? post.excerpt_ro || post.excerpt_en : post.excerpt_en;
+  };
+  const getSummary = (post: any) => {
+    if (!post) return "";
+    return isRo ? post.summary_ro || post.summary_en : post.summary_en;
+  };
 
   // Hero uses posts 0, 1, 2. Secondary spread uses 3, 4. Grid uses 5-8. Rest grouped by category.
   const heroMain = allPosts[0] || null;
@@ -112,7 +121,7 @@ const Index = () => {
                 </span>
               </div>
               <Link to={`/blog/${heroMain.slug}`}>
-                <h1 className="text-3xl md:text-4xl lg:text-5xl font-serif font-bold leading-[1] tracking-tight mb-6 text-foreground hover:text-primary transition-colors">
+                <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-serif font-bold leading-[1] tracking-tight mb-6 text-foreground hover:text-primary transition-colors">
                   {getTitle(heroMain)}
                 </h1>
               </Link>

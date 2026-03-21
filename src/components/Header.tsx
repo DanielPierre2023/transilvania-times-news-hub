@@ -1,16 +1,23 @@
 import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, X, Zap } from "lucide-react";
+import { Search, X, Zap, Menu } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import WeatherWidget from "./WeatherWidget";
 import LangSwitcher from "./LangSwitcher";
 import { NAV_CATEGORIES } from "@/lib/categories";
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 const Header = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
 
@@ -20,6 +27,7 @@ const Header = () => {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     }).format(new Date());
   }, [i18n.language]);
+
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && searchQuery.trim()) {
       navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
@@ -70,7 +78,7 @@ const Header = () => {
       </div>
 
       <div className="container mx-auto max-w-6xl px-4">
-        {/* Top bar: date + lang + weather on left, search + support on right */}
+        {/* Top bar */}
         <div className="flex items-center justify-between py-2 border-b border-foreground/20">
           <div className="flex items-center">
             <LangSwitcher />
@@ -110,13 +118,14 @@ const Header = () => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchSubmit}
-              className="w-full bg-transparent border border-foreground/20 rounded px-4 py-2 text-sm font-sans placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full bg-transparent border border-foreground/20 rounded px-4 py-2 text-base font-sans placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
         )}
 
-        <nav className="border-b border-foreground/20">
-          <ul className="flex items-center justify-center gap-6 py-2.5 overflow-x-auto">
+        {/* Desktop nav */}
+        <nav className="border-b border-foreground/20 hidden md:block">
+          <ul className="flex items-center justify-center gap-6 py-2.5">
             {NAV_CATEGORIES.map(({ slug, i18nKey }) => (
               <li key={slug}>
                 <Link
@@ -129,6 +138,43 @@ const Header = () => {
             ))}
           </ul>
         </nav>
+
+        {/* Mobile hamburger nav */}
+        <div className="md:hidden border-b border-foreground/20 py-2 flex items-center">
+          <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+            <SheetTrigger asChild>
+              <button
+                className="p-2 rounded hover:bg-foreground/5 transition-colors"
+                aria-label="Open menu"
+              >
+                <Menu size={22} />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-[280px] bg-background">
+              <SheetTitle className="font-serif font-bold text-lg mb-6">
+                {t("categories", "Categories")}
+              </SheetTitle>
+              <nav>
+                <ul className="flex flex-col gap-1">
+                  {NAV_CATEGORIES.map(({ slug, i18nKey }) => (
+                    <li key={slug}>
+                      <Link
+                        to={`/category/${slug}`}
+                        onClick={() => setMenuOpen(false)}
+                        className="block py-3 px-3 text-sm font-sans font-medium text-foreground hover:text-primary hover:bg-primary/5 transition-colors border-b border-foreground/5"
+                      >
+                        {t(i18nKey)}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            </SheetContent>
+          </Sheet>
+          <span className="ml-2 text-sm font-sans font-medium text-muted-foreground">
+            {t("categories", "Categories")}
+          </span>
+        </div>
       </div>
     </header>
   );
