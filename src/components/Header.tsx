@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, X, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import WeatherWidget from "./WeatherWidget";
 import LangSwitcher from "./LangSwitcher";
 import { NAV_CATEGORIES } from "@/lib/categories";
