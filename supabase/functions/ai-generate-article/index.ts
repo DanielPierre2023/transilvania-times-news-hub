@@ -22,29 +22,32 @@ Your article MUST contain at least ${Math.round(wordCount * 0.85)} words. Target
 `;
 
 const WRITING_RULES = `
-ABSOLUTE WRITING RULES:
-1. ZERO subheadings. Do NOT use ## or ###. Flow as continuous prose.
-2. Do NOT use **bold on its own line**.
-3. NO concluding sections.
-4. Vary paragraph length dramatically.
-5. ZERO AI fingerprints. Never use: "delve", "landscape", "game-changer", "revolutionize", "cutting-edge", "leverage", "navigate", "paradigm shift", "holistic", "robust", "comprehensive", "essential", "crucial", "vital", "pivotal", "foster", "bolster", "harness", "streamline", "synergy", "ecosystem".
-6. Sentence-case headings ONLY.
-7. NO generic topic sentences.
-8. Every sentence must earn its place.
-9. Show domain expertise: reference specific tools, frameworks, papers.
-10. Tags: lowercase, hyphenated, specific long-tail SEO keywords.
-11. Excerpt is a hook, not a summary.
-12. Titles: sentence case, no clickbait.
-13. 100% original phrasing.
+BROADCAST-GRADE JOURNALISM RULES:
+1. ZERO subheadings (no ## or ###). Flow as continuous prose.
+2. No bold-on-own-line. NO conclusion paragraph.
+3. INVERTED PYRAMID: Most newsworthy facts first. Supporting detail follows. Background last.
+4. LEAD PARAGRAPH: Answer Who/What/Where/When in the first 2 sentences. Opening sentence max 35 words. Active voice mandatory.
+5. Every paragraph: one idea, 2-4 sentences. Vary length — 1-sentence for impact, 4-sentence for context.
+6. Attribution: Use "said" for quotes. Never "stated", "expressed", "noted", "emphasized".
+7. Active voice throughout. Passive voice only for emphasis on the object.
+8. Specific numbers, dates, proper nouns — no vague language ("many", "significant", "various").
+9. ZERO AI fingerprints. BANNED: delve, landscape, game-changer, revolutionize, cutting-edge, leverage, navigate, paradigm, holistic, robust, comprehensive, essential, crucial, vital, pivotal, foster, bolster, harness, streamline, synergy, ecosystem.
+10. Sentence-case only. 100% original phrasing.
+11. Tags: lowercase, hyphenated, specific long-tail SEO keywords.
+12. TITLE: Active voice, present tense, sentence case, max 10 words, no clickbait.
+13. SUMMARY: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
+14. EXCERPT: 1-2 sentence hook for preview cards.
 `;
 
 const ROMANIAN_RULES = `
-REGULI PENTRU ROMÂNĂ:
-- ZERO subtitluri. Proză continuă.
-- NU folosi **bold pe rând separat**.
-- NU scrie secțiune de concluzie.
-- CUVINTE INTERZISE: "crucial", "esențial", "robust", "vital", "pivotal", "fundamental", "semnificativ", "paradigmă", "ecosistem", "sinergie", "peisajul".
-- Sentence case. Scrie nativ în română.
+REGULI PENTRU ROMÂNĂ (OBLIGATORII):
+- ZERO subtitluri. Proză continuă. NU concluzie.
+- CUVINTE INTERZISE: crucial, esențial, robust, vital, paradigmă, ecosistem, sinergie, peisajul, fundamental, semnificativ.
+- Sentence case. Scrie nativ în română — NU traduce din engleză.
+- TITLU ROMÂNESC: Gramatică nativă, inversiune subiect-verb unde e natural. NU traduce literal din engleză.
+- Propoziția de deschidere: Cine/Ce/Unde/Când în primele 2 propoziții. Max 35 cuvinte.
+- Atribuire: "a declarat" pentru citate. NU "a subliniat", "a evidențiat".
+- Piramida inversată: Cele mai importante fapte în primele 3 paragrafe.
 `;
 
 const CATEGORIES = ['news', 'politics', 'technology', 'business', 'culture', 'travel', 'education', 'sports', 'health', 'opinion'];
