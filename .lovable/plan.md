@@ -1,56 +1,61 @@
 
 
-## Plan: Comment Section + Social Share Suite + SEO Tags
+## Plan: Sitemap, Robots.txt & Legal Entity Updates
 
-### 1. ShareSuite Component (`src/components/ShareSuite.tsx`)
+### Company Details
 
-Create a reusable sharing component with two modes:
-- **Editorial row** (desktop): Minimalist espresso-colored icon row placed under the byline
-- **Sticky mobile dock**: Fixed bottom bar on mobile only with `backdrop-blur`
+- **Name**: ADD Individual Solutions Ltd.
+- **VAT**: CY10439793M
+- **Email**: contact@add-individual-solutions.com
+- **Phone**: +35796919606
+- **Address**: Sunset Valley, 7081 Pyla, Cyprus
 
-Includes Facebook, X/Twitter, LinkedIn, WhatsApp share links + native `navigator.share()` button. Uses `lucide-react` icons (already installed). Colors use existing Tailwind tokens (`espresso`, `clay`, `brand-red`, `action-orange`).
+### 1. Create Bilingual Sitemap (`public/sitemap.xml`)
 
-### 2. Comment Section (`src/components/CommentSection.tsx`)
+Static sitemap with `xhtml:link` hreflang tags for all public routes. Since the site uses i18n (same URL, language toggle) rather than `/en/` and `/ro/` prefixes, each URL gets self-referencing hreflang annotations with `x-default`.
 
-Build a comment engine using the existing `blog_comments` table (already has RLS policies for public insert + admin management) and the `blog_comments_public` secure view for reading approved comments.
+Routes to include: `/`, `/contact`, `/terms`, `/privacy`, `/blog`, plus category pages and static article slugs.
 
-- **Comment form**: Name, email (optional), comment text. Inserts into `blog_comments` with `status: 'pending'`
-- **Comment list**: Reads from `blog_comments_public` view (excludes email, only approved). Shows author name, date, content, and AI reply if present
-- **i18n support**: Bilingual labels for EN/RO
-- Triggers AI auto-reply via `ai-comment-reply` edge function on submit (fire-and-forget, admin approves later)
+### 2. Update Robots.txt (`public/robots.txt`)
 
-### 3. SEO Tags Display
+Add `Sitemap: https://transilvaniatimes.com/sitemap.xml` directive.
 
-Add visual tag pills at the bottom of articles. For static articles, derive tags from category/slug. For blog posts, use the `tags` array from the DB.
+### 3. Update Legal Pages with Real Company Details
 
-### 4. Open Graph Meta Tags
+**Footer (`Footer.tsx`):**
+- Add company line: "A media project by ADD Individual Solutions Ltd."
+- Update contact email to `contact@add-individual-solutions.com`
+- Update phone to `+35796919606`
+- Add "Sunset Valley, 7081 Pyla, Cyprus" as corporate address (keep Cluj editorial desk)
+- Update copyright line with company name
 
-Enhance `ArticleSEO.tsx` to inject OG meta tags (`og:title`, `og:description`, `og:image`, `og:url`, `og:type`) for social sharing previews. Add `twitter:card` meta tags.
+**Terms & Conditions (`TermsConditions.tsx`):**
+- Replace hardcoded "str. Memorandumului" with Cyprus corporate address
+- Update email to `contact@add-individual-solutions.com`
+- Add company registration and VAT info
 
-### 5. Integration into Article Pages
+**Privacy Policy (`PrivacyPolicy.tsx`):**
+- Same: update contact section with Cyprus HQ details
+- Add Data Protection Authority reference (Cyprus Commissioner)
 
-| File | Changes |
-|------|---------|
-| `src/components/ShareSuite.tsx` | **New** — sharing component |
-| `src/components/CommentSection.tsx` | **New** — comment engine |
-| `src/pages/Article.tsx` | Add ShareSuite (editorial row after byline + sticky mobile), CommentSection before footer, SEO tags |
-| `src/pages/BlogPost.tsx` | Add ShareSuite, CommentSection, SEO tags display |
-| `src/components/ArticleSEO.tsx` | Add OG + Twitter Card meta tags |
-| `src/i18n.ts` | Add comment-related translation keys (`comments_title`, `comments_name`, `comments_email`, `comments_placeholder`, `comments_submit`, `comments_pending`, `comments_none`, `share_label`) |
+**Contact Page (`Contact.tsx`):**
+- Add "Corporate Headquarters" section (Cyprus) alongside existing "Editorial Desk" (Cluj)
+- Update phone number
 
-### Comment Flow
+**i18n (`src/i18n.ts`):**
+- Update `terms_hq` to reference ADD Individual Solutions Ltd.
+- Add new translation keys for corporate HQ, registration, VAT
+- Make `terms_updated` and `privacy_updated` dates dynamic (or update to current)
 
-```text
-User submits comment → INSERT into blog_comments (status: pending)
-                     → Fire ai-comment-reply edge function (generates AI reply)
-                     → Admin sees in CommentsManager → Approves
-                     → Comment + AI reply visible via blog_comments_public view
-```
+### Files to Modify
 
-### Design Notes
-
-- Share icons use `espresso` outline style by default, colored bg on hover — matches editorial aesthetic
-- Sticky mobile dock uses `animate-slide-up` (already defined in `index.css`)
-- Comment section uses `border-t-2 border-espresso` separator, serif italic heading
-- No external dependencies needed — all icons from `lucide-react`, all data from Supabase
+| File | Change |
+|------|--------|
+| `public/sitemap.xml` | **New** — bilingual sitemap |
+| `public/robots.txt` | Add Sitemap directive |
+| `src/components/Footer.tsx` | Add company entity line, update email/phone, add Cyprus address |
+| `src/pages/TermsConditions.tsx` | Replace contact section with Cyprus HQ + registration details |
+| `src/pages/PrivacyPolicy.tsx` | Replace contact section with Cyprus HQ + DPA reference |
+| `src/pages/Contact.tsx` | Add Corporate HQ section alongside Editorial Desk |
+| `src/i18n.ts` | Update `terms_hq`, add company detail translation keys |
 
