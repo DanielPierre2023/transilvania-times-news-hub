@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { Article } from "@/data/articles";
 import { t as tBi } from "@/data/articles";
+import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
 const ArticleSEO = ({ article }: { article: Article }) => {
   const { i18n } = useTranslation();
