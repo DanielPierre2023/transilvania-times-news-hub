@@ -271,7 +271,7 @@ Respond with valid JSON:
       console.warn(`[${jobId}] Cover image generation error: ${(imgErr as Error).message}`);
     }
 
-    await supabaseAdmin.from('scraped_articles').update({
+    const { error: articleUpdateErr } = await supabaseAdmin.from('scraped_articles').update({
       rewritten_en: contentEn, rewritten_ro: contentRo,
       title_en: sanitizeContent(parsed.title_en || article.original_title, 'en'),
       title_ro: sanitizeContent(parsed.title_ro || article.original_title, 'ro'),
@@ -288,14 +288,24 @@ Respond with valid JSON:
       category: detectedCategory,
       subcategory: detectedSubcategory,
       status: finalStatus, rewrite_error: null, rewrite_finished_at: new Date().toISOString(),
-      ai_score: aiScore, plagiarism_score: plagiarismScore, quality_checked_at: new Date().toISOString(),
+      ai_score: Math.round(aiScore), plagiarism_score: Math.round(plagiarismScore),
+      quality_checked_at: new Date().toISOString(),
     } as any).eq('id', articleId);
 
-    await supabaseAdmin.from('rewrite_jobs').update({
+    if (articleUpdateErr) {
+      console.error(`[${jobId}] CRITICAL: Final article update failed:`, articleUpdateErr.message);
+      throw new Error(`Final article update failed: ${articleUpdateErr.message}`);
+    }
+
+    const { error: jobUpdateErr } = await supabaseAdmin.from('rewrite_jobs').update({
       status: 'succeeded', finished_at: new Date().toISOString(),
     }).eq('id', jobId);
 
-    console.log(`[${jobId}] Pipeline complete. Status: ${finalStatus}, AI: ${aiScore}, Plagiarism: ${plagiarismScore}`);
+    if (jobUpdateErr) {
+      console.error(`[${jobId}] Job status update failed:`, jobUpdateErr.message);
+    }
+
+    console.log(`[${jobId}] Pipeline complete. Status: ${finalStatus}, AI: ${Math.round(aiScore)}, Plagiarism: ${Math.round(plagiarismScore)}`);
 
     return new Response(JSON.stringify({ ok: true, job_id: jobId, status: 'succeeded', quality: { aiScore, plagiarismScore, finalStatus } }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
