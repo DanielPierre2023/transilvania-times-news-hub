@@ -50,10 +50,15 @@ const Article = () => {
               <p className="text-muted-foreground font-sans text-lg">{tBi(article.date, lang)}</p>
               <p className="text-foreground font-sans font-bold text-lg">{t("by_author")} {article.author}</p>
             </div>
-          </header>
 
-          <section className="py-10">
-            <img
+            {/* Share Suite — Editorial Row */}
+            <ShareSuite
+              title={tBi(article.title, lang)}
+              url={typeof window !== "undefined" ? window.location.href : ""}
+              summary={tBi(article.excerpt, lang)}
+              tags={article.category ? [tBi(article.category, lang)] : []}
+            />
+          </header>
               src={article.image}
               alt={tBi(article.title, lang)}
               className="w-full aspect-[2/1] object-cover shadow-2xl rounded-sm"
