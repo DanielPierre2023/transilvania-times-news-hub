@@ -251,6 +251,25 @@ function dedupParagraphOpeners(text: string): string {
   return result.join('\n\n');
 }
 
+function removeExcessiveExclamations(text: string): string {
+  // Allow max 1 exclamation mark in entire article (in quotes is fine)
+  let count = 0;
+  return text.replace(/!/g, () => {
+    count++;
+    return count <= 1 ? '!' : '.';
+  });
+}
+
+function removeEditorialQuestions(text: string): string {
+  // Remove rhetorical questions that aren't in quotes
+  return text.replace(/^(?!.*[""])([^.!?]*\?)\s*$/gm, (match) => {
+    // Keep if it looks like a direct quote
+    if (/["«»„"]/.test(match)) return match;
+    // Replace question with declarative rewrite marker (just remove the line)
+    return '';
+  });
+}
+
 export function sanitizeContent(text: string, language: 'en' | 'ro' | 'both' = 'both'): string {
   if (!text) return text;
   let result = text;
@@ -272,6 +291,8 @@ export function sanitizeContent(text: string, language: 'en' | 'ro' | 'both' = '
   result = result.replace(/\u2014/g, '\u2013');
   result = reduceSemicolons(result);
   result = dedupParagraphOpeners(result);
+  result = removeExcessiveExclamations(result);
+  result = removeEditorialQuestions(result);
   result = result.replace(/^\s*[,;]\s*/gm, '');
   result = result.replace(/\n{3,}/g, '\n\n');
   return result.trim();
