@@ -61,7 +61,7 @@ const Blog = () => {
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-2 h-2 bg-primary" />
                   <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.1em]">
-                    {post.category || "news"}
+                    {t(categoryI18nKey(post.category || "news"))}
                   </span>
                 </div>
                 <h3 className="text-lg font-serif font-bold text-foreground leading-tight mb-2 group-hover:text-primary transition-colors">

@@ -65,8 +65,13 @@ const BlogPost = () => {
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 bg-primary" />
               <span className="text-primary font-sans font-bold text-[10px] uppercase tracking-[0.2em]">
-                {post.category}
+                {t(categoryI18nKey(post.category))}
               </span>
+              {(post as any).subcategory && (
+                <span className="text-muted-foreground font-sans text-[10px] uppercase tracking-[0.1em] ml-2">
+                  · {t(subcategoryI18nKey((post as any).subcategory))}
+                </span>
+              )}
             </div>
           )}
           <h1 className="text-3xl md:text-4xl font-serif font-bold text-foreground leading-tight mb-4">
