@@ -79,33 +79,52 @@ const Category = () => {
           )}
         </div>
 
-        {/* Subcategory tabs — underline style */}
+        {/* Subcategory tabs — desktop: underline tabs, mobile: dropdown */}
         {name && (
-          <div className="flex items-center gap-0 border-b border-foreground/10 px-6 overflow-x-auto">
-            <Link
-              to={`/category/${name}`}
-              className={`px-4 py-3 text-xs font-sans font-bold uppercase tracking-widest transition-colors border-b-2 ${
-                !sub
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t("all_articles")}
-            </Link>
-            {SUBCATEGORIES.map((s) => (
+          <>
+            {/* Mobile dropdown */}
+            <div className="md:hidden border-b border-foreground/10 px-6 py-3">
+              <select
+                value={sub || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  navigate(val ? `/category/${name}/${val}` : `/category/${name}`);
+                }}
+                className="w-full bg-background border border-foreground/20 rounded px-4 py-2.5 text-sm font-sans font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">{t("all_articles")}</option>
+                {SUBCATEGORIES.map((s) => (
+                  <option key={s} value={s}>{t(subcategoryI18nKey(s))}</option>
+                ))}
+              </select>
+            </div>
+            {/* Desktop tabs */}
+            <div className="hidden md:flex items-center gap-0 border-b border-foreground/10 px-6">
               <Link
-                key={s}
-                to={`/category/${name}/${s}`}
+                to={`/category/${name}`}
                 className={`px-4 py-3 text-xs font-sans font-bold uppercase tracking-widest transition-colors border-b-2 ${
-                  sub === s
+                  !sub
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {t(subcategoryI18nKey(s))}
+                {t("all_articles")}
               </Link>
-            ))}
-          </div>
+              {SUBCATEGORIES.map((s) => (
+                <Link
+                  key={s}
+                  to={`/category/${name}/${s}`}
+                  className={`px-4 py-3 text-xs font-sans font-bold uppercase tracking-widest transition-colors border-b-2 ${
+                    sub === s
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {t(subcategoryI18nKey(s))}
+                </Link>
+              ))}
+            </div>
+          </>
         )}
 
         {/* Article grid */}
