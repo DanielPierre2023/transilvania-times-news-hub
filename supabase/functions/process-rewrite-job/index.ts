@@ -75,9 +75,14 @@ serve(async (req) => {
     // DESK 1: EXTRACTION (Gemini Flash — fast, cheap)
     // Strips original to language-neutral facts only
     // ═══════════════════════════════════════════════════
-    console.log(`[${jobId}] Desk 1: Extracting facts via Gemini Flash...`);
+    console.log(`[${jobId}] Desk 1: Extracting facts + classifying via Gemini Flash...`);
+    const needsClassification = !sourceCategory || !article.subcategory;
+    const classificationInstruction = needsClassification
+      ? `\n\nAfter the numbered facts, on the LAST two lines output:\nCATEGORY: {one of: politics, world, technology, business, culture, opinion, travel, education, sports, health, news}\nSUBCATEGORY: {one of: regional, national, international}\n\nClassification rules:\n- regional = about Transilvania, Cluj-Napoca, Sibiu, Brașov, Alba Iulia, Târgu Mureș, or other Transylvanian cities/counties\n- national = about Romania as a whole (Bucharest, Romanian government, national events)\n- international = everything else (world events, global tech, foreign politics)\n- If the article does not fit politics/world/technology/business/culture/opinion/travel/education/sports/health, use "news"`
+      : '';
+
     const extractionResult = await callGemini({
-      systemInstruction: `You are a senior fact-checker and data extraction specialist. Your job is to extract ONLY the factual claims from articles. Output a numbered list of facts in English. No opinions, no adjectives, no prose, no original phrasing. Just raw facts with numbers, names, dates, locations, and events. If the source is not in English, translate the facts to English. Do NOT preserve the original article's sentence structures or narrative flow.`,
+      systemInstruction: `You are a senior fact-checker and data extraction specialist. Your job is to extract ONLY the factual claims from articles. Output a numbered list of facts in English. No opinions, no adjectives, no prose, no original phrasing. Just raw facts with numbers, names, dates, locations, and events. If the source is not in English, translate the facts to English. Do NOT preserve the original article's sentence structures or narrative flow.${classificationInstruction}`,
       userMessage: `Extract all factual claims from this article as a numbered list:\n\nTitle: ${article.original_title}\n\nContent:\n${article.original_content}`,
       temperature: 0.3,
       maxTokens: 3000,
