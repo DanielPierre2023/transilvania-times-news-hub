@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { Article } from "@/data/articles";
 import { t as tBi } from "@/data/articles";
+import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
 const ArticleSEO = ({ article }: { article: Article }) => {
   const { i18n } = useTranslation();
@@ -16,7 +17,7 @@ const ArticleSEO = ({ article }: { article: Article }) => {
       "@context": "https://schema.org",
       "@type": "NewsArticle",
       headline,
-      image: [article.image],
+      image: [toPublicMediaUrl(article.image)],
       datePublished: new Date().toISOString(),
       dateModified: new Date().toISOString(),
       author: [{ "@type": "Person", name: article.author }],
@@ -38,14 +39,14 @@ const ArticleSEO = ({ article }: { article: Article }) => {
     const metaTags: Record<string, string> = {
       "og:title": headline,
       "og:description": description,
-      "og:image": article.image,
+      "og:image": toPublicMediaUrl(article.image),
       "og:url": articleUrl,
       "og:type": "article",
       "og:site_name": "Transilvania Times",
       "twitter:card": "summary_large_image",
       "twitter:title": headline,
       "twitter:description": description,
-      "twitter:image": article.image,
+      "twitter:image": toPublicMediaUrl(article.image),
     };
 
     const metaEls: HTMLMetaElement[] = [];

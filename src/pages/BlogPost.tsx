@@ -7,6 +7,7 @@ import Footer from "@/components/Footer";
 import ShareSuite from "@/components/ShareSuite";
 import CommentSection from "@/components/CommentSection";
 import { format, parseISO } from "date-fns";
+import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -95,7 +96,7 @@ const BlogPost = () => {
         />
 
         {post.cover_image && (
-          <img src={post.cover_image} alt={title} className="w-full aspect-video object-cover mb-8 border border-foreground/5" />
+          <img src={toPublicMediaUrl(post.cover_image)} alt={title} className="w-full aspect-video object-cover mb-8 border border-foreground/5" />
         )}
 
         {summary && (
