@@ -263,7 +263,12 @@ const BlogPost = () => {
         />
 
         {post.cover_image && (
-          <img src={toPublicMediaUrl(post.cover_image)} alt={title} className="w-full aspect-video object-cover mb-8 border border-foreground/5" />
+          <figure className="mb-8">
+            <img src={toPublicMediaUrl(post.cover_image)} alt={title} className="w-full aspect-video object-cover border border-foreground/5" />
+            <figcaption className="text-[10px] font-sans text-muted-foreground uppercase tracking-widest mt-2">
+              {isRo ? "Imagine generată cu AI de redacție" : "Image generated with AI by the editorial team"}
+            </figcaption>
+          </figure>
         )}
 
         {/* Lede — professional lead paragraph */}
