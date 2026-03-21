@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { t as tBi } from "@/data/articles";
+import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
 interface ArticleCardProps {
   slug: string;
