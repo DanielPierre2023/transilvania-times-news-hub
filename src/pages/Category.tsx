@@ -1,6 +1,5 @@
 import React from "react";
-import { useParams, Link, useSearchParams } from "react-router-dom";
-import { useNavigate } from "react-router-dom";
+import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
