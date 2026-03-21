@@ -159,10 +159,18 @@ const BlogEditor = () => {
 
   const generatePollinationsUrl = (title: string, excerpt: string) => {
     const seed = Math.floor(Math.random() * 100000);
-    const subject = `${title} ${excerpt}`.substring(0, 120);
+    const subject = `${title} ${excerpt}`.substring(0, 120).replace(/[^\w\s-]/g, '');
     const prompt = `Professional news photography, high-detail, editorial style, regarding: ${subject}`;
-    return `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=1200&height=630&model=flux&seed=${seed}`;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1200&height=630&model=flux&seed=${seed}&nologo=true`;
   };
+
+  // Reset cover loading/error state whenever cover URL changes
+  useEffect(() => {
+    if (form.cover_image) {
+      setCoverLoading(true);
+      setCoverError(false);
+    }
+  }, [form.cover_image]);
 
   const generateCoverImage = () => {
     if (!form.title_en.trim()) { toast.error('Enter a title first'); return; }
