@@ -2,11 +2,12 @@ import { useParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { getArticleBySlug, t as tBi, tArr } from "@/data/articles";
 import Header from "@/components/Header";
-
 import Footer from "@/components/Footer";
 import MostReadSidebar from "@/components/MostReadSidebar";
 import ArticleSEO from "@/components/ArticleSEO";
 import AdUnit from "@/components/AdUnit";
+import ShareSuite from "@/components/ShareSuite";
+import CommentSection from "@/components/CommentSection";
 import NotFound from "./NotFound";
 
 const Article = () => {
@@ -49,6 +50,14 @@ const Article = () => {
               <p className="text-muted-foreground font-sans text-lg">{tBi(article.date, lang)}</p>
               <p className="text-foreground font-sans font-bold text-lg">{t("by_author")} {article.author}</p>
             </div>
+
+            {/* Share Suite — Editorial Row */}
+            <ShareSuite
+              title={tBi(article.title, lang)}
+              url={typeof window !== "undefined" ? window.location.href : ""}
+              summary={tBi(article.excerpt, lang)}
+              tags={article.category ? [tBi(article.category, lang)] : []}
+            />
           </header>
 
           <section className="py-10">
@@ -100,6 +109,22 @@ const Article = () => {
                 {t("go_back")}
               </Link>
             </div>
+
+            {/* SEO Tag Pills */}
+            {article.category && (
+              <div className="flex flex-wrap gap-2 mt-10">
+                <span className="bg-espresso text-paper px-3 py-1 text-[10px] font-bold uppercase tracking-widest">
+                  #{tBi(article.category, lang).toLowerCase().replace(/\s+/g, "-")}
+                </span>
+              </div>
+            )}
+
+            {/* Comment Section */}
+            <CommentSection
+              postId={article.slug}
+              postTitle={tBi(article.title, lang)}
+              postExcerpt={tBi(article.excerpt, lang)}
+            />
           </main>
         </div>
 
@@ -112,7 +137,14 @@ const Article = () => {
         </div>
       </div>
 
-      
+      {/* Sticky Mobile Share Dock */}
+      <ShareSuite
+        title={tBi(article.title, lang)}
+        url={typeof window !== "undefined" ? window.location.href : ""}
+        summary={tBi(article.excerpt, lang)}
+        sticky
+      />
+
       <Footer />
     </div>
   );

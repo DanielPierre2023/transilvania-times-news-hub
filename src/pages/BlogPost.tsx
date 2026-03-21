@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import ShareSuite from "@/components/ShareSuite";
+import CommentSection from "@/components/CommentSection";
 import { format, parseISO } from "date-fns";
 
 const BlogPost = () => {
@@ -84,6 +86,14 @@ const BlogPost = () => {
           </div>
         </div>
 
+        {/* Share Suite — Editorial Row */}
+        <ShareSuite
+          title={title || ""}
+          url={typeof window !== "undefined" ? window.location.href : ""}
+          summary={summary || ""}
+          tags={post.tags || []}
+        />
+
         {post.cover_image && (
           <img src={post.cover_image} alt={title} className="w-full aspect-video object-cover mb-8 border border-foreground/5" />
         )}
@@ -98,7 +108,35 @@ const BlogPost = () => {
           className="prose prose-lg max-w-none font-sans text-foreground"
           dangerouslySetInnerHTML={{ __html: content || "" }}
         />
+
+        {/* SEO Tag Pills */}
+        {post.tags && post.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-10">
+            {post.tags.map((tag: string) => (
+              <span key={tag} className="bg-espresso text-paper px-3 py-1 text-[10px] font-bold uppercase tracking-widest">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Comment Section */}
+        <CommentSection
+          postId={post.id}
+          postTitle={title || ""}
+          postExcerpt={summary || ""}
+        />
       </article>
+
+      {/* Sticky Mobile Share Dock */}
+      <ShareSuite
+        title={title || ""}
+        url={typeof window !== "undefined" ? window.location.href : ""}
+        summary={summary || ""}
+        tags={post.tags || []}
+        sticky
+      />
+
       <Footer />
     </div>
   );

@@ -133,6 +133,16 @@ i18n
 
           // Category page
           all_articles: "All Articles",
+
+          // Comments & Sharing
+          comments_title: "Discussion & Comments",
+          comments_name: "Your Name",
+          comments_email: "Email (optional)",
+          comments_placeholder: "Share your thoughts…",
+          comments_submit: "Post Comment",
+          comments_pending: "Comment submitted! It will appear after moderation.",
+          comments_none: "Be the first to comment on this article.",
+          share_label: "Share",
         },
       },
       ro: {
@@ -259,6 +269,16 @@ i18n
 
           // Category page
           all_articles: "Toate Articolele",
+
+          // Comments & Sharing
+          comments_title: "Discuții și Comentarii",
+          comments_name: "Numele tău",
+          comments_email: "Email (opțional)",
+          comments_placeholder: "Împărtășește-ți gândurile…",
+          comments_submit: "Postează comentariu",
+          comments_pending: "Comentariu trimis! Va apărea după moderare.",
+          comments_none: "Fii primul care comentează acest articol.",
+          share_label: "Distribuie",
         },
       },
     },
