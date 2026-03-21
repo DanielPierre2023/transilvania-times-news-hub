@@ -92,7 +92,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: [
-          { role: 'system', content: `Current date: March 2026.\n\n${wordCountRules}\n\n${editorProfile.system}\n\n${WRITING_RULES}\n\nCategory: "${category}". Target: ${word_count} words.\n\nRespond ONLY with valid JSON:\n{"title":"...","excerpt":"1-2 sentence hook","summary":"3-5 sentence abstract","content":"full article in markdown","tags":["6-9 tags"],"seo_title":"under 60 chars","seo_description":"under 160 chars"}` },
+          { role: 'system', content: `Current date: March 2026.\n\n${wordCountRules}\n\n${editorProfile.system}\n\n${WRITING_RULES}\n\nPARAGRAPH FORMAT: Separate every paragraph with a blank line (two newlines). Each paragraph 2-4 sentences. No single newlines within paragraphs.\n\nCategory: "${category}". Target: ${word_count} words.\n\nRespond ONLY with valid JSON:\n{"title":"...","excerpt":"1-2 sentence hook","summary":"3-5 sentence abstract","content":"full article in markdown","tags":["6-9 tags"],"seo_title":"under 60 chars","seo_description":"under 160 chars"}` },
           { role: 'user', content: `Write a professional article in ENGLISH about: ${prompt}` },
         ],
         temperature: 0.6,
@@ -116,7 +116,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: [
-          { role: 'system', content: `Current date: March 2026.\n\n${wordCountRules}\n\n${editorProfile.system}\n\n${WRITING_RULES}\n\n${ROMANIAN_RULES}\n\nWrite natively in ROMANIAN. Category: "${category}". Target: ${word_count} words.\n\nRespond ONLY with valid JSON:\n{"title":"titlul","excerpt":"1-2 propoziții","summary":"rezumat 3-5 propoziții","content":"articolul complet în markdown","seo_title":"sub 60 caractere","seo_description":"sub 160 caractere"}` },
+          { role: 'system', content: `Current date: March 2026.\n\n${wordCountRules}\n\n${editorProfile.system}\n\n${WRITING_RULES}\n\n${ROMANIAN_RULES}\n\nPARAGRAPH FORMAT: Separate every paragraph with a blank line (two newlines). Each paragraph 2-4 sentences. No single newlines within paragraphs.\n\nWrite natively in ROMANIAN. Category: "${category}". Target: ${word_count} words.\n\nRespond ONLY with valid JSON:\n{"title":"titlul","excerpt":"1-2 propoziții","summary":"rezumat 3-5 propoziții","content":"articolul complet în markdown","seo_title":"sub 60 caractere","seo_description":"sub 160 caractere"}` },
           { role: 'user', content: `Write a professional Romanian article about: ${prompt}\n\nKey points: ${enArticle.title}\n${enArticle.excerpt}` },
         ],
         temperature: 0.6,

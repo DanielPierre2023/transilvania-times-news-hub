@@ -140,6 +140,18 @@ const Index = () => {
             )}
           </div>
         </div>
+
+        {/* View All link */}
+        {dbPosts.length > 0 && (
+          <div className="mt-10 text-center">
+            <Link
+              to="/blog"
+              className="inline-block font-sans text-sm font-semibold text-primary hover:underline uppercase tracking-widest"
+            >
+              {t("view_all_articles") || "View All Articles"} →
+            </Link>
+          </div>
+        )}
       </main>
 
       <Footer />

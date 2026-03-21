@@ -202,7 +202,9 @@ const Category = () => {
                   <PaginationPrevious
                     onClick={() => goToPage(page - 1)}
                     className="cursor-pointer"
-                  />
+                  >
+                    {t("previous")}
+                  </PaginationPrevious>
                 </PaginationItem>
               )}
               {Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -231,7 +233,9 @@ const Category = () => {
                   <PaginationNext
                     onClick={() => goToPage(page + 1)}
                     className="cursor-pointer"
-                  />
+                  >
+                    {t("next")}
+                  </PaginationNext>
                 </PaginationItem>
               )}
             </PaginationContent>
