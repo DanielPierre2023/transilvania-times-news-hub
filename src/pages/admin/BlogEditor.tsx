@@ -79,7 +79,7 @@ const BlogEditor = () => {
   const [genOpen, setGenOpen] = useState(!isEdit);
   const [genPrompt, setGenPrompt] = useState('');
   const [genWordCount, setGenWordCount] = useState('1800');
-  const [genEditor, setGenEditor] = useState('kara_newman');
+  const [genEditor, setGenEditor] = useState('marcus_webb');
   const [genCategory, setGenCategory] = useState('politics');
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
