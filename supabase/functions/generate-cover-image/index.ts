@@ -59,7 +59,6 @@ async function generateWithHuggingFace(prompt: string, apiKey: string): Promise<
       continue;
     }
   }
-  }
 
   throw new Error('ALL_HF_MODELS_FAILED');
 }
