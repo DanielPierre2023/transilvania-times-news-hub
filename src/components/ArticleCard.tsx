@@ -23,7 +23,7 @@ const ArticleCard = ({ slug, category, title, author, timeAgo, excerpt, image, f
         <article className="group cursor-pointer">
           <div className="overflow-hidden rounded">
             <img
-              src={image}
+              src={toPublicMediaUrl(image)}
               alt={title}
               className="w-full h-[400px] object-cover group-hover:scale-105 transition-transform duration-500"
             />
