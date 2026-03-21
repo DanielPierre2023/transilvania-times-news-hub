@@ -160,7 +160,7 @@ const RssScraper = () => {
   };
 
   const rewriteArticle = async (article: any) => {
-    const editor = editorSelection[article.id] || 'marcus_webb';
+    const editor = editorSelection[article.id] || 'daniel_dobos';
     try {
       const { data, error } = await supabase.functions.invoke('enqueue-rewrite-article', {
         body: { article_id: article.id, editor },
