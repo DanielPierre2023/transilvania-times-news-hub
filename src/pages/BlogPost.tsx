@@ -83,22 +83,44 @@ const BlogPost = () => {
   // ═══════════════════════════════════════════════════
   // SEO META INJECTION
   // ═══════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
+  // CENTRALIZED LOCALIZED SEO RESOLVER
+  // Single source of truth for all metadata
+  // ═══════════════════════════════════════════════════
+  const seoTitle = post
+    ? (isRo
+        ? (post.seo_title_ro || post.title_ro || post.title_en)
+        : (post.seo_title_en || post.title_en))
+    : SITE_NAME;
+
+  const seoDescription = post
+    ? (isRo
+        ? (post.seo_description_ro || post.summary_ro || post.excerpt_ro || post.summary_en || post.excerpt_en || "")
+        : (post.seo_description_en || post.summary_en || post.excerpt_en || ""))
+    : "";
+
+  const seoTags = post
+    ? (isRo
+        ? ((post as any).tags_ro?.length ? (post as any).tags_ro : (post as any).tags_en?.length ? (post as any).tags_en : post.tags || [])
+        : ((post as any).tags_en?.length ? (post as any).tags_en : post.tags || []))
+    : [];
+
+  useEffect(() => {
+    // Set <html lang> to match active language
+    document.documentElement.lang = isRo ? "ro" : "en";
+    return () => { document.documentElement.lang = "en"; };
+  }, [isRo]);
+
   useEffect(() => {
     if (!post) return;
 
-    const title = isRo
-      ? (post.seo_title_ro || post.title_ro || post.title_en)
-      : (post.seo_title_en || post.title_en);
-    const summary = isRo
-      ? (post.seo_description_ro || post.summary_ro || post.excerpt_ro || post.summary_en)
-      : (post.seo_description_en || post.summary_en || post.excerpt_en);
     const imageUrl = post.cover_image ? toPublicMediaUrl(post.cover_image) : "";
     const fullImageUrl = imageUrl.startsWith("/") ? `${CANONICAL_DOMAIN}${imageUrl}` : imageUrl;
     const articleUrl = `${CANONICAL_DOMAIN}/blog/${slug}`;
     const locale = isRo ? "ro_RO" : "en_US";
     const altLocale = isRo ? "en_US" : "ro_RO";
 
-    document.title = `${title} | ${SITE_NAME}`;
+    document.title = `${seoTitle} | ${SITE_NAME}`;
 
     const injected: HTMLElement[] = [];
 
@@ -113,9 +135,12 @@ const BlogPost = () => {
       el.setAttribute("content", content);
     };
 
-    // Open Graph
-    setMeta("property", "og:title", title || "");
-    setMeta("property", "og:description", summary || "");
+    // Standard meta
+    setMeta("name", "description", seoDescription);
+
+    // Open Graph — uses centralized seoTitle/seoDescription
+    setMeta("property", "og:title", seoTitle);
+    setMeta("property", "og:description", seoDescription);
     setMeta("property", "og:image", fullImageUrl);
     setMeta("property", "og:url", articleUrl);
     setMeta("property", "og:type", "article");
@@ -123,10 +148,10 @@ const BlogPost = () => {
     setMeta("property", "og:locale", locale);
     setMeta("property", "og:locale:alternate", altLocale);
 
-    // Twitter Card
+    // Twitter Card — uses same centralized resolver
     setMeta("name", "twitter:card", "summary_large_image");
-    setMeta("name", "twitter:title", title || "");
-    setMeta("name", "twitter:description", summary || "");
+    setMeta("name", "twitter:title", seoTitle);
+    setMeta("name", "twitter:description", seoDescription);
     setMeta("name", "twitter:image", fullImageUrl);
 
     // Canonical
@@ -154,14 +179,14 @@ const BlogPost = () => {
       injected.push(link);
     });
 
-    // JSON-LD NewsArticle
+    // JSON-LD NewsArticle — uses centralized resolver
     const jsonLd = document.createElement("script");
     jsonLd.setAttribute("type", "application/ld+json");
     jsonLd.textContent = JSON.stringify({
       "@context": "https://schema.org",
       "@type": "NewsArticle",
-      headline: title,
-      description: summary,
+      headline: seoTitle,
+      description: seoDescription,
       image: fullImageUrl ? [fullImageUrl] : [],
       datePublished: post.published_at,
       dateModified: post.updated_at || post.published_at,
@@ -173,6 +198,7 @@ const BlogPost = () => {
       },
       mainEntityOfPage: { "@type": "WebPage", "@id": articleUrl },
       inLanguage: isRo ? "ro" : "en",
+      keywords: seoTags.join(", "),
     });
     document.head.appendChild(jsonLd);
     injected.push(jsonLd);
@@ -181,7 +207,7 @@ const BlogPost = () => {
       injected.forEach((el) => el.parentNode?.removeChild(el));
       document.title = SITE_NAME;
     };
-  }, [post, isRo, slug]);
+  }, [post, isRo, slug, seoTitle, seoDescription, seoTags]);
 
   if (isLoading) {
     return (
