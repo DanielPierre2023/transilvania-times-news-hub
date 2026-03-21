@@ -1,98 +1,70 @@
 
 
-## Why the Layout Doesn't Match — Root Cause Analysis
+## Plan: Replace "Most Read" with Rich 3-Column Editorial Block
 
-### The Reference (Picture 1 — "The Featured Times")
+### What the Reference Shows (image-33.png)
 
-The hero area is a **3-zone editorial spread across 12 columns**:
-
-```text
-┌──────────────┬────────────────────┬──────────────┐
-│  Left Image  │  ■ WORLD           │  Right Image │
-│  (grayscale  │  Large Serif Title │  (grayscale  │
-│   ~4 cols)   │  • bullet summary  │   ~4 cols)   │
-│              │  • bullet summary  │  ■ SPORTS    │
-│              │  • bullet summary  │  Serif Title │
-│              │     (~4 cols)      │              │
-└──────────────┴────────────────────┴──────────────┘
-── border-b ─────────────────────────────────────────
-┌──────────┬──────────────────┬──────────────────────┐
-│ ■ NEWS   │  Large Image     │  Ad Image            │
-│ Title    │  (grayscale)     │                      │
-│ 30 mins  │                  │                      │
-│ excerpt  │                  │                      │
-└──────────┴──────────────────┴──────────────────────┘
-```
-
-- **No border-4, no shadow-xl** on images
-- **No "Most Read" sidebar** next to the hero
-- Images are flush, borderless, grayscale
-- Center column has bullet-point summaries with dotted separators
-- Below: a 3-column section with text-left article + large image + ad
-
-### The Current Implementation (Picture 2)
+The section below the 4-column article grid is NOT a simple "Most Read" numbered list. It's a sophisticated 3-column editorial composition:
 
 ```text
-┌────────────────────────────────┬──────────────────┐
-│  Hero Image (border-4,shadow)  │  Most Read       │
-│  ■ CATEGORY (top-left)         │  01 Title        │
-│  Massive italic title          │  02 Title        │
-│  Excerpt text                  │  03 Title        │
-│  Author • Date                 │  04 Title        │
-│           (8 cols)             │  05 Title (4col) │
-└────────────────────────────────┴──────────────────┘
+┌─────────────────────┬─────────────────────────┬──────────────────────┐
+│  Ad Unit (sidebar)  │  ■ TRAVEL               │  Avatar + Title      │
+│  (scooter ad)       │  [img] Title             │  "Champions League"  │
+│                     │        20 mins           │  20 mins ago         │
+│                     │  ───────────────────     │                      │
+│─────────────────────│  ■ LAW                   │  Avatar + Title      │
+│ ■ SPORTS  ■ BEAUTY  │  [img] Title             │  "Who's next..."     │
+│ Title     Title     │        20 mins           │  30 mins ago         │
+│ 20 mins   20 mins   │  ───────────────────     │                      │
+│                     │  ■ TECHNOLOGY            │  Avatar + Title      │
+│ ■ TRAVEL  ■ LAW     │  [img] Title             │  "Earthquake..."     │
+│ Title     Title     │        30 mins           │  20 mins ago         │
+│ 20 mins   20 mins   │  ───────────────────     │                      │
+│                     │  ■ SHOWBIZ               │ ┌──────────────────┐ │
+│ ■ TECH    ■ SHOWBIZ │  [img] Title             │ │ SPONSOR          │ │
+│ Title     Title     │        20 mins           │ │ Dark card with   │ │
+│ 30 mins   20 mins   │                          │ │ image + title    │ │
+│                     │                          │ └──────────────────┘ │
+└─────────────────────┴─────────────────────────┴──────────────────────┘
 ```
 
-This is a completely different structural pattern. The code you've been providing describes a hero+sidebar 8/4 split, but the reference screenshot shows a 3-zone editorial spread with NO sidebar.
+**Left column (~4 cols)**: Ad unit on top, then a 2-column grid of text-only article snippets (no images — just colored category square + category name + title + time)
 
-### What Needs to Change
+**Center column (~4 cols)**: Vertical stack of horizontal cards — small grayscale thumbnail on left + category label + serif title + time on right, separated by dotted borders
 
-The homepage hero must be rebuilt as a **3-column editorial spread** matching Picture 1 exactly:
+**Right column (~4 cols)**: Author avatar + title + time entries (like a trending feed), plus a large sponsored/ad card at the bottom with dark background, image, and title
 
-1. **Hero section** — 3-zone layout (left image | center text+bullets | right image+title)
-2. **Below hero** — 3-column section (text article | large image | ad slot)
-3. **Most Read sidebar** — moves to a different location (below the hero sections, or removed from homepage entirely)
-4. **No border-4/shadow-xl** on hero images — just clean grayscale images
-5. **Newsletter** — footer only (per your answer), remove `<Newsletter />` from Index.tsx
-6. **Category tag position** — stays as overlay on images (already correct)
+### Implementation
 
-### Implementation Plan
+#### 1. `src/pages/Index.tsx` — Replace "MOST READ SECTION" (lines 254-259)
+
+Replace the current `MostReadSidebar` wrapper with a new 3-column `lg:grid-cols-12` section:
+
+- **Left (col-span-4)**: `<AdUnit type="sidebar" />` on top, then a 2-column (`grid-cols-2`) grid of text-only article snippets from `restPosts`. Each snippet: colored category square + category name + serif title + time. No images.
+- **Center (col-span-4)**: Vertical stack of horizontal mini-cards. Each card: `flex` row with a small grayscale image (`w-[120px] aspect-[4/3]`) on left + category label + title + time on right. Separated by `border-b border-dotted border-foreground/15`.
+- **Right (col-span-4)**: Top portion shows 3-4 "trending" entries with a circular avatar placeholder + title + time. Bottom portion shows a sponsored ad card with dark `bg-foreground` background, an image, "SPONSOR" label, and a serif title.
+
+All articles in this section are pulled from `allPosts` (posts not already used in the hero/grid sections). The data is already fetched — this is purely a layout change.
+
+#### 2. `src/components/MostReadSidebar.tsx` — No deletion
+
+Keep the component — it's still used on `BlogPost.tsx` and other pages. Just remove its import from `Index.tsx`.
+
+### Files
 
 | File | Change |
 |------|--------|
-| `src/pages/Index.tsx` | Rebuild hero as 3-zone spread: `lg:grid-cols-3` with left image (col 1), center text with category+title+bullet summaries (col 2), right image+category+title (col 3). Below: 3-col section with text article + large image + ad. Remove `<Newsletter />`. Move MostRead below hero sections or remove. Remove `border-4 shadow-xl` from hero images. |
-| `src/components/Footer.tsx` | No change — newsletter stays in footer 4th column |
-| `src/components/ArticleCard.tsx` | No change — card pattern is correct |
-| `src/components/MostReadSidebar.tsx` | No change — component itself is correct, just relocated |
+| `src/pages/Index.tsx` | Replace lines 254-259 (MostRead section) with the 3-column editorial block. Remove `MostReadSidebar` import. Use posts from `restPosts` or allocate specific post slots for each column. |
 
-### Hero Section Structure (Matching Reference Exactly)
+### Data Allocation
 
-```text
-Section 1 — Editorial Spread:
-  grid grid-cols-1 lg:grid-cols-12 border-b
-  
-  Col 1 (lg:col-span-4): 
-    - Tall grayscale image, no border/shadow
-    
-  Col 2 (lg:col-span-4):
-    - ■ CATEGORY label (red square + text)
-    - Large serif title (text-3xl)
-    - Bullet summaries with dotted border-b separators
-    
-  Col 3 (lg:col-span-4):
-    - Grayscale image
-    - ■ CATEGORY label
-    - Serif title below image
+Current flow: posts 0-1 (hero spread), 2-3 (secondary spread), 4-7 (4-col grid), 8+ (category sections).
 
-Section 2 — Secondary Spread:
-  grid grid-cols-1 lg:grid-cols-3 border-b
-  
-  Col 1: ■ CATEGORY + title + time + excerpt (text only, no image)
-  Col 2: Large grayscale image
-  Col 3: Ad unit (rectangle)
-```
+New allocation for the editorial block — use posts 8-19 before category grouping:
+- Posts 8-13: left column text snippets (6 articles, 2-col grid)
+- Posts 14-18: center column horizontal cards (5 articles)
+- Posts 19-21: right column trending entries (3 articles)
+- Posts 22+: category sections (as before)
 
-### Rest of Page (Below Hero Sections)
-
-Stays as-is: 4-column article grid with vertical borders → category sections → View All → Footer (with newsletter in 4th column).
+This requires fetching more posts (increase limit from 30 to 50) to have enough content for all sections.
 
