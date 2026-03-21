@@ -363,27 +363,33 @@ export type Database = {
       }
       rss_sources: {
         Row: {
+          category: string | null
           created_at: string
           id: string
           is_active: boolean
           last_scraped_at: string | null
           name: string
+          source_language: string | null
           url: string
         }
         Insert: {
+          category?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
           last_scraped_at?: string | null
           name: string
+          source_language?: string | null
           url: string
         }
         Update: {
+          category?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
           last_scraped_at?: string | null
           name?: string
+          source_language?: string | null
           url?: string
         }
         Relationships: []
