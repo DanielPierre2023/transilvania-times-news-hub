@@ -52,16 +52,20 @@ serve(async (req) => {
     const editor = job.editor || 'marcus_webb';
 
     const { data: article, error: fetchErr } = await supabaseAdmin
-      .from('scraped_articles').select('original_content, original_title, source_id').eq('id', articleId).single();
+      .from('scraped_articles').select('original_content, original_title, source_id, category, subcategory').eq('id', articleId).single();
 
     if (fetchErr || !article) throw new Error(`Article not found: ${fetchErr?.message}`);
 
-    // Detect source language from rss_sources
+    // Detect source language and category from rss_sources
     let sourceLang = 'en';
+    let sourceCategory: string | null = article.category || null;
     if (article.source_id) {
       const { data: source } = await supabaseAdmin
-        .from('rss_sources').select('source_language').eq('id', article.source_id).single();
+        .from('rss_sources').select('source_language, category').eq('id', article.source_id).single();
       if (source?.source_language) sourceLang = source.source_language;
+      if (!sourceCategory && source?.category && source.category !== 'auto-detect') {
+        sourceCategory = source.category;
+      }
     }
 
     const apiKey = Deno.env.get('OPENAI_API_KEY');
