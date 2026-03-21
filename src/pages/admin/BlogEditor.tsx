@@ -88,7 +88,8 @@ const BlogEditor = () => {
     summary_en: '', summary_ro: '',
     content_en: '', content_ro: '', tags: '' as string, cover_image: '',
     status: 'draft', category: 'politics', subcategory: 'international' as string,
-    author_name: 'Kara Newman',
+    author_name: 'Daniel Dobos',
+    is_breaking: false,
     seo_title_en: '', seo_title_ro: '', seo_description_en: '', seo_description_ro: '',
   });
 
