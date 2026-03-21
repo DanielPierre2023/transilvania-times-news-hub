@@ -55,6 +55,9 @@ i18n
           terms_conditions: "Terms & Conditions",
           copyright: "© 2026 Transilvania Times. All rights reserved.",
           footer_accessibility: "Accessibility",
+          footer_company_line: "A media project by ADD Individual Solutions Ltd.",
+          footer_editorial_desk: "Editorial Desk",
+          footer_corporate_hq: "Corporate Headquarters",
 
           // Newsletter
           newsletter_title: "Newsletter",
