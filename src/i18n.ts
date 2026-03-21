@@ -251,7 +251,8 @@ i18n
           terms_s4_title: "4. Conduita Utilizatorilor",
           terms_s4_body: "Utilizatorii nu trebuie să folosească acest site în scopuri frauduloase sau pentru a distribui programe malware. Ne fortificăm activ sistemele esențiale pentru a ne asigura că cititorii noștri rămân protejați într-un peisaj digital în continuă schimbare.",
           terms_contact_title: "Contactați Biroul Legal",
-          terms_hq: "Sediul Transilvania Times",
+          terms_hq: "ADD Individual Solutions Ltd.",
+          terms_reg: "Înregistrare",
           terms_back: "Înapoi la Pagina Principală",
 
           // Privacy Policy
