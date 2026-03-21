@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { format, parseISO } from "date-fns";
+import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
+import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
 const Blog = () => {
   const { t, i18n } = useTranslation();
