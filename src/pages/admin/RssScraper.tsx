@@ -21,11 +21,12 @@ function decodeEntities(text: string): string {
 }
 
 const EDITORS = [
-  { value: 'marcus_webb', label: 'Marcus Webb' },
+  { value: 'daniel_dobos', label: 'Daniel Dobos' },
+  { value: 'andrei_popescu', label: 'Andrei Popescu' },
   { value: 'elena_vasilescu', label: 'Elena Vasilescu' },
-  { value: 'james_chen', label: 'James Chen' },
+  { value: 'lucian_bratu', label: 'Lucian Bratu' },
   { value: 'sofia_marinescu', label: 'Sofia Marinescu' },
-  { value: 'daniel_novak', label: 'Daniel Novak' },
+  { value: 'mihai_ionescu', label: 'Mihai Ionescu' },
 ];
 
 import { CATEGORIES, SUBCATEGORIES, categoryI18nKey, subcategoryI18nKey } from '@/lib/categories';

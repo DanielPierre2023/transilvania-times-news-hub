@@ -16,18 +16,25 @@ import { Badge } from '@/components/ui/badge';
 import { toPublicMediaUrl } from '@/lib/mediaUrl';
 
 const EDITORS = [
-  { value: 'marcus_webb', label: 'Marcus Webb — Investigative' },
+  { value: 'daniel_dobos', label: 'Daniel Dobos — Senior Tech Editor' },
+  { value: 'andrei_popescu', label: 'Andrei Popescu — Investigative' },
   { value: 'elena_vasilescu', label: 'Elena Vasilescu — Science Editor' },
-  { value: 'james_chen', label: 'James Chen — Features' },
+  { value: 'lucian_bratu', label: 'Lucian Bratu — Features' },
   { value: 'sofia_marinescu', label: 'Sofia Marinescu — Research' },
-  { value: 'daniel_novak', label: 'Daniel Novak — Tech Reviews' },
+  { value: 'mihai_ionescu', label: 'Mihai Ionescu — Tech Reviews' },
 ];
 
 const EDITOR_NAMES: Record<string, string> = {
-  marcus_webb: 'Marcus Webb', elena_vasilescu: 'Elena Vasilescu',
-  james_chen: 'James Chen', sofia_marinescu: 'Sofia Marinescu',
-  daniel_novak: 'Daniel Novak',
+  daniel_dobos: 'Daniel Dobos', andrei_popescu: 'Andrei Popescu',
+  elena_vasilescu: 'Elena Vasilescu', lucian_bratu: 'Lucian Bratu',
+  sofia_marinescu: 'Sofia Marinescu', mihai_ionescu: 'Mihai Ionescu',
 };
+
+const AUTHORS = [
+  'Daniel Dobos', 'Cristina Erika', 'Corina Bugner',
+  'Andrei Popescu', 'Elena Vasilescu', 'Lucian Bratu',
+  'Sofia Marinescu', 'Mihai Ionescu',
+];
 
 const AI_CHIPS = [
   { action: 'write_intro', label: 'Write Intro' },
