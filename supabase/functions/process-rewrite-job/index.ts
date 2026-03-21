@@ -257,6 +257,8 @@ Respond with valid JSON:
       seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),
       seo_description_ro: sanitizeContent(parsed.seo_description_ro || '', 'ro'),
       cover_image: coverImageUrl,
+      category: detectedCategory,
+      subcategory: detectedSubcategory,
       status: finalStatus, rewrite_error: null, rewrite_finished_at: new Date().toISOString(),
       ai_score: aiScore, plagiarism_score: plagiarismScore, quality_checked_at: new Date().toISOString(),
     } as any).eq('id', articleId);
