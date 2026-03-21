@@ -15,10 +15,16 @@ export default async (request: Request, context: any) => {
   const path = url.pathname + url.search;
   const proxyUrl = `${OG_PROXY_BASE}?path=${encodeURIComponent(path)}`;
 
+  // Forward Accept-Language so OG proxy can detect Romanian bots
+  const acceptLang = request.headers.get("accept-language") || "";
+
   try {
     const res = await fetch(proxyUrl, {
       method: "GET",
-      headers: { "User-Agent": ua },
+      headers: {
+        "User-Agent": ua,
+        "Accept-Language": acceptLang,
+      },
     });
 
     const headers = new Headers(res.headers);

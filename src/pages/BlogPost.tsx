@@ -311,9 +311,9 @@ const BlogPost = () => {
         />
 
         {/* SEO Tag Pills */}
-        {post.tags && post.tags.length > 0 && (
+        {seoTags.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-10">
-            {post.tags.map((tag: string) => (
+            {seoTags.map((tag: string) => (
               <span key={tag} className="bg-foreground text-background px-3 py-1 text-[10px] font-bold uppercase tracking-widest">
                 #{tag}
               </span>

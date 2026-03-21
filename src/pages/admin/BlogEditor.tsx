@@ -514,7 +514,10 @@ const BlogEditor = () => {
             <Input placeholder="Excerpt (EN)" value={form.excerpt_en} onChange={e => handleChange('excerpt_en', e.target.value)} />
             <Input placeholder="Excerpt (RO)" value={form.excerpt_ro} onChange={e => handleChange('excerpt_ro', e.target.value)} />
           </div>
-          <Input placeholder="Tags (comma-separated)" value={form.tags} onChange={e => handleChange('tags', e.target.value)} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input placeholder="Tags EN (comma-separated)" value={form.tags_en} onChange={e => handleChange('tags_en', e.target.value)} />
+            <Input placeholder="Tags RO (separate cu virgulă)" value={form.tags_ro} onChange={e => handleChange('tags_ro', e.target.value)} />
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <Textarea placeholder="Summary (EN)" value={form.summary_en} onChange={e => handleChange('summary_en', e.target.value)} className="min-h-[80px] text-sm" />
             <Textarea placeholder="Summary (RO)" value={form.summary_ro} onChange={e => handleChange('summary_ro', e.target.value)} className="min-h-[80px] text-sm" />
