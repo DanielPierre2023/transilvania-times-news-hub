@@ -397,6 +397,7 @@ export type Database = {
       scraped_articles: {
         Row: {
           ai_score: number | null
+          cover_image: string | null
           created_at: string
           excerpt_en: string | null
           excerpt_ro: string | null
@@ -427,6 +428,7 @@ export type Database = {
         }
         Insert: {
           ai_score?: number | null
+          cover_image?: string | null
           created_at?: string
           excerpt_en?: string | null
           excerpt_ro?: string | null
@@ -457,6 +459,7 @@ export type Database = {
         }
         Update: {
           ai_score?: number | null
+          cover_image?: string | null
           created_at?: string
           excerpt_en?: string | null
           excerpt_ro?: string | null
