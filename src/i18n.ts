@@ -15,17 +15,17 @@ i18n
           breaking: "Breaking",
           support_us: "Support Us",
           search_placeholder: "Search articles...",
-          date_full: "Thursday, March 19, 2026",
-
           // Categories
           cat_politics: "Politics",
+          cat_world: "World",
           cat_technology: "Technology",
+          cat_business: "Business",
+          cat_culture: "Culture",
+          cat_opinion: "Opinion",
+          cat_travel: "Travel",
           cat_education: "Education",
           cat_sports: "Sports",
-          cat_showbiz: "Showbiz",
           cat_health: "Health",
-          cat_beauty: "Beauty",
-          cat_travel: "Travel",
 
           // Breaking headlines
           breaking_1: "Opposition Leader Calls for Early Elections Amid Growing Public Discontent",
