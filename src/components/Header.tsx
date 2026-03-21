@@ -81,6 +81,37 @@ const Header = () => {
         {/* Top bar */}
         <div className="flex items-center justify-between py-2 border-b border-foreground/20">
           <div className="flex items-center">
+            {/* Mobile hamburger — top bar, CNN/CBS style */}
+            <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+              <SheetTrigger asChild>
+                <button
+                  className="md:hidden p-2 mr-1 rounded hover:bg-foreground/5 transition-colors"
+                  aria-label="Open menu"
+                >
+                  <Menu size={20} />
+                </button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[280px] bg-background">
+                <SheetTitle className="font-serif font-bold text-lg mb-6">
+                  {t("categories", "Categories")}
+                </SheetTitle>
+                <nav>
+                  <ul className="flex flex-col gap-1">
+                    {NAV_CATEGORIES.map(({ slug, i18nKey }) => (
+                      <li key={slug}>
+                        <Link
+                          to={`/category/${slug}`}
+                          onClick={() => setMenuOpen(false)}
+                          className="block py-3 px-3 text-sm font-sans font-medium text-foreground hover:text-primary hover:bg-primary/5 transition-colors border-b border-foreground/5"
+                        >
+                          {t(i18nKey)}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              </SheetContent>
+            </Sheet>
             <LangSwitcher />
             <span className="hidden sm:inline text-sm text-muted-foreground font-sans">{dateStr}</span>
             <WeatherWidget />
