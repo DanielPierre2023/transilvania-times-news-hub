@@ -80,6 +80,7 @@ const BlogManager = () => {
               <TableHead>Title</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Breaking</TableHead>
               <TableHead>Tags</TableHead>
               <TableHead>Date</TableHead>
               <TableHead className="w-24">Actions</TableHead>
