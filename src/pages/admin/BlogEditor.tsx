@@ -157,11 +157,22 @@ const BlogEditor = () => {
     }
   }, [rssArticle, isEdit, searchParams]);
 
-  const generatePollinationsUrl = (title: string, excerpt: string) => {
-    const seed = Math.floor(Math.random() * 100000);
-    const subject = `${title} ${excerpt}`.substring(0, 120).replace(/[^\w\s-]/g, '');
-    const prompt = `Professional news photography, high-detail, editorial style, regarding: ${subject}`;
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1200&height=630&model=flux&seed=${seed}&nologo=true`;
+  const generateCoverViaEdgeFunction = async (title: string, excerpt: string): Promise<string | null> => {
+    setCoverLoading(true);
+    setCoverError(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-cover-image', {
+        body: { title, excerpt },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data.publicUrl;
+    } catch (e: any) {
+      console.error('Cover generation failed:', e.message);
+      setCoverError(true);
+      setCoverLoading(false);
+      return null;
+    }
   };
 
   // Reset cover loading/error state whenever cover URL changes
