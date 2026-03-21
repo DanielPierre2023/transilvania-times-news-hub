@@ -133,6 +133,7 @@ i18n
           privacy_s7_title: "7. Changes to This Policy",
           privacy_s7_body: "We may update this Privacy Policy from time to time. Any changes will be posted on this page with an updated revision date. We encourage you to review this policy periodically.",
           privacy_contact_title: "Contact Our Data Protection Team",
+          privacy_dpa: "Lead Data Protection Authority: Commissioner for Personal Data Protection, Cyprus.",
           privacy_back: "Back to Homepage",
 
           // Category page
