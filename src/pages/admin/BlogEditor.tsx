@@ -183,11 +183,16 @@ const BlogEditor = () => {
     }
   }, [form.cover_image]);
 
-  const generateCoverImage = () => {
+  const generateCoverImage = async () => {
     if (!form.title_en.trim()) { toast.error('Enter a title first'); return; }
-    const url = generatePollinationsUrl(form.title_en, form.excerpt_en || form.summary_en || '');
-    handleChange('cover_image', url);
-    toast.success('Cover image generated!');
+    const url = await generateCoverViaEdgeFunction(form.title_en, form.excerpt_en || form.summary_en || '');
+    if (url) {
+      handleChange('cover_image', url);
+      setCoverLoading(false);
+      toast.success('Cover image generated and stored!');
+    } else {
+      toast.error('Image generation failed — try again or upload manually');
+    }
   };
 
   const handleChange = (field: string, value: string) => {
