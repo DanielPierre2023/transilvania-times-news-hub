@@ -87,7 +87,7 @@ const BlogEditor = () => {
   const [form, setForm] = useState({
     title_en: '', title_ro: '', slug: '', excerpt_en: '', excerpt_ro: '',
     summary_en: '', summary_ro: '',
-    content_en: '', content_ro: '', tags: '' as string, cover_image: '',
+    content_en: '', content_ro: '', tags_en: '' as string, tags_ro: '' as string, cover_image: '',
     status: 'draft', category: 'politics', subcategory: 'international' as string,
     author_name: 'Daniel Dobos',
     is_breaking: false,
@@ -121,7 +121,9 @@ const BlogEditor = () => {
         excerpt_en: p.excerpt_en || '', excerpt_ro: p.excerpt_ro || '',
         summary_en: p.summary_en || '', summary_ro: p.summary_ro || '',
         content_en: p.content_en || '', content_ro: p.content_ro || '',
-        tags: (p.tags || []).join(', '), cover_image: p.cover_image || '',
+        tags_en: (p.tags_en?.length ? p.tags_en : p.tags || []).join(', '),
+        tags_ro: (p.tags_ro || []).join(', '),
+        cover_image: p.cover_image || '',
         status: p.status || 'draft', category: p.category || 'politics',
         subcategory: p.subcategory || 'international',
         author_name: p.author_name || 'Daniel Dobos',
@@ -147,7 +149,8 @@ const BlogEditor = () => {
         summary_en: r.summary_en || '', summary_ro: r.summary_ro || '',
         seo_title_en: r.seo_title_en || '', seo_title_ro: r.seo_title_ro || '',
         seo_description_en: r.seo_description_en || '', seo_description_ro: r.seo_description_ro || '',
-        tags: (r.rewrite_tags || []).join(', '),
+        tags_en: (r.rewrite_tags_en?.length ? r.rewrite_tags_en : r.rewrite_tags || []).join(', '),
+        tags_ro: (r.rewrite_tags_ro || []).join(', '),
         cover_image: rssCover || '',
         status: 'draft',
         category: r.category || categoryFromUrl || 'news',
@@ -246,12 +249,16 @@ const BlogEditor = () => {
 
   const saveMut = useMutation({
     mutationFn: async () => {
+      const tagsEn = form.tags_en.split(',').map(t => t.trim()).filter(Boolean);
+      const tagsRo = form.tags_ro.split(',').map(t => t.trim()).filter(Boolean);
       const payload: any = {
         title_en: form.title_en, title_ro: form.title_ro, slug: form.slug,
         excerpt_en: form.excerpt_en, excerpt_ro: form.excerpt_ro,
         summary_en: form.summary_en || null, summary_ro: form.summary_ro || null,
         content_en: form.content_en, content_ro: form.content_ro,
-        tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+        tags: tagsEn, // backward compat
+        tags_en: tagsEn,
+        tags_ro: tagsRo,
         cover_image: form.cover_image || null, status: form.status,
         category: form.category, subcategory: form.subcategory || 'international',
         author_name: form.author_name,
@@ -305,7 +312,8 @@ const BlogEditor = () => {
           excerpt_ro: data.excerpt_ro || prev.excerpt_ro,
           summary_en: data.summary_en || prev.summary_en, summary_ro: data.summary_ro || prev.summary_ro,
           content_en: data.content_en || prev.content_en, content_ro: data.content_ro || prev.content_ro,
-          tags: (data.tags || []).join(', '),
+          tags_en: (data.tags_en || data.tags || []).join(', '),
+          tags_ro: (data.tags_ro || []).join(', '),
           category: genCategory, author_name: data.author_name || EDITOR_NAMES[genEditor] || prev.author_name,
           seo_title_en: data.seo_title_en || prev.seo_title_en, seo_title_ro: data.seo_title_ro || prev.seo_title_ro,
           seo_description_en: data.seo_description_en || prev.seo_description_en, seo_description_ro: data.seo_description_ro || prev.seo_description_ro,
@@ -506,7 +514,10 @@ const BlogEditor = () => {
             <Input placeholder="Excerpt (EN)" value={form.excerpt_en} onChange={e => handleChange('excerpt_en', e.target.value)} />
             <Input placeholder="Excerpt (RO)" value={form.excerpt_ro} onChange={e => handleChange('excerpt_ro', e.target.value)} />
           </div>
-          <Input placeholder="Tags (comma-separated)" value={form.tags} onChange={e => handleChange('tags', e.target.value)} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input placeholder="Tags EN (comma-separated)" value={form.tags_en} onChange={e => handleChange('tags_en', e.target.value)} />
+            <Input placeholder="Tags RO (separate cu virgulă)" value={form.tags_ro} onChange={e => handleChange('tags_ro', e.target.value)} />
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <Textarea placeholder="Summary (EN)" value={form.summary_en} onChange={e => handleChange('summary_en', e.target.value)} className="min-h-[80px] text-sm" />
             <Textarea placeholder="Summary (RO)" value={form.summary_ro} onChange={e => handleChange('summary_ro', e.target.value)} className="min-h-[80px] text-sm" />

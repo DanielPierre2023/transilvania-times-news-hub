@@ -182,7 +182,7 @@ MASTER HUMANIZING CONSTRAINTS:
 - Title RO: Native Romanian grammar, not a translation of the English title.
 
 Respond with valid JSON:
-{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags":["..."],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
+{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags_en":["6-9 English SEO tags"],"tags_ro":["6-9 taguri SEO în ROMÂNĂ"],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -285,7 +285,9 @@ Respond with valid JSON:
       excerpt_ro: sanitizeContent(parsed.excerpt_ro || '', 'ro'),
       summary_en: sanitizeContent(parsed.summary_en || '', 'en'),
       summary_ro: sanitizeContent(parsed.summary_ro || '', 'ro'),
-      rewrite_tags: parsed.tags || [],
+      rewrite_tags: parsed.tags_en || parsed.tags || [],
+      rewrite_tags_en: parsed.tags_en || parsed.tags || [],
+      rewrite_tags_ro: parsed.tags_ro || [],
       seo_title_en: sanitizeContent(parsed.seo_title_en || '', 'en'),
       seo_title_ro: sanitizeContent(parsed.seo_title_ro || '', 'ro'),
       seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),

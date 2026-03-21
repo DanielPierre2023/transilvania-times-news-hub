@@ -50,7 +50,7 @@ serve(async (req) => {
         body: JSON.stringify({
           model: 'gpt-4o',
           messages: [
-            { role: 'system', content: `Current date: March 2026.\n\n${persona}\n\n${RULES}\n\n${ROMANIAN_RULES}\n\nRewrite in BOTH English and Romanian. Each at least 1200 words. Romanian written NATIVELY.\n\nRespond ONLY with valid JSON:\n{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags":["..."],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}` },
+            { role: 'system', content: `Current date: March 2026.\n\n${persona}\n\n${RULES}\n\n${ROMANIAN_RULES}\n\nRewrite in BOTH English and Romanian. Each at least 1200 words. Romanian written NATIVELY.\n\nRespond ONLY with valid JSON:\n{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags_en":["6-9 English tags"],"tags_ro":["6-9 taguri în română"],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}` },
             { role: 'user', content: `Rewrite this article in both English and Romanian.\n\nTitle: ${article.original_title}\n\nContent:\n${article.original_content}` },
           ],
           temperature: 0.85,
@@ -72,7 +72,9 @@ serve(async (req) => {
         excerpt_ro: sanitizeContent(parsed.excerpt_ro || '', 'ro'),
         summary_en: sanitizeContent(parsed.summary_en || '', 'en'),
         summary_ro: sanitizeContent(parsed.summary_ro || '', 'ro'),
-        rewrite_tags: parsed.tags || [],
+        rewrite_tags: parsed.tags_en || parsed.tags || [],
+        rewrite_tags_en: parsed.tags_en || parsed.tags || [],
+        rewrite_tags_ro: parsed.tags_ro || [],
         seo_title_en: sanitizeContent(parsed.seo_title_en || '', 'en'),
         seo_title_ro: sanitizeContent(parsed.seo_title_ro || '', 'ro'),
         seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),

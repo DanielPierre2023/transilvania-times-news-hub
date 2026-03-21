@@ -79,6 +79,8 @@ export type Database = {
           summary_en: string | null
           summary_ro: string | null
           tags: string[] | null
+          tags_en: string[] | null
+          tags_ro: string[] | null
           title_en: string
           title_ro: string | null
           updated_at: string
@@ -106,6 +108,8 @@ export type Database = {
           summary_en?: string | null
           summary_ro?: string | null
           tags?: string[] | null
+          tags_en?: string[] | null
+          tags_ro?: string[] | null
           title_en: string
           title_ro?: string | null
           updated_at?: string
@@ -133,6 +137,8 @@ export type Database = {
           summary_en?: string | null
           summary_ro?: string | null
           tags?: string[] | null
+          tags_en?: string[] | null
+          tags_ro?: string[] | null
           title_en?: string
           title_ro?: string | null
           updated_at?: string
@@ -419,6 +425,8 @@ export type Database = {
           rewrite_finished_at: string | null
           rewrite_started_at: string | null
           rewrite_tags: string[] | null
+          rewrite_tags_en: string[] | null
+          rewrite_tags_ro: string[] | null
           rewritten_content: string | null
           rewritten_en: string | null
           rewritten_ro: string | null
@@ -452,6 +460,8 @@ export type Database = {
           rewrite_finished_at?: string | null
           rewrite_started_at?: string | null
           rewrite_tags?: string[] | null
+          rewrite_tags_en?: string[] | null
+          rewrite_tags_ro?: string[] | null
           rewritten_content?: string | null
           rewritten_en?: string | null
           rewritten_ro?: string | null
@@ -485,6 +495,8 @@ export type Database = {
           rewrite_finished_at?: string | null
           rewrite_started_at?: string | null
           rewrite_tags?: string[] | null
+          rewrite_tags_en?: string[] | null
+          rewrite_tags_ro?: string[] | null
           rewritten_content?: string | null
           rewritten_en?: string | null
           rewritten_ro?: string | null
