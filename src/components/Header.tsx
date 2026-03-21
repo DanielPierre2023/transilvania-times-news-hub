@@ -69,10 +69,7 @@ const Header = () => {
         <div className="flex items-center justify-between py-2 border-b border-foreground/20">
           <div className="flex items-center">
             <LangSwitcher />
-            <span className="hidden sm:inline text-sm text-muted-foreground font-sans">{useMemo(() => {
-              const locale = i18n.language.startsWith('ro') ? 'ro-RO' : 'en-US';
-              return new Intl.DateTimeFormat(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
-            }, [i18n.language])}</span>
+            <span className="hidden sm:inline text-sm text-muted-foreground font-sans">{dateStr}</span>
             <WeatherWidget />
           </div>
           <div className="flex items-center gap-2">
