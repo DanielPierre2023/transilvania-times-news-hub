@@ -274,6 +274,7 @@ i18n
           privacy_s7_title: "7. Modificări ale Acestei Politici",
           privacy_s7_body: "Putem actualiza această Politică de Confidențialitate din când în când. Orice modificări vor fi publicate pe această pagină cu o dată de revizuire actualizată. Vă încurajăm să revizuiți periodic această politică.",
           privacy_contact_title: "Contactați Echipa de Protecție a Datelor",
+          privacy_dpa: "Autoritatea de Protecție a Datelor: Comisarul pentru Protecția Datelor cu Caracter Personal, Cipru.",
           privacy_back: "Înapoi la Pagina Principală",
 
           // Category page

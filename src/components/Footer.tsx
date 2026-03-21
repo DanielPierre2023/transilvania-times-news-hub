@@ -172,9 +172,10 @@ const Footer = () => {
 
         {/* Bottom bar */}
         <div className="border-t border-primary/30 pt-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs font-sans text-foreground/50">
-            {t("copyright")}
-          </p>
+          <div className="text-xs font-sans text-foreground/50">
+            <p>{t("copyright")}</p>
+            <p className="mt-0.5">VAT: CY10439793M</p>
+          </div>
           <div className="flex items-center gap-3">
             <a href="#" aria-label="Facebook" className="text-foreground/50 hover:text-primary transition-colors">
               <Facebook className="w-4 h-4" />

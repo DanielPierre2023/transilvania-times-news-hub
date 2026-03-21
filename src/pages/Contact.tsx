@@ -60,12 +60,24 @@ const Contact = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-12">
           {/* Left — Contact Info */}
           <div className="md:col-span-2 space-y-8">
+            {/* Editorial Desk */}
             <div className="flex gap-4">
               <MapPin className="w-5 h-5 text-primary mt-1 shrink-0" />
               <div>
-                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("contact_address")}</h3>
+                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("footer_editorial_desk")}</h3>
                 <p className="text-muted-foreground text-sm font-sans">str. Memorandumului nr 2</p>
                 <p className="text-muted-foreground text-sm font-sans">Cluj-Napoca, Transilvania</p>
+              </div>
+            </div>
+
+            {/* Corporate HQ */}
+            <div className="flex gap-4">
+              <MapPin className="w-5 h-5 text-primary mt-1 shrink-0" />
+              <div>
+                <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("footer_corporate_hq")}</h3>
+                <p className="text-muted-foreground text-sm font-sans">ADD Individual Solutions Ltd.</p>
+                <p className="text-muted-foreground text-sm font-sans">Sunset Valley, 7081 Pyla, Cyprus</p>
+                <p className="text-muted-foreground text-sm font-sans">VAT: CY10439793M</p>
               </div>
             </div>
 
@@ -73,8 +85,8 @@ const Contact = () => {
               <Mail className="w-5 h-5 text-primary mt-1 shrink-0" />
               <div>
                 <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("contact_email")}</h3>
-                <a href="mailto:needhelp@transilvaniatimes.com" className="text-primary text-sm font-sans hover:underline block">
-                  needhelp@transilvaniatimes.com
+                <a href="mailto:contact@add-individual-solutions.com" className="text-primary text-sm font-sans hover:underline block">
+                  contact@add-individual-solutions.com
                 </a>
                 <a href="mailto:press@transilvaniatimes.com" className="text-primary text-sm font-sans hover:underline block">
                   press@transilvaniatimes.com
@@ -86,7 +98,7 @@ const Contact = () => {
               <Phone className="w-5 h-5 text-primary mt-1 shrink-0" />
               <div>
                 <h3 className="font-sans font-bold text-foreground text-sm uppercase tracking-wider mb-1">{t("contact_phone")}</h3>
-                <p className="text-muted-foreground text-sm font-sans">+40 264 123 456</p>
+                <p className="text-muted-foreground text-sm font-sans">+357 96 919 606</p>
               </div>
             </div>
           </div>
