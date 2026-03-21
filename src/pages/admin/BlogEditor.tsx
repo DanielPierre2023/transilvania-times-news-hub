@@ -489,10 +489,16 @@ const BlogEditor = () => {
               <SelectTrigger><SelectValue placeholder="Subcategory" /></SelectTrigger>
               <SelectContent>{SUBCATEGORIES.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
             </Select>
-            <Select value={Object.keys(EDITOR_NAMES).find(k => EDITOR_NAMES[k] === form.author_name) || 'marcus_webb'} onValueChange={v => handleChange('author_name', EDITOR_NAMES[v] || v)}>
+            <Select value={form.author_name} onValueChange={v => handleChange('author_name', v)}>
               <SelectTrigger className="text-xs"><SelectValue placeholder="Author" /></SelectTrigger>
-              <SelectContent>{EDITORS.map(e => <SelectItem key={e.value} value={e.value} className="text-xs">{e.label}</SelectItem>)}</SelectContent>
+              <SelectContent>{AUTHORS.map(a => <SelectItem key={a} value={a} className="text-xs">{a}</SelectItem>)}</SelectContent>
             </Select>
+          </div>
+          <div className="flex items-center gap-3 px-1">
+            <label className="text-xs font-medium text-foreground flex items-center gap-2 cursor-pointer">
+              <Switch checked={form.is_breaking} onCheckedChange={v => setForm(prev => ({ ...prev, is_breaking: v }))} />
+              ⚡ Breaking News
+            </label>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input placeholder="Excerpt (EN)" value={form.excerpt_en} onChange={e => handleChange('excerpt_en', e.target.value)} />
