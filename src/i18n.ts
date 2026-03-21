@@ -192,6 +192,9 @@ i18n
           // Article
           go_back: "Înapoi la Pagina Principală",
           by_author: "De",
+          previous: "Anterior",
+          next: "Următor",
+          related_articles: "Articole Similare",
 
           // Most Read
           most_read: "Cele Mai Citite",
