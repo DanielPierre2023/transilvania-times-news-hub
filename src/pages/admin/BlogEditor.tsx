@@ -87,7 +87,7 @@ const BlogEditor = () => {
   const [form, setForm] = useState({
     title_en: '', title_ro: '', slug: '', excerpt_en: '', excerpt_ro: '',
     summary_en: '', summary_ro: '',
-    content_en: '', content_ro: '', tags: '' as string, cover_image: '',
+    content_en: '', content_ro: '', tags_en: '' as string, tags_ro: '' as string, cover_image: '',
     status: 'draft', category: 'politics', subcategory: 'international' as string,
     author_name: 'Daniel Dobos',
     is_breaking: false,
