@@ -508,8 +508,8 @@ const BlogEditor = () => {
               <SelectContent>{SUBCATEGORIES.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={form.author_name} onValueChange={v => handleChange('author_name', v)}>
-              <SelectTrigger className="text-xs"><SelectValue placeholder="Author" /></SelectTrigger>
-              <SelectContent>{AUTHORS.map(a => <SelectItem key={a} value={a} className="text-xs">{a}</SelectItem>)}</SelectContent>
+              <SelectTrigger className="text-xs"><SelectValue placeholder="Author / Byline" /></SelectTrigger>
+              <SelectContent>{ALL_AUTHORS.map(a => <SelectItem key={a} value={a} className="text-xs">{a}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="flex items-center gap-3 px-1">

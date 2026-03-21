@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Plus, Rss, RefreshCw, Wand2, Pencil, Trash2, Loader2, AlertTriangle, CheckCircle, Clock, RotateCcw, Globe } from 'lucide-react';
+import { Plus, Rss, RefreshCw, Wand2, Pencil, Trash2, Loader2, AlertTriangle, CheckCircle, Clock, RotateCcw, Globe, Shuffle } from 'lucide-react';
 
 function decodeEntities(text: string): string {
   const el = document.createElement('textarea');
@@ -20,14 +20,28 @@ function decodeEntities(text: string): string {
   return el.value;
 }
 
-const EDITORS = [
-  { value: 'daniel_dobos', label: 'Daniel Dobos' },
-  { value: 'andrei_popescu', label: 'Andrei Popescu' },
-  { value: 'elena_vasilescu', label: 'Elena Vasilescu' },
-  { value: 'lucian_bratu', label: 'Lucian Bratu' },
-  { value: 'sofia_marinescu', label: 'Sofia Marinescu' },
-  { value: 'mihai_ionescu', label: 'Mihai Ionescu' },
+const AI_EDITORS = [
+  { value: 'daniel_dobos', label: 'Daniel Dobos — Tech Guru' },
+  { value: 'andrei_popescu', label: 'Andrei Popescu — Hard-Hitter' },
+  { value: 'elena_vasilescu', label: 'Elena Vasilescu — Philosopher' },
+  { value: 'lucian_bratu', label: 'Lucian Bratu — Localist' },
+  { value: 'sofia_marinescu', label: 'Sofia Marinescu — Skeptic' },
+  { value: 'mihai_ionescu', label: 'Mihai Ionescu — Storyteller' },
 ];
+
+// Round-robin rotation: pick next editor based on recent usage
+function getNextEditor(recentEditors: string[]): string {
+  const editorKeys = AI_EDITORS.map(e => e.value);
+  // Count usage of each editor in recent jobs
+  const counts: Record<string, number> = {};
+  for (const k of editorKeys) counts[k] = 0;
+  for (const e of recentEditors) if (counts[e] !== undefined) counts[e]++;
+  // Pick the least-used editor (avoid consecutive repeats)
+  const lastUsed = recentEditors[0] || '';
+  const candidates = editorKeys.filter(k => k !== lastUsed);
+  candidates.sort((a, b) => counts[a] - counts[b]);
+  return candidates[0] || editorKeys[0];
+}
 
 import { CATEGORIES, SUBCATEGORIES, categoryI18nKey, subcategoryI18nKey } from '@/lib/categories';
 const CATEGORY_OPTIONS = ['auto-detect', ...CATEGORIES] as const;
@@ -65,6 +79,15 @@ const RssScraper = () => {
     refetchInterval: (query) => {
       const data = query.state.data as any[] | undefined;
       return data?.some(a => a.status === 'rewriting') ? 5000 : false;
+    },
+  });
+
+  // Fetch recent editor assignments for rotation
+  const { data: recentJobs = [] } = useQuery({
+    queryKey: ['recent_rewrite_editors'],
+    queryFn: async () => {
+      const { data } = await supabase.from('rewrite_jobs').select('editor').order('created_at', { ascending: false }).limit(20);
+      return (data || []).map((j: any) => j.editor).filter(Boolean);
     },
   });
 
@@ -126,12 +149,15 @@ const RssScraper = () => {
       for (const art of (data.articles || []).slice(0, 10)) {
         const exists = articles.find(a => a.original_url === art.url);
         if (!exists) {
-          // Check DB for dedup
           const { data: existing } = await supabase.from('scraped_articles').select('id').eq('original_url', art.url).maybeSingle();
           if (!existing) {
             const articleCategory = source.category === 'auto-detect' ? null : source.category;
             await supabase.from('scraped_articles').insert({
-              original_title: art.title, original_url: art.url, original_content: art.content_snippet, source_id: source.id,
+              original_title: art.title, original_url: art.url,
+              original_content: art.content_snippet,
+              original_content_full: art.content_full || art.content_snippet,
+              source_word_count: art.source_word_count || 0,
+              source_id: source.id,
               category: articleCategory,
             } as any);
             added++;
@@ -160,15 +186,20 @@ const RssScraper = () => {
   };
 
   const rewriteArticle = async (article: any) => {
-    const editor = editorSelection[article.id] || 'daniel_dobos';
+    // Use explicitly selected editor, or auto-rotate
+    const editor = editorSelection[article.id] || getNextEditor(recentJobs as string[]);
     try {
+      // Persist editor assignment on the article
+      await supabase.from('scraped_articles').update({ assigned_editor: editor } as any).eq('id', article.id);
+
       const { data, error } = await supabase.functions.invoke('enqueue-rewrite-article', {
         body: { article_id: article.id, editor },
       });
       if (error) throw error;
       if (data?.ok) {
-        toast.info('Rewrite job queued — Three-Desk pipeline running.');
+        toast.info(`Rewrite queued — Editor: ${AI_EDITORS.find(e => e.value === editor)?.label || editor}`);
         qc.invalidateQueries({ queryKey: ['scraped_articles'] });
+        qc.invalidateQueries({ queryKey: ['recent_rewrite_editors'] });
       } else {
         toast.error(`Failed to enqueue: ${data?.message || 'Unknown error'}`);
       }
@@ -186,7 +217,8 @@ const RssScraper = () => {
   const editAndPublish = (article: any) => {
     const artCategory = article.category || (article as any).rss_sources?.category || 'news';
     const artSubcategory = article.subcategory || '';
-    navigate(`/admin/blog/new?from_rss=${article.id}&category=${artCategory}&subcategory=${artSubcategory}`);
+    const assignedEditor = (article as any).assigned_editor || '';
+    navigate(`/admin/blog/new?from_rss=${article.id}&category=${artCategory}&subcategory=${artSubcategory}&ai_editor=${assignedEditor}`);
   };
 
   const canPublish = (article: any) => {
@@ -197,6 +229,8 @@ const RssScraper = () => {
 
   const getStatusBadge = (article: any) => {
     const status = article.status;
+    const wordCount = (article as any).source_word_count || 0;
+    const isThin = wordCount > 0 && wordCount < 200;
 
     if (status === 'rewriting') {
       const startedAt = article.rewrite_started_at ? new Date(article.rewrite_started_at).getTime() : 0;
@@ -226,10 +260,10 @@ const RssScraper = () => {
           <Tooltip>
             <TooltipTrigger>
               <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600">
-                <AlertTriangle className="w-3 h-3" /> Needs Review
+                <AlertTriangle className="w-3 h-3" /> {isThin ? 'Thin Source' : 'Needs Review'}
               </Badge>
             </TooltipTrigger>
-            <TooltipContent><p>Content may need manual editing.</p></TooltipContent>
+            <TooltipContent><p>{isThin ? `Source only ${wordCount} words — may lack depth.` : 'Content may need manual editing.'}</p></TooltipContent>
           </Tooltip>
         </TooltipProvider>
       );
@@ -258,6 +292,13 @@ const RssScraper = () => {
     const lang = (article as any).rss_sources?.source_language;
     if (!lang) return null;
     return <span className="text-[10px] text-muted-foreground">{lang === 'ro' ? '🇷🇴' : '🇬🇧'}</span>;
+  };
+
+  const getEditorBadge = (article: any) => {
+    const assigned = (article as any).assigned_editor;
+    if (!assigned) return <span className="text-[10px] text-muted-foreground">—</span>;
+    const editor = AI_EDITORS.find(e => e.value === assigned);
+    return <Badge variant="secondary" className="text-[10px]">{editor?.label?.split(' — ')[0] || assigned}</Badge>;
   };
 
   return (
@@ -382,15 +423,30 @@ const RssScraper = () => {
                   <div className="flex items-center gap-2">
                     {getSourceLang(a)}
                     <span className="truncate">{decodeEntities(a.original_title)}</span>
+                    {((a as any).source_word_count || 0) > 0 && (
+                      <span className="text-[9px] text-muted-foreground whitespace-nowrap">
+                        {(a as any).source_word_count}w
+                      </span>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>{getSourceCategory(a)}</TableCell>
                 <TableCell>
-                  {a.status === 'scraped' && (
-                    <Select value={editorSelection[a.id] || 'daniel_dobos'} onValueChange={v => setEditorSelection(prev => ({ ...prev, [a.id]: v }))}>
-                      <SelectTrigger className="w-36 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{EDITORS.map(e => <SelectItem key={e.value} value={e.value} className="text-xs">{e.label}</SelectItem>)}</SelectContent>
+                  {a.status === 'scraped' ? (
+                    <Select
+                      value={editorSelection[a.id] || ''}
+                      onValueChange={v => setEditorSelection(prev => ({ ...prev, [a.id]: v }))}
+                    >
+                      <SelectTrigger className="w-36 text-xs">
+                        <SelectValue placeholder="🔄 Auto-rotate" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto" className="text-xs">🔄 Auto-rotate</SelectItem>
+                        {AI_EDITORS.map(e => <SelectItem key={e.value} value={e.value} className="text-xs">{e.label}</SelectItem>)}
+                      </SelectContent>
                     </Select>
+                  ) : (
+                    getEditorBadge(a)
                   )}
                 </TableCell>
                 <TableCell>{getStatusBadge(a)}</TableCell>

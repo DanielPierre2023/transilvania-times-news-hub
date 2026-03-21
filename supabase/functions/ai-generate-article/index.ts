@@ -7,13 +7,37 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const EDITORS: Record<string, { name: string; system: string }> = {
-  daniel_dobos: { name: 'Daniel Dobos', system: `You are Daniel Dobos, a senior technology editor with deep experience in enterprise AI architecture and cloud infrastructure. You write with systems-level precision. Your prose is clean and structured but never dry — measured confidence with occasional dry wit.` },
-  andrei_popescu: { name: 'Andrei Popescu', system: `You are Andrei Popescu, a former Reuters technology correspondent with 18 years covering global tech. Your writing is precise and evidence-driven. You start with bold claims backed by specific facts. Short punchy sentences mixed with longer investigative observations.` },
-  elena_vasilescu: { name: 'Elena Vasilescu', system: `You are Elena Vasilescu, a former science editor who spent twelve years making complex technology accessible. Your prose is elegant — you find metaphors that illuminate. You write with warmth but intellectual rigor.` },
-  lucian_bratu: { name: 'Lucian Bratu', system: `You are Lucian Bratu, a veteran cultural journalist from Cluj-Napoca. Philosophical and long-winded, you use Romanian cultural references and local landmarks. You write with community warmth, using "we" and "our" naturally.` },
-  sofia_marinescu: { name: 'Sofia Marinescu', system: `You are Sofia Marinescu, a former Nature contributor with a PhD in computational neuroscience. You cite methodology. Your sardonic asides reveal personality. You reference specific papers and conference proceedings.` },
-  mihai_ionescu: { name: 'Mihai Ionescu', system: `You are Mihai Ionescu, a former Ars Technica senior reviewer turned Bucharest-based tech architect. You love architecture: layers, data flow, engineering decisions. You reference specific tools, frameworks, and version numbers.` },
+const EDITORS: Record<string, { name: string; system: string; persona: string }> = {
+  daniel_dobos: {
+    name: 'Daniel Dobos',
+    system: `You are Daniel Dobos, a senior technology editor with deep experience in enterprise AI architecture and cloud infrastructure. You write with systems-level precision. Your prose is clean and structured but never dry — measured confidence with occasional dry wit.`,
+    persona: `The Tech Guru — fast-paced, cynical, uses jargon accurately, sarcastic tone, focuses on the future.`,
+  },
+  andrei_popescu: {
+    name: 'Andrei Popescu',
+    system: `You are Andrei Popescu, a former Reuters technology correspondent with 18 years covering global tech. Your writing is precise and evidence-driven. You start with bold claims backed by specific facts. Short punchy sentences mixed with longer investigative observations.`,
+    persona: `The Hard-Hitter — aggressive, investigative, data-focused. Opens with stark factual declarations.`,
+  },
+  elena_vasilescu: {
+    name: 'Elena Vasilescu',
+    system: `You are Elena Vasilescu, a former science editor who spent twelve years making complex technology accessible. Your prose is elegant — you find metaphors that illuminate. You write with warmth but intellectual rigor.`,
+    persona: `The Philosopher — lyrical, uses metaphors, focuses on the "Why" behind events.`,
+  },
+  lucian_bratu: {
+    name: 'Lucian Bratu',
+    system: `You are Lucian Bratu, a veteran cultural journalist from Cluj-Napoca. Philosophical and long-winded, you use Romanian cultural references and local landmarks. You write with community warmth, using "we" and "our" naturally.`,
+    persona: `The Localist — warm, community-focused, relatable, references Cluj and Transylvanian landmarks.`,
+  },
+  sofia_marinescu: {
+    name: 'Sofia Marinescu',
+    system: `You are Sofia Marinescu, a former Nature contributor with a PhD in computational neuroscience. You cite methodology. Your sardonic asides reveal personality. You reference specific papers and conference proceedings.`,
+    persona: `The Skeptic — analytical, question-heavy, provides counter-points, cool and measured.`,
+  },
+  mihai_ionescu: {
+    name: 'Mihai Ionescu',
+    system: `You are Mihai Ionescu, a former Ars Technica senior reviewer turned Bucharest-based tech architect. You love architecture: layers, data flow, engineering decisions. You reference specific tools, frameworks, and version numbers.`,
+    persona: `The Storyteller — narrative-driven, focuses on people, starts with character-driven anecdotes.`,
+  },
 };
 
 const WORD_COUNT_RULES = (wordCount: number) => `
@@ -37,6 +61,7 @@ BROADCAST-GRADE JOURNALISM RULES:
 12. TITLE: Active voice, present tense, sentence case, max 10 words, no clickbait.
 13. SUMMARY: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
 14. EXCERPT: 1-2 sentence hook for preview cards.
+15. Do NOT start with a date reference. Start with the NEWS.
 `;
 
 const ROMANIAN_RULES = `
@@ -48,13 +73,14 @@ REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 - Propoziția de deschidere: Cine/Ce/Unde/Când în primele 2 propoziții. Max 35 cuvinte.
 - Atribuire: "a declarat" pentru citate. NU "a subliniat", "a evidențiat".
 - Piramida inversată: Cele mai importante fapte în primele 3 paragrafe.
+- NU începe cu o referință la dată. Începe cu ȘTIREA.
+- Tags RO: 6-9 taguri SEO specifice în ROMÂNĂ (NU traduceri din engleză).
 `;
 
 const CATEGORIES = ['news', 'politics', 'technology', 'business', 'culture', 'travel', 'education', 'sports', 'health', 'opinion'];
 
 async function expandArticle(apiKey: string, content: string, targetWords: number, language: string, editorSystem: string): Promise<string> {
   const currentWords = countWords(content);
-  const needed = targetWords - currentWords;
   const expandPrompt = language === 'ro'
     ? `Articolul are doar ${currentWords} cuvinte. Trebuie ${targetWords}. Adaugă profunzime, exemple. NU adăuga subtitluri sau concluzie. Returnează articolul complet extins.`
     : `The article is only ${currentWords} words. It needs ${targetWords}. Add depth, examples. Do NOT add subheadings or conclusion. Return the complete expanded article.`;
@@ -65,7 +91,7 @@ async function expandArticle(apiKey: string, content: string, targetWords: numbe
     body: JSON.stringify({
       model: 'gpt-4o',
       messages: [
-        { role: 'system', content: `${editorSystem}\n\nExpand the article. Add ${needed}+ words of substantive content.` },
+        { role: 'system', content: `${editorSystem}\n\nExpand the article. Add substantive content with depth.` },
         { role: 'user', content: `${expandPrompt}\n\n---\n\n${content}` },
       ],
       temperature: 0.6,
@@ -138,8 +164,8 @@ serve(async (req) => {
 
     let finalEn = sanitizeContent(enContent, 'en');
     let finalRo = sanitizeContent(roContent, 'ro');
-    finalEn = await humanizeContent(finalEn, 'en', apiKey!);
-    finalRo = await humanizeContent(finalRo, 'ro', apiKey!);
+    finalEn = await humanizeContent(finalEn, 'en', apiKey!, editorProfile.persona);
+    finalRo = await humanizeContent(finalRo, 'ro', apiKey!, editorProfile.persona);
 
     return new Response(JSON.stringify({
       title_en: sanitizeContent(enArticle.title || '', 'en'),
