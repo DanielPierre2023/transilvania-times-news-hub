@@ -135,6 +135,7 @@ const BlogEditor = () => {
     if (rssArticle && !isEdit) {
       const r = rssArticle as any;
       const categoryFromUrl = searchParams.get('category');
+      const rssCover = r.cover_image || '';
       setForm({
         title_en: r.title_en || r.original_title || '',
         title_ro: r.title_ro || '',
@@ -145,7 +146,8 @@ const BlogEditor = () => {
         seo_title_en: r.seo_title_en || '', seo_title_ro: r.seo_title_ro || '',
         seo_description_en: r.seo_description_en || '', seo_description_ro: r.seo_description_ro || '',
         tags: (r.rewrite_tags || []).join(', '),
-        cover_image: '', status: 'draft',
+        cover_image: rssCover || generatePollinationsUrl(r.title_en || r.original_title || '', r.excerpt_en || ''),
+        status: 'draft',
         category: categoryFromUrl || 'politics',
         author_name: 'Marcus Webb',
       });
