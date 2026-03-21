@@ -306,9 +306,16 @@ const BlogEditor = () => {
           seo_title_en: data.seo_title_en || prev.seo_title_en, seo_title_ro: data.seo_title_ro || prev.seo_title_ro,
           seo_description_en: data.seo_description_en || prev.seo_description_en, seo_description_ro: data.seo_description_ro || prev.seo_description_ro,
         };
-        // Auto-generate cover image
-        if (!newForm.cover_image) {
-          newForm.cover_image = generatePollinationsUrl(newForm.title_en, newForm.excerpt_en);
+        // Auto-generate cover image via edge function after state update
+        if (!newForm.cover_image && newForm.title_en) {
+          setTimeout(async () => {
+            const url = await generateCoverViaEdgeFunction(newForm.title_en, newForm.excerpt_en);
+            if (url) {
+              setForm(prev => ({ ...prev, cover_image: url }));
+              setCoverLoading(false);
+              toast.success('Cover image auto-generated!');
+            }
+          }, 100);
         }
         return newForm;
       });
