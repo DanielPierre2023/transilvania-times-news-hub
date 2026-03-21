@@ -168,6 +168,7 @@ CRITICAL INSTRUCTIONS:
 - Romanian version: write NATIVELY in Romanian as a native Romanian journalist. Use Romanian headline conventions (subject-verb inversion). ${sourceLang === 'ro' ? 'The source was Romanian — you MUST completely rebuild every sentence in Romanian. Zero overlap with any original phrasing.' : 'Do NOT translate from the English version. Build independently from the facts with different structure, different opening hook, different narrative flow.'}
 - Both versions must be independently structured (different paragraph order, different opening hooks, different narrative flow).
 - Each version must be 1200+ words of continuous prose.
+- PARAGRAPH FORMAT: Separate every paragraph with a blank line (two newlines: \\n\\n). Each paragraph must be 2-4 sentences. Do NOT use single newlines within paragraphs. This is critical for rendering.
 - Lead paragraph: Answer Who/What/Where/When. Opening sentence max 35 words. Active voice.
 - Summary: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
 - Excerpt: 1-2 sentence hook for preview cards.
