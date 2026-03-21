@@ -1,5 +1,5 @@
 import React from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,16 @@ import AdUnit from "@/components/AdUnit";
 import { format, parseISO } from "date-fns";
 import { SUBCATEGORIES, categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const PAGE_SIZE = 12;
 
 const Category = () => {
   const { name, sub } = useParams<{ name: string; sub?: string }>();
@@ -19,28 +29,47 @@ const Category = () => {
   const categoryLabel = name ? t(categoryI18nKey(name)) : "";
   const filtered = name ? getArticlesByCategory(name, lang) : [];
 
-  // Fetch DB blog posts for this category + optional subcategory
-  const { data: dbPosts = [] } = useQuery({
-    queryKey: ["category_blog_posts", name, sub],
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+
+  // Fetch DB blog posts for this category + optional subcategory (paginated)
+  const { data: dbData } = useQuery({
+    queryKey: ["category_blog_posts", name, sub, page],
     queryFn: async () => {
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
       let query = supabase
         .from("blog_posts")
-        .select("*")
+        .select("*", { count: "exact" })
         .eq("status", "published")
         .eq("category", name?.toLowerCase() || "")
         .order("published_at", { ascending: false });
       if (sub) {
         query = query.eq("subcategory", sub.toLowerCase());
       }
-      const { data } = await query;
-      return data || [];
+      const { data, count } = await query.range(from, to);
+      return { posts: data || [], total: count || 0 };
     },
     enabled: !!name,
   });
 
+  const dbPosts = dbData?.posts || [];
+  const dbTotal = dbData?.total || 0;
+  const totalPages = Math.max(1, Math.ceil(dbTotal / PAGE_SIZE));
+
   const displayArticles = filtered.length > 0 || dbPosts.length > 0
     ? filtered
     : articles;
+
+  const goToPage = (p: number) => {
+    if (p === 1) {
+      searchParams.delete("page");
+    } else {
+      searchParams.set("page", String(p));
+    }
+    setSearchParams(searchParams);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -163,6 +192,51 @@ const Category = () => {
             </Link>
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <Pagination className="mt-12">
+            <PaginationContent>
+              {page > 1 && (
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => goToPage(page - 1)}
+                    className="cursor-pointer"
+                  />
+                </PaginationItem>
+              )}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(
+                  (p) =>
+                    p === 1 ||
+                    p === totalPages ||
+                    Math.abs(p - page) <= 2
+                )
+                .map((p, idx, arr) => (
+                  <PaginationItem key={p}>
+                    {idx > 0 && arr[idx - 1] !== p - 1 && (
+                      <span className="px-2 text-muted-foreground">…</span>
+                    )}
+                    <PaginationLink
+                      isActive={p === page}
+                      onClick={() => goToPage(p)}
+                      className="cursor-pointer"
+                    >
+                      {p}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+              {page < totalPages && (
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => goToPage(page + 1)}
+                    className="cursor-pointer"
+                  />
+                </PaginationItem>
+              )}
+            </PaginationContent>
+          </Pagination>
+        )}
       </main>
 
       <Footer />
