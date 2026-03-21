@@ -74,7 +74,7 @@ const Footer = () => {
                 <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                 <div>
                   <p className="font-bold text-foreground/90">{t("footer_editorial_desk")}</p>
-                  <p>str. Memorandumului nr 2</p>
+                  <p>str. Frunzișului nr. 89</p>
                   <p>Cluj-Napoca, Transilvania</p>
                 </div>
               </div>
