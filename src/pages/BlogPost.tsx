@@ -86,10 +86,12 @@ const BlogPost = () => {
   useEffect(() => {
     if (!post) return;
 
-    const title = isRo ? post.title_ro || post.title_en : post.title_en;
+    const title = isRo
+      ? (post.seo_title_ro || post.title_ro || post.title_en)
+      : (post.seo_title_en || post.title_en);
     const summary = isRo
-      ? (post as any).seo_description_ro || (post as any).summary_ro || (post as any).seo_description_en || (post as any).summary_en
-      : (post as any).seo_description_en || (post as any).summary_en;
+      ? (post.seo_description_ro || post.summary_ro || post.excerpt_ro || post.summary_en)
+      : (post.seo_description_en || post.summary_en || post.excerpt_en);
     const imageUrl = post.cover_image ? toPublicMediaUrl(post.cover_image) : "";
     const fullImageUrl = imageUrl.startsWith("/") ? `${CANONICAL_DOMAIN}${imageUrl}` : imageUrl;
     const articleUrl = `${CANONICAL_DOMAIN}/blog/${slug}`;
