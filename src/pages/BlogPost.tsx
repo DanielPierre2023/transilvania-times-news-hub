@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import ShareSuite from "@/components/ShareSuite";
+import CommentSection from "@/components/CommentSection";
 import { format, parseISO } from "date-fns";
 
 const BlogPost = () => {
