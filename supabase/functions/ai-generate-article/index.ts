@@ -78,12 +78,12 @@ REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 - ZERO subtitluri. Proză continuă. NU concluzie.
 - CUVINTE INTERZISE: crucial, esențial, robust, vital, paradigmă, ecosistem, sinergie, peisajul, fundamental, semnificativ.
 - Sentence case. Scrie nativ în română — NU traduce din engleză.
-- TITLU ROMÂNESC: Gramatică nativă, inversiune subiect-verb unde e natural. NU traduce literal din engleză.
+- TITLU ROMÂNESC: Gramatică nativă, inversiune subiect-verb unde e natural. NU traduce literal din engleză. FĂRĂ punct la sfârșit. FĂRĂ semn de întrebare. Verbe puternice la prezent.
 - Propoziția de deschidere: Cine/Ce/Unde/Când în primele 2 propoziții. Max 35 cuvinte.
 - Atribuire: "a declarat" pentru citate. NU "a subliniat", "a evidențiat".
 - Piramida inversată: Cele mai importante fapte în primele 3 paragrafe.
 - NU începe cu o referință la dată. Începe cu ȘTIREA.
-- Tags RO: 6-9 taguri SEO specifice în ROMÂNĂ (NU traduceri din engleză).
+- Tags RO: 6-9 taguri SEO lowercase cu cratimă în ROMÂNĂ. Exemplu: ["sanatate-digitala-romania"]. NU: ["Sănătate Digitală"]. FIECARE tag cu cratimă, lowercase, 2-5 cuvinte.
 `;
 
 const CATEGORIES = ['news', 'politics', 'technology', 'business', 'culture', 'travel', 'education', 'sports', 'health', 'opinion'];
