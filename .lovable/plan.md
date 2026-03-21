@@ -1,142 +1,67 @@
 
-## Diagnosis
 
-The failure is real and reproducible from the codebase analysis.
+## Plan: Add Hugging Face API Key + Reliable Image Generation
 
-### Exact root cause
-The generated image URL is using the wrong Pollinations endpoint in **two places**:
+### Step 1: Store Secret Securely
 
-- `src/pages/admin/BlogEditor.tsx`
-- `supabase/functions/process-rewrite-job/index.ts`
+The Hugging Face API key (`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`) must be added as a **Supabase Edge Function secret** named `HUGGING_FACE_API_KEY`. You'll need to add it in:
 
-Current code builds URLs like:
+**Supabase Dashboard → Settings → Edge Functions → Secrets**
 
-```text
-https://pollinations.ai/p/{prompt}?width=1200&height=630&model=flux&seed=...
-```
+I will guide you through this after the plan is approved.
 
-But Pollinations’ current image API is exposed on endpoints like:
+### Step 2: Create `generate-cover-image` Edge Function
 
-```text
-https://image.pollinations.ai/prompt/{prompt}?width=1200&height=630&model=flux&seed=...
-```
+A new server-side function that:
+1. Receives `{ title, excerpt, seed? }` from the frontend
+2. Calls **Hugging Face Inference API** (`stabilityai/stable-diffusion-xl-base-1.0` or `black-forest-labs/FLUX.1-schnell`) with a constructed editorial prompt
+3. Receives the binary image response
+4. Uploads the image to the existing `blog-images` Supabase Storage bucket
+5. Returns the **stable public Supabase URL** — no dependency on third-party hotlinking
 
-or the authenticated gateway variant on `gen.pollinations.ai`.
+This means images are stored permanently on your own infrastructure.
 
-I also verified the current path pattern directly: `https://image.pollinations.ai/p/...` returns **Not Found**. That explains the “Failed to load” state in the editor.
+**Fallback chain**: Hugging Face → Pollinations (anonymous, best-effort) → return error with clear message
 
-## Secondary gaps I found
+### Step 3: Update `BlogEditor.tsx`
 
-Even after fixing the URL, there are a couple of reliability issues:
+Replace the current client-side `generatePollinationsUrl()` with an async call to the edge function:
 
-1. **URL generation logic is duplicated**
-   - one version in the frontend editor
-   - one version in the edge function  
-   This is risky because they can drift again.
+- "Generate" and "Regenerate" buttons call `supabase.functions.invoke('generate-cover-image', ...)`
+- Show loading spinner while the function runs (10-20 seconds typical)
+- Show success only after a real stored URL is returned
+- Manual upload still overrides everything
 
-2. **Preview state is not fully reset when the cover URL changes**
-   - `coverError` / `coverLoading` are only controlled by button clicks and image events
-   - when a cover comes from RSS or AI generation, the load state may not fully reflect the new image lifecycle
+### Step 4: Update `process-rewrite-job` Edge Function
 
-3. **No graceful fallback if Pollinations is temporarily slow**
-   - the UI now shows an error, but the pipeline has no fallback image strategy if third-party generation is unavailable
+Replace the Pollinations URL construction with a call to the same `generate-cover-image` function. If image generation fails, the article rewrite still succeeds — image status is simply marked as missing.
 
-## Feasibility
-
-Yes — this is fully implementable and should work well while staying zero-cost.
-
-Pollinations remains feasible for:
-- automatic article cover generation
-- regenerate-on-demand
-- admin manual override
-
-So the concept is valid. The failure is not conceptual; it is an implementation bug around the endpoint.
-
-## Recommended implementation
-
-### 1. Fix Pollinations URL generation everywhere
-Update both generator call sites to the correct endpoint:
-
-- `src/pages/admin/BlogEditor.tsx`
-- `supabase/functions/process-rewrite-job/index.ts`
-
-Use one consistent format:
-
-```text
-https://image.pollinations.ai/prompt/{encodedPrompt}?width=1200&height=630&model=flux&seed={seed}
-```
-
-### 2. Centralize the URL builder
-Create a shared helper for:
-- prompt construction
-- prompt truncation/sanitization
-- seed generation
-- final URL formatting
-
-Use the same logic in:
-- Blog editor auto-generate
-- RSS rewrite pipeline auto-generate
-- regenerate action
-
-This removes future mismatch risk.
-
-### 3. Harden the BlogEditor preview lifecycle
-In `BlogEditor.tsx`:
-- reset `coverError` to `false` whenever `form.cover_image` changes
-- set `coverLoading` to `true` whenever a new generated URL is assigned
-- keep `onLoad` / `onError` handlers for visible state transitions
-
-That makes:
-- Generate
-- Regenerate
-- load-from-RSS
-- load-from-AI  
-all behave consistently.
-
-### 4. Add resilient fallback behavior
-If Pollinations fails:
-- keep the URL visible
-- show a clear message
-- allow immediate regenerate
-- preserve manual upload as the authoritative override
-
-Optionally, if you want enterprise-grade resilience, we can later add:
-- a local placeholder fallback
-- optional second provider plug-in path (e.g. Hugging Face / Firecrawl-connected enrichment later)
-
-### 5. Validate end-to-end flow
-After the fix, verify these flows:
-
-```text
-AI article generation
-→ auto-cover URL generated
-→ preview loads in editor
-→ save post
-→ published article shows image
-
-RSS rewrite job
-→ process-rewrite-job assigns cover_image
-→ open from_rss in BlogEditor
-→ image preview loads
-→ regenerate works
-→ manual upload can replace it
-```
-
-## Files to update
+### Files
 
 | File | Change |
 |------|--------|
-| `src/pages/admin/BlogEditor.tsx` | Replace wrong Pollinations endpoint, reset image loading/error state on URL change, keep regenerate/manual override behavior |
-| `supabase/functions/process-rewrite-job/index.ts` | Replace wrong Pollinations endpoint for auto-generated RSS cover images |
-| Optional shared helper file | Centralize image prompt + URL generation logic so frontend/backend stay aligned |
+| `supabase/functions/generate-cover-image/index.ts` | **New** — HF inference → Supabase Storage upload → return public URL |
+| `src/pages/admin/BlogEditor.tsx` | Replace `generatePollinationsUrl` with edge function call, real loading state |
+| `supabase/functions/process-rewrite-job/index.ts` | Call `generate-cover-image` instead of constructing Pollinations URL |
 
-## Bottom line
-
-This is not a limitation of the zero-cost image strategy. The bug is that the current implementation points to the wrong Pollinations URL format. Once corrected, the feature is implementable and should work as intended. The right enterprise-grade fix is:
+### Image Generation Flow
 
 ```text
-correct endpoint
-+ shared URL builder
-+ reliable preview state handling
-+ preserve regenerate/manual override
+Admin clicks "Generate"
+  → Edge Function: generate-cover-image
+    → Hugging Face API (stabilityai/SDXL or FLUX.1)
+    → Binary image returned
+    → Upload to Supabase Storage (blog-images bucket)
+    → Return public URL
+  → BlogEditor sets cover_image = stable Supabase URL
+  → Preview loads immediately (image already exists)
 ```
+
+### Why This Works
+
+- **No hotlinking**: Images live in your own Supabase Storage
+- **Instant preview**: The URL points to an already-uploaded file
+- **Reliable**: HF Inference API with your own key = authenticated, rate-limited, stable
+- **Zero ongoing cost**: HF free tier provides ~30k inference requests/month
+- **Fallback**: If HF is down, falls back to Pollinations anonymous endpoint
+
