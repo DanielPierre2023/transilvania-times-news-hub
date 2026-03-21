@@ -296,6 +296,7 @@ i18n
 
           // Category page
           all_articles: "Toate Articolele",
+          view_all_articles: "Vezi Toate Articolele",
 
           // Comments & Sharing
           comments_title: "Discuții și Comentarii",
