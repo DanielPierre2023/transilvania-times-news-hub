@@ -78,7 +78,7 @@ serve(async (req) => {
     console.log(`[${jobId}] Desk 1: Extracting facts + classifying via Gemini Flash...`);
     const needsClassification = !sourceCategory || !article.subcategory;
     const classificationInstruction = needsClassification
-      ? `\n\nAfter the numbered facts, on the LAST two lines output:\nCATEGORY: {one of: politics, world, technology, business, culture, opinion, travel, education, sports, health, news}\nSUBCATEGORY: {one of: regional, national, international}\n\nClassification rules:\n- regional = about Transilvania, Cluj-Napoca, Sibiu, Brașov, Alba Iulia, Târgu Mureș, or other Transylvanian cities/counties\n- national = about Romania as a whole (Bucharest, Romanian government, national events)\n- international = everything else (world events, global tech, foreign politics)\n- If the article does not fit politics/world/technology/business/culture/opinion/travel/education/sports/health, use "news"`
+      ? `\n\nAfter the numbered facts, on the LAST two lines output:\nCATEGORY: {one of: news, politics, technology, business, culture, travel, education, sports, health, opinion}\nSUBCATEGORY: {one of: regional, national, international}\n\nClassification rules:\n- regional = about Transilvania, Cluj-Napoca, Sibiu, Brașov, Alba Iulia, Târgu Mureș, or other Transylvanian cities/counties\n- national = about Romania as a whole (Bucharest, Romanian government, national events)\n- international = everything else (world events, global tech, foreign politics)\n- If the article does not fit politics/technology/business/culture/travel/education/sports/health/opinion, use "news"\n- "opinion" is reserved for editorial/opinion pieces only`
       : '';
 
     const extractionResult = await callGemini({
@@ -101,9 +101,9 @@ serve(async (req) => {
     console.log(`[${jobId}] Desk 1 complete: ${extractedFacts.length} chars of facts extracted`);
 
     // Parse category/subcategory from extracted facts if needed
-    const VALID_CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health', 'news'];
+    const VALID_CATEGORIES = ['news', 'politics', 'technology', 'business', 'culture', 'travel', 'education', 'sports', 'health', 'opinion'];
     const VALID_SUBCATEGORIES = ['regional', 'national', 'international'];
-    const CAT_ALIASES: Record<string, string> = { tech: 'technology', sport: 'sports', economia: 'business', economie: 'business', politica: 'politics', știri: 'news', stiri: 'news', science: 'technology', entertainment: 'culture', lifestyle: 'culture', finance: 'business' };
+    const CAT_ALIASES: Record<string, string> = { tech: 'technology', sport: 'sports', economia: 'business', economie: 'business', politica: 'politics', știri: 'news', stiri: 'news', science: 'technology', entertainment: 'culture', lifestyle: 'culture', finance: 'business', world: 'news', lume: 'news', international: 'news', global: 'news' };
     const SUB_ALIASES: Record<string, string> = { local: 'regional', transilvania: 'regional', transylvania: 'regional', romania: 'national', global: 'international', mondial: 'international', extern: 'international' };
 
     let detectedCategory = sourceCategory;
