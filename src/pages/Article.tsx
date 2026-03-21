@@ -2,11 +2,12 @@ import { useParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { getArticleBySlug, t as tBi, tArr } from "@/data/articles";
 import Header from "@/components/Header";
-
 import Footer from "@/components/Footer";
 import MostReadSidebar from "@/components/MostReadSidebar";
 import ArticleSEO from "@/components/ArticleSEO";
 import AdUnit from "@/components/AdUnit";
+import ShareSuite from "@/components/ShareSuite";
+import CommentSection from "@/components/CommentSection";
 import NotFound from "./NotFound";
 
 const Article = () => {
