@@ -121,7 +121,7 @@ const Index = () => {
                 </span>
               </div>
               <Link to={`/blog/${heroMain.slug}`}>
-                <h1 className="text-3xl md:text-4xl lg:text-5xl font-serif font-bold leading-[1] tracking-tight mb-6 text-foreground hover:text-primary transition-colors">
+                <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-serif font-bold leading-[1] tracking-tight mb-6 text-foreground hover:text-primary transition-colors">
                   {getTitle(heroMain)}
                 </h1>
               </Link>
