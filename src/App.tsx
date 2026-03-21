@@ -4,10 +4,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import GDPRConsent from "@/components/GDPRConsent";
+import AnalyticsWrapper from "@/components/AnalyticsWrapper";
 import Index from "./pages/Index.tsx";
 import Article from "./pages/Article.tsx";
 import Category from "./pages/Category.tsx";
 import SearchResults from "./pages/SearchResults.tsx";
+import Blog from "./pages/Blog.tsx";
+import BlogPost from "./pages/BlogPost.tsx";
 import TermsConditions from "./pages/TermsConditions.tsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
 import Contact from "./pages/Contact.tsx";
@@ -38,11 +41,14 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <AnalyticsWrapper />
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/article/:slug" element={<Article />} />
           <Route path="/category/:name" element={<Category />} />
           <Route path="/search" element={<SearchResults />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<BlogPost />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/terms" element={<TermsConditions />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
