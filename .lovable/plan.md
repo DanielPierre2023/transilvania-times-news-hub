@@ -1,47 +1,37 @@
 
 
-## Plan: Move Hamburger to Top Bar + Fix Category Subcategory Tabs on Mobile
+## Plan: Fix Romanian SEO Tags + AI Image Caption
 
-### Two Issues
+### Issue 1: SEO Tags Use Wrong Fields for Romanian
 
-1. **Hamburger menu is below the masthead** — user wants it in the top bar (next to RO/EN and weather), like CNN/CBS where the menu icon is always at the very top.
+**Current** (line 89-92 in `BlogPost.tsx`): The SEO meta `title` uses `post.title_ro` but ignores `seo_title_ro`. The `summary` does check `seo_description_ro` but falls back to English `seo_description_en` before Romanian `summary_ro`.
 
-2. **Subcategory tabs on Category page use `overflow-x-auto` horizontal scroll** — ugly scrollbar visible on mobile. Needs a proper solution.
-
-### Changes
-
-#### 1. `src/components/Header.tsx` — Move hamburger to top bar
-
-Current layout (mobile):
+**Fix**: Update the SEO `useEffect` to use proper Romanian SEO fields:
 ```
-[RO EN] [Weather]        [Search]
-      Transilvania Times
-[☰ Categories]  ← hamburger is here, below masthead
+title = isRo 
+  ? (post.seo_title_ro || post.title_ro || post.title_en) 
+  : (post.seo_title_en || post.title_en)
+
+description = isRo
+  ? (post.seo_description_ro || post.summary_ro || post.excerpt_ro || post.summary_en)
+  : (post.seo_description_en || post.summary_en || post.excerpt_en)
 ```
 
-New layout (mobile):
-```
-[☰] [RO EN] [Weather]   [Search]
-      Transilvania Times
-```
+Also update `document.title` to use the SEO-optimized title.
 
-- Move the `Sheet` + hamburger trigger INTO the top bar div (line 82), as the first element in the left flex group — visible only on `md:hidden`
-- Remove the entire separate "Mobile hamburger nav" div (lines 142-175)
-- The hamburger icon sits at the far left of the top bar on mobile, before the language switcher
+### Issue 2: AI Image Caption
 
-#### 2. `src/pages/Category.tsx` — Replace horizontal scroll tabs with dropdown on mobile
+**Current** (line 263-265): The cover image has no caption.
 
-CNN/CBS approach: On mobile, subcategory filters become a **dropdown select** instead of horizontal tabs. On desktop, keep the underline tabs.
+**Fix**: Add a `<figcaption>` below the image with bilingual text:
+- Romanian: "Imagine generată cu AI de redacție"
+- English: "Image generated with AI by the editorial team"
 
-- Wrap current tab links in `hidden md:flex` so they only show on desktop
-- Add a `md:hidden` block with a styled `<select>` dropdown for subcategories
-- On change, navigate to `/category/${name}/${value}` or `/category/${name}` for "all"
-- No ugly scrollbar, clean mobile UX
+Wrap the image + caption in a `<figure>` tag.
 
 ### Files
 
 | File | Change |
 |------|--------|
-| `src/components/Header.tsx` | Move hamburger into top bar (before LangSwitcher, `md:hidden`). Remove separate mobile nav section. |
-| `src/pages/Category.tsx` | Add mobile dropdown for subcategory filtering (`md:hidden`). Hide horizontal tabs on mobile (`hidden md:flex`). |
+| `src/pages/BlogPost.tsx` | Fix SEO title/description to prefer `seo_title_ro`/`seo_description_ro` when in RO. Wrap cover image in `<figure>` with AI caption `<figcaption>`. |
 
