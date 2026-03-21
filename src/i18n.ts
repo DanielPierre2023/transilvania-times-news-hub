@@ -133,6 +133,16 @@ i18n
 
           // Category page
           all_articles: "All Articles",
+
+          // Comments & Sharing
+          comments_title: "Discussion & Comments",
+          comments_name: "Your Name",
+          comments_email: "Email (optional)",
+          comments_placeholder: "Share your thoughts…",
+          comments_submit: "Post Comment",
+          comments_pending: "Comment submitted! It will appear after moderation.",
+          comments_none: "Be the first to comment on this article.",
+          share_label: "Share",
         },
       },
       ro: {
