@@ -42,7 +42,7 @@ serve(async (req) => {
       }
 
       const apiKey = Deno.env.get('OPENAI_API_KEY');
-      const persona = EDITORS[editor] || EDITORS.marcus_webb;
+      const persona = EDITORS[editor] || EDITORS.daniel_dobos;
 
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

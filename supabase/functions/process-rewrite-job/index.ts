@@ -91,7 +91,7 @@ serve(async (req) => {
     }
 
     const apiKey = Deno.env.get('OPENAI_API_KEY');
-    const persona = EDITORS[editor] || EDITORS.marcus_webb;
+    const persona = EDITORS[editor] || EDITORS.daniel_dobos;
 
     // ═══════════════════════════════════════════════════
     // DESK 1: EXTRACTION (Gemini Flash — fast, cheap)

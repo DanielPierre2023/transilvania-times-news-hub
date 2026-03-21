@@ -80,9 +80,9 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, word_count = 1800, editor = 'marcus_webb', category = 'technology' } = await req.json();
+    const { prompt, word_count = 1800, editor = 'daniel_dobos', category = 'technology' } = await req.json();
     const apiKey = Deno.env.get('OPENAI_API_KEY');
-    const editorProfile = EDITORS[editor] || EDITORS.marcus_webb;
+    const editorProfile = EDITORS[editor] || EDITORS.daniel_dobos;
     const maxTokens = Math.max(4000, Math.ceil(word_count * 2.5));
     const wordCountRules = WORD_COUNT_RULES(word_count);
 

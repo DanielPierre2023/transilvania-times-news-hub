@@ -387,7 +387,7 @@ const RssScraper = () => {
                 <TableCell>{getSourceCategory(a)}</TableCell>
                 <TableCell>
                   {a.status === 'scraped' && (
-                    <Select value={editorSelection[a.id] || 'marcus_webb'} onValueChange={v => setEditorSelection(prev => ({ ...prev, [a.id]: v }))}>
+                    <Select value={editorSelection[a.id] || 'daniel_dobos'} onValueChange={v => setEditorSelection(prev => ({ ...prev, [a.id]: v }))}>
                       <SelectTrigger className="w-36 text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>{EDITORS.map(e => <SelectItem key={e.value} value={e.value} className="text-xs">{e.label}</SelectItem>)}</SelectContent>
                     </Select>
