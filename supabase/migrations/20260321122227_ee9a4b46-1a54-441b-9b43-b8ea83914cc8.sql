@@ -1,0 +1,1 @@
+ALTER TABLE scraped_articles ADD COLUMN IF NOT EXISTS cover_image text;

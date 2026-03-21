@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
-import { Save, Eye, Wand2, Send, Bold, Italic, Heading, Link, Image, Code, List, ChevronRight, ChevronDown, Sparkles, Upload, AlignLeft, AlignCenter, AlignRight, Square, ShieldCheck, Loader2 } from 'lucide-react';
+import { Save, Eye, Wand2, Send, Bold, Italic, Heading, Link, Image, Code, List, ChevronRight, ChevronDown, Sparkles, Upload, AlignLeft, AlignCenter, AlignRight, Square, ShieldCheck, Loader2, RefreshCw, ImagePlus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 const EDITORS = [
@@ -135,6 +135,7 @@ const BlogEditor = () => {
     if (rssArticle && !isEdit) {
       const r = rssArticle as any;
       const categoryFromUrl = searchParams.get('category');
+      const rssCover = r.cover_image || '';
       setForm({
         title_en: r.title_en || r.original_title || '',
         title_ro: r.title_ro || '',
@@ -145,13 +146,28 @@ const BlogEditor = () => {
         seo_title_en: r.seo_title_en || '', seo_title_ro: r.seo_title_ro || '',
         seo_description_en: r.seo_description_en || '', seo_description_ro: r.seo_description_ro || '',
         tags: (r.rewrite_tags || []).join(', '),
-        cover_image: '', status: 'draft',
+        cover_image: rssCover || generatePollinationsUrl(r.title_en || r.original_title || '', r.excerpt_en || ''),
+        status: 'draft',
         category: categoryFromUrl || 'politics',
         author_name: 'Marcus Webb',
       });
       setGenOpen(false);
     }
   }, [rssArticle, isEdit, searchParams]);
+
+  const generatePollinationsUrl = (title: string, excerpt: string) => {
+    const seed = Math.floor(Math.random() * 100000);
+    const subject = `${title} ${excerpt}`.substring(0, 120);
+    const prompt = `Professional news photography, high-detail, editorial style, regarding: ${subject}`;
+    return `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=1200&height=630&model=flux&seed=${seed}`;
+  };
+
+  const generateCoverImage = () => {
+    if (!form.title_en.trim()) { toast.error('Enter a title first'); return; }
+    const url = generatePollinationsUrl(form.title_en, form.excerpt_en || form.summary_en || '');
+    handleChange('cover_image', url);
+    toast.success('Cover image generated!');
+  };
 
   const handleChange = (field: string, value: string) => {
     setForm(prev => {
@@ -251,18 +267,25 @@ const BlogEditor = () => {
         body: { prompt: genPrompt, word_count: parseInt(genWordCount), editor: genEditor, category: genCategory },
       });
       if (error) throw error;
-      setForm(prev => ({
-        ...prev,
-        title_en: data.title_en || prev.title_en, title_ro: data.title_ro || prev.title_ro,
-        slug: data.slug || prev.slug, excerpt_en: data.excerpt_en || prev.excerpt_en,
-        excerpt_ro: data.excerpt_ro || prev.excerpt_ro,
-        summary_en: data.summary_en || prev.summary_en, summary_ro: data.summary_ro || prev.summary_ro,
-        content_en: data.content_en || prev.content_en, content_ro: data.content_ro || prev.content_ro,
-        tags: (data.tags || []).join(', '),
-        category: genCategory, author_name: data.author_name || EDITOR_NAMES[genEditor] || prev.author_name,
-        seo_title_en: data.seo_title_en || prev.seo_title_en, seo_title_ro: data.seo_title_ro || prev.seo_title_ro,
-        seo_description_en: data.seo_description_en || prev.seo_description_en, seo_description_ro: data.seo_description_ro || prev.seo_description_ro,
-      }));
+      setForm(prev => {
+        const newForm = {
+          ...prev,
+          title_en: data.title_en || prev.title_en, title_ro: data.title_ro || prev.title_ro,
+          slug: data.slug || prev.slug, excerpt_en: data.excerpt_en || prev.excerpt_en,
+          excerpt_ro: data.excerpt_ro || prev.excerpt_ro,
+          summary_en: data.summary_en || prev.summary_en, summary_ro: data.summary_ro || prev.summary_ro,
+          content_en: data.content_en || prev.content_en, content_ro: data.content_ro || prev.content_ro,
+          tags: (data.tags || []).join(', '),
+          category: genCategory, author_name: data.author_name || EDITOR_NAMES[genEditor] || prev.author_name,
+          seo_title_en: data.seo_title_en || prev.seo_title_en, seo_title_ro: data.seo_title_ro || prev.seo_title_ro,
+          seo_description_en: data.seo_description_en || prev.seo_description_en, seo_description_ro: data.seo_description_ro || prev.seo_description_ro,
+        };
+        // Auto-generate cover image
+        if (!newForm.cover_image) {
+          newForm.cover_image = generatePollinationsUrl(newForm.title_en, newForm.excerpt_en);
+        }
+        return newForm;
+      });
       toast.success('Article generated! Review and edit before saving.');
       setGenOpen(false);
     } catch (e: any) { toast.error(e.message); } finally { setGenerating(false); }
@@ -375,9 +398,18 @@ const BlogEditor = () => {
             <Input placeholder="Slug" value={form.slug} onChange={e => handleChange('slug', e.target.value)} />
             <div className="flex items-center gap-2">
               <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
-              <Button variant="outline" size="sm" className="gap-1 text-xs w-full" onClick={() => coverInputRef.current?.click()} disabled={uploading}>
-                <Upload className="w-3 h-3" /> {form.cover_image ? 'Change Cover' : 'Upload Cover'}
+              <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => coverInputRef.current?.click()} disabled={uploading}>
+                <Upload className="w-3 h-3" /> Upload
               </Button>
+              {!form.cover_image ? (
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
+                  <ImagePlus className="w-3 h-3" /> ✨ Generate
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
+                  <RefreshCw className="w-3 h-3" /> Regenerate
+                </Button>
+              )}
               {form.cover_image && <img src={form.cover_image} alt="" className="w-8 h-8 rounded object-cover" />}
             </div>
             <Select value={form.status} onValueChange={v => handleChange('status', v)}>
