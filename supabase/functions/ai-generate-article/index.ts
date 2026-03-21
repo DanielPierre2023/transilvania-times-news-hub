@@ -46,7 +46,7 @@ Your article MUST contain at least ${Math.round(wordCount * 0.85)} words. Target
 `;
 
 const WRITING_RULES = `
-BROADCAST-GRADE JOURNALISM RULES:
+NYT/WAPO-GRADE JOURNALISM RULES:
 1. ZERO subheadings (no ## or ###). Flow as continuous prose.
 2. No bold-on-own-line. NO conclusion paragraph.
 3. INVERTED PYRAMID: Most newsworthy facts first. Supporting detail follows. Background last.
@@ -57,11 +57,20 @@ BROADCAST-GRADE JOURNALISM RULES:
 8. Specific numbers, dates, proper nouns — no vague language ("many", "significant", "various").
 9. ZERO AI fingerprints. BANNED: delve, landscape, game-changer, revolutionize, cutting-edge, leverage, navigate, paradigm, holistic, robust, comprehensive, essential, crucial, vital, pivotal, foster, bolster, harness, streamline, synergy, ecosystem.
 10. Sentence-case only. 100% original phrasing.
-11. Tags: lowercase, hyphenated, specific long-tail SEO keywords.
-12. TITLE: Active voice, present tense, sentence case, max 10 words, no clickbait.
+11. TITLE: Active verb, present tense, sentence case, 6-10 words. NO period at end. NO question mark. NO trailing punctuation. Name the actor and the action. Strong verbs: launches, cuts, blocks, faces, reveals, expands, warns, defies. AVOID: announces, discusses, addresses, focuses, highlights. Imply stakes or conflict.
+12. Tags: lowercase hyphenated slugs. Example: ["digital-health-romania", "eu-ai-regulation-2026"]. NOT: ["Digital Health"]. Every tag MUST be hyphenated, lowercase, 2-5 words.
 13. SUMMARY: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
 14. EXCERPT: 1-2 sentence hook for preview cards.
 15. Do NOT start with a date reference. Start with the NEWS.
+
+ARTICLE STRUCTURE (NYT/WAPO STANDARD):
+- Paragraph 1-2: The lede. Most newsworthy fact. Who did what, with what consequence.
+- Paragraph 3-4: The "nut graf." Why this matters NOW. What changed. What is at stake.
+- Paragraph 5-7: Evidence. Specific data, quotes, institutional reactions.
+- Paragraph 8-10: Context. Historical precedent, comparable situations, expert analysis.
+- Paragraph 11+: Background, methodology, caveats, opposing viewpoints.
+- EVERY paragraph must contain at least one specific fact (name, number, date, or place).
+- NO filler paragraphs. If you cannot add a specific fact, cut the paragraph.
 `;
 
 const ROMANIAN_RULES = `
