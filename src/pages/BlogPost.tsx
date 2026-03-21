@@ -12,7 +12,7 @@ import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
-  const { i18n } = useTranslation();
+  const { i18n, t: _t } = useTranslation();
   const isRo = i18n.language.startsWith("ro");
 
   const { data: post, isLoading } = useQuery({
