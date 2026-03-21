@@ -78,7 +78,7 @@ serve(async (req) => {
     console.log(`[${jobId}] Desk 1: Extracting facts + classifying via Gemini Flash...`);
     const needsClassification = !sourceCategory || !article.subcategory;
     const classificationInstruction = needsClassification
-      ? `\n\nAfter the numbered facts, on the LAST two lines output:\nCATEGORY: {one of: politics, world, technology, business, culture, opinion, travel, education, sports, health, news}\nSUBCATEGORY: {one of: regional, national, international}\n\nClassification rules:\n- regional = about Transilvania, Cluj-Napoca, Sibiu, Brașov, Alba Iulia, Târgu Mureș, or other Transylvanian cities/counties\n- national = about Romania as a whole (Bucharest, Romanian government, national events)\n- international = everything else (world events, global tech, foreign politics)\n- If the article does not fit politics/world/technology/business/culture/opinion/travel/education/sports/health, use "news"`
+      ? `\n\nAfter the numbered facts, on the LAST two lines output:\nCATEGORY: {one of: news, politics, technology, business, culture, travel, education, sports, health, opinion}\nSUBCATEGORY: {one of: regional, national, international}\n\nClassification rules:\n- regional = about Transilvania, Cluj-Napoca, Sibiu, Brașov, Alba Iulia, Târgu Mureș, or other Transylvanian cities/counties\n- national = about Romania as a whole (Bucharest, Romanian government, national events)\n- international = everything else (world events, global tech, foreign politics)\n- If the article does not fit politics/technology/business/culture/travel/education/sports/health/opinion, use "news"\n- "opinion" is reserved for editorial/opinion pieces only`
       : '';
 
     const extractionResult = await callGemini({
