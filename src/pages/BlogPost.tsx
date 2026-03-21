@@ -51,7 +51,7 @@ const BlogPost = () => {
     );
   }
 
-  const { t } = useTranslation();
+  // t already destructured above
   const title = isRo ? post.title_ro || post.title_en : post.title_en;
   const content = isRo ? post.content_ro || post.content_en : post.content_en;
   const summary = isRo ? post.summary_ro || post.summary_en : post.summary_en;
