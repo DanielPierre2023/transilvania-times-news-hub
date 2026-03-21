@@ -158,6 +158,8 @@ const Index = () => {
         )}
       </main>
 
+      <Newsletter />
+
       <Footer />
     </div>
   );

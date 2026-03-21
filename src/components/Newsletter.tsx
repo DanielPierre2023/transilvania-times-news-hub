@@ -27,10 +27,10 @@ const Newsletter = () => {
   };
 
   return (
-    <section className="bg-foreground py-12 px-4">
+    <section className="bg-foreground py-16 px-4">
       <div className="container mx-auto max-w-xl text-center">
-        <h2 className="text-2xl font-serif font-bold text-background mb-2">{t("newsletter_title")}</h2>
-        <p className="text-background/70 font-sans text-sm mb-6">
+        <h2 className="text-3xl font-serif font-bold text-background mb-3">{t("newsletter_title")}</h2>
+        <p className="text-background/60 font-sans text-sm mb-8">
           {t("newsletter_desc")}
         </p>
         <div className="flex gap-2">
@@ -39,12 +39,12 @@ const Newsletter = () => {
             placeholder={t("newsletter_placeholder")}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="flex-1 px-4 py-2.5 rounded bg-background text-foreground font-sans text-sm placeholder:text-clay focus:outline-none focus:ring-2 focus:ring-primary"
+            className="flex-1 px-4 py-3 bg-background text-foreground font-sans text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <button
             onClick={handleSubscribe}
             disabled={subscribing || !email}
-            className="bg-primary text-primary-foreground px-6 py-2.5 font-sans font-semibold text-sm rounded hover:bg-action-orange transition-colors disabled:opacity-50"
+            className="bg-primary text-primary-foreground px-8 py-3 font-sans font-bold text-sm hover:bg-accent transition-colors disabled:opacity-50"
           >
             {subscribing ? "..." : t("newsletter_button")}
           </button>
