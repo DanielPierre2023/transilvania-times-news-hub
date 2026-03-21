@@ -106,6 +106,22 @@ const Article = () => {
                 {t("go_back")}
               </Link>
             </div>
+
+            {/* SEO Tag Pills */}
+            {article.category && (
+              <div className="flex flex-wrap gap-2 mt-10">
+                <span className="bg-espresso text-paper px-3 py-1 text-[10px] font-bold uppercase tracking-widest">
+                  #{tBi(article.category, lang).toLowerCase().replace(/\s+/g, "-")}
+                </span>
+              </div>
+            )}
+
+            {/* Comment Section */}
+            <CommentSection
+              postId={article.slug}
+              postTitle={tBi(article.title, lang)}
+              postExcerpt={tBi(article.excerpt, lang)}
+            />
           </main>
         </div>
 
