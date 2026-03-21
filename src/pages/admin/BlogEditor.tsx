@@ -155,6 +155,20 @@ const BlogEditor = () => {
     }
   }, [rssArticle, isEdit, searchParams]);
 
+  const generatePollinationsUrl = (title: string, excerpt: string) => {
+    const seed = Math.floor(Math.random() * 100000);
+    const subject = `${title} ${excerpt}`.substring(0, 120);
+    const prompt = `Professional news photography, high-detail, editorial style, regarding: ${subject}`;
+    return `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=1200&height=630&model=flux&seed=${seed}`;
+  };
+
+  const generateCoverImage = () => {
+    if (!form.title_en.trim()) { toast.error('Enter a title first'); return; }
+    const url = generatePollinationsUrl(form.title_en, form.excerpt_en || form.summary_en || '');
+    handleChange('cover_image', url);
+    toast.success('Cover image generated!');
+  };
+
   const handleChange = (field: string, value: string) => {
     setForm(prev => {
       const next = { ...prev, [field]: value };
