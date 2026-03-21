@@ -20,7 +20,7 @@ async function generateWithHuggingFace(prompt: string, apiKey: string): Promise<
   for (const model of models) {
     try {
       console.log(`Trying HF model: ${model}`);
-      const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+      const res = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
