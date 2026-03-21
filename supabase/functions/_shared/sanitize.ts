@@ -294,6 +294,53 @@ export function sanitizeContent(text: string, language: 'en' | 'ro' | 'both' = '
   return result.trim();
 }
 
+/**
+ * Normalize an array of SEO tags to lowercase-hyphenated slugs.
+ * "Cluj Foundation" → "cluj-foundation"
+ * Deduplicates and caps at 50 chars per tag.
+ */
+export function normalizeTags(tags: string[]): string[] {
+  if (!tags || !Array.isArray(tags)) return [];
+  const seen = new Set<string>();
+  return tags
+    .map(tag => {
+      if (typeof tag !== 'string') return '';
+      return tag
+        .trim()
+        .toLowerCase()
+        .replace(/[.,;:!?'"()[\]{}]/g, '')    // strip punctuation
+        .replace(/\s+/g, '-')                  // spaces → hyphens
+        .replace(/-{2,}/g, '-')                // collapse multiple hyphens
+        .replace(/^-|-$/g, '')                 // trim leading/trailing hyphens
+        .slice(0, 50);
+    })
+    .filter(tag => {
+      if (!tag || tag.length < 2 || seen.has(tag)) return false;
+      seen.add(tag);
+      return true;
+    });
+}
+
+/**
+ * Sanitize a headline/title:
+ * - Strip trailing period, comma, semicolon, colon, ellipsis
+ * - Ensure sentence case (first letter uppercase)
+ * - Trim whitespace
+ */
+export function sanitizeTitle(title: string): string {
+  if (!title) return title;
+  let t = title.trim();
+  // Remove trailing punctuation (period, comma, semicolon, colon, ellipsis)
+  t = t.replace(/[.,;:]+$/, '');
+  t = t.replace(/\.{2,}$/, '');
+  t = t.replace(/…$/, '');
+  // Ensure first letter is uppercase
+  if (t.length > 0) {
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return t;
+}
+
 export function countWords(text: string): number {
   if (!text) return 0;
   const clean = text
