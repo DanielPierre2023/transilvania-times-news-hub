@@ -28,7 +28,8 @@ const EDITORS = [
   { value: 'daniel_novak', label: 'Daniel Novak' },
 ];
 
-const CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health'];
+import { CATEGORIES, SUBCATEGORIES, categoryI18nKey, subcategoryI18nKey } from '@/lib/categories';
+const CATEGORY_OPTIONS = ['auto-detect', ...CATEGORIES] as const;
 const LANGUAGES = [
   { value: 'en', label: '🇬🇧 English' },
   { value: 'ro', label: '🇷🇴 Română' },
