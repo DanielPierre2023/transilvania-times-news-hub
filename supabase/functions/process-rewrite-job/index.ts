@@ -164,10 +164,15 @@ You will receive a LIST OF FACTS extracted from a news source. Build an ORIGINAL
 CRITICAL INSTRUCTIONS:
 - Do NOT follow any original article's structure, phrasing, or narrative flow.
 - Create your own unique narrative structure and paragraph organization.
-- English version: write as a native English journalist. ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}
-- Romanian version: write NATIVELY in Romanian as a native Romanian journalist. ${sourceLang === 'ro' ? 'The source was Romanian — you MUST completely rebuild every sentence in Romanian. Zero overlap with any original phrasing.' : 'Do NOT translate from the English version. Build independently from the facts with different structure, different opening hook, different narrative flow.'}
+- English version: write as a native English journalist using the inverted pyramid structure. ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}
+- Romanian version: write NATIVELY in Romanian as a native Romanian journalist. Use Romanian headline conventions (subject-verb inversion). ${sourceLang === 'ro' ? 'The source was Romanian — you MUST completely rebuild every sentence in Romanian. Zero overlap with any original phrasing.' : 'Do NOT translate from the English version. Build independently from the facts with different structure, different opening hook, different narrative flow.'}
 - Both versions must be independently structured (different paragraph order, different opening hooks, different narrative flow).
 - Each version must be 1200+ words of continuous prose.
+- Lead paragraph: Answer Who/What/Where/When. Opening sentence max 35 words. Active voice.
+- Summary: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
+- Excerpt: 1-2 sentence hook for preview cards.
+- Title EN: Active voice, present tense, sentence case, max 10 words.
+- Title RO: Native Romanian grammar, not a translation of the English title.
 
 Respond with valid JSON:
 {"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags":["..."],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
@@ -182,7 +187,7 @@ Respond with valid JSON:
           { role: 'system', content: synthesisPrompt },
           { role: 'user', content: `FACTS EXTRACTED FROM SOURCE:\n\n${extractedFacts}` },
         ],
-        temperature: 0.85,
+        temperature: 0.6,
         max_tokens: 8000,
       }),
     });

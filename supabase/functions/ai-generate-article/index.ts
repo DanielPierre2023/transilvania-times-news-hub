@@ -119,7 +119,7 @@ serve(async (req) => {
           { role: 'system', content: `Current date: March 2026.\n\n${wordCountRules}\n\n${editorProfile.system}\n\n${WRITING_RULES}\n\n${ROMANIAN_RULES}\n\nWrite natively in ROMANIAN. Category: "${category}". Target: ${word_count} words.\n\nRespond ONLY with valid JSON:\n{"title":"titlul","excerpt":"1-2 propoziții","summary":"rezumat 3-5 propoziții","content":"articolul complet în markdown","seo_title":"sub 60 caractere","seo_description":"sub 160 caractere"}` },
           { role: 'user', content: `Write a professional Romanian article about: ${prompt}\n\nKey points: ${enArticle.title}\n${enArticle.excerpt}` },
         ],
-        temperature: 0.85,
+        temperature: 0.6,
         max_tokens: maxTokens,
       }),
     });
