@@ -289,7 +289,10 @@ const RssScraper = () => {
                 </div>
                 <Select value={s.category || 'technology'} onValueChange={v => updateSourceField.mutate({ id: s.id, field: 'category', value: v })}>
                   <SelectTrigger className="w-28 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    <SelectItem value="auto-detect" className="text-xs">🤖 Auto-Detect</SelectItem>
+                    {CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs capitalize">{c}</SelectItem>)}
+                  </SelectContent>
                 </Select>
                 <Select value={s.source_language || 'en'} onValueChange={v => updateSourceField.mutate({ id: s.id, field: 'source_language', value: v })}>
                   <SelectTrigger className="w-28 text-xs"><SelectValue /></SelectTrigger>

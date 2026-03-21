@@ -489,6 +489,10 @@ const BlogEditor = () => {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}</SelectContent>
             </Select>
+            <Select value={form.subcategory} onValueChange={v => handleChange('subcategory', v)}>
+              <SelectTrigger><SelectValue placeholder="Subcategory" /></SelectTrigger>
+              <SelectContent>{SUBCATEGORIES.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
+            </Select>
             <Select value={Object.keys(EDITOR_NAMES).find(k => EDITOR_NAMES[k] === form.author_name) || 'marcus_webb'} onValueChange={v => handleChange('author_name', EDITOR_NAMES[v] || v)}>
               <SelectTrigger className="text-xs"><SelectValue placeholder="Author" /></SelectTrigger>
               <SelectContent>{EDITORS.map(e => <SelectItem key={e.value} value={e.value} className="text-xs">{e.label}</SelectItem>)}</SelectContent>
