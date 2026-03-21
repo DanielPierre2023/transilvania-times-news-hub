@@ -128,6 +128,7 @@ const BlogEditor = () => {
         content_en: p.content_en || '', content_ro: p.content_ro || '',
         tags: (p.tags || []).join(', '), cover_image: p.cover_image || '',
         status: p.status || 'draft', category: p.category || 'politics',
+        subcategory: p.subcategory || 'international',
         author_name: p.author_name || 'Kara Newman',
         seo_title_en: p.seo_title_en || '', seo_title_ro: p.seo_title_ro || '',
         seo_description_en: p.seo_description_en || '', seo_description_ro: p.seo_description_ro || '',
