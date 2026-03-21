@@ -398,9 +398,18 @@ const BlogEditor = () => {
             <Input placeholder="Slug" value={form.slug} onChange={e => handleChange('slug', e.target.value)} />
             <div className="flex items-center gap-2">
               <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
-              <Button variant="outline" size="sm" className="gap-1 text-xs w-full" onClick={() => coverInputRef.current?.click()} disabled={uploading}>
-                <Upload className="w-3 h-3" /> {form.cover_image ? 'Change Cover' : 'Upload Cover'}
+              <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => coverInputRef.current?.click()} disabled={uploading}>
+                <Upload className="w-3 h-3" /> Upload
               </Button>
+              {!form.cover_image ? (
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
+                  <ImagePlus className="w-3 h-3" /> ✨ Generate
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
+                  <RefreshCw className="w-3 h-3" /> Regenerate
+                </Button>
+              )}
               {form.cover_image && <img src={form.cover_image} alt="" className="w-8 h-8 rounded object-cover" />}
             </div>
             <Select value={form.status} onValueChange={v => handleChange('status', v)}>
