@@ -1,67 +1,58 @@
 
 
-## Plan: Add Hugging Face API Key + Reliable Image Generation
+## Plan: Hide Supabase URLs on Frontend Display Layer
 
-### Step 1: Store Secret Securely
+### Problem
+Generated cover images stored in Supabase Storage expose the project URL (`zimpimoierpsocnmnizm.supabase.co`) publicly in `<img>` tags, page source, and SEO metadata.
 
-The Hugging Face API key (`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`) must be added as a **Supabase Edge Function secret** named `HUGGING_FACE_API_KEY`. You'll need to add it in:
+### Solution
+Create a simple utility function that rewrites Supabase Storage URLs to use a Netlify proxy path. The actual storage stays in Supabase — we just mask the URL on the frontend.
 
-**Supabase Dashboard → Settings → Edge Functions → Secrets**
+### 1. Add Netlify Proxy Rule (`public/_redirects`)
 
-I will guide you through this after the plan is approved.
+```text
+/media/*  https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/:splat  200
+```
 
-### Step 2: Create `generate-cover-image` Edge Function
+This makes `https://transilvaniatimes.com/media/blog-images/covers/123.jpg` proxy transparently to Supabase Storage. The `200` status means it's a rewrite (proxy), not a redirect — the browser never sees the Supabase URL.
 
-A new server-side function that:
-1. Receives `{ title, excerpt, seed? }` from the frontend
-2. Calls **Hugging Face Inference API** (`stabilityai/stable-diffusion-xl-base-1.0` or `black-forest-labs/FLUX.1-schnell`) with a constructed editorial prompt
-3. Receives the binary image response
-4. Uploads the image to the existing `blog-images` Supabase Storage bucket
-5. Returns the **stable public Supabase URL** — no dependency on third-party hotlinking
+### 2. Create URL Rewriter Utility (`src/lib/mediaUrl.ts`)
 
-This means images are stored permanently on your own infrastructure.
+```typescript
+export function toPublicMediaUrl(supabaseUrl: string): string {
+  if (!supabaseUrl) return supabaseUrl;
+  const storagePrefix = 'https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/';
+  if (supabaseUrl.startsWith(storagePrefix)) {
+    return '/media/' + supabaseUrl.slice(storagePrefix.length);
+  }
+  return supabaseUrl;
+}
+```
 
-**Fallback chain**: Hugging Face → Pollinations (anonymous, best-effort) → return error with clear message
+### 3. Apply in Frontend Components
 
-### Step 3: Update `BlogEditor.tsx`
+Use `toPublicMediaUrl()` wherever cover images are rendered:
+- `BlogEditor.tsx` (preview thumbnail)
+- `ArticleCard.tsx` (blog listing)
+- `BlogPost.tsx` / `Article.tsx` (article detail page)
+- `ArticleSEO.tsx` (og:image meta tag)
 
-Replace the current client-side `generatePollinationsUrl()` with an async call to the edge function:
-
-- "Generate" and "Regenerate" buttons call `supabase.functions.invoke('generate-cover-image', ...)`
-- Show loading spinner while the function runs (10-20 seconds typical)
-- Show success only after a real stored URL is returned
-- Manual upload still overrides everything
-
-### Step 4: Update `process-rewrite-job` Edge Function
-
-Replace the Pollinations URL construction with a call to the same `generate-cover-image` function. If image generation fails, the article rewrite still succeeds — image status is simply marked as missing.
+The edge functions (`generate-cover-image`, `process-rewrite-job`) continue storing the raw Supabase URL in the database — no backend changes needed.
 
 ### Files
 
 | File | Change |
 |------|--------|
-| `supabase/functions/generate-cover-image/index.ts` | **New** — HF inference → Supabase Storage upload → return public URL |
-| `src/pages/admin/BlogEditor.tsx` | Replace `generatePollinationsUrl` with edge function call, real loading state |
-| `supabase/functions/process-rewrite-job/index.ts` | Call `generate-cover-image` instead of constructing Pollinations URL |
+| `public/_redirects` | Add `/media/*` proxy to Supabase Storage |
+| `src/lib/mediaUrl.ts` | **New** — URL rewriter utility |
+| `src/pages/admin/BlogEditor.tsx` | Wrap cover preview with `toPublicMediaUrl()` |
+| `src/components/ArticleCard.tsx` | Wrap image src |
+| `src/pages/BlogPost.tsx` | Wrap image src |
+| `src/pages/Article.tsx` | Wrap image src |
+| `src/components/ArticleSEO.tsx` | Wrap og:image URL |
 
-### Image Generation Flow
-
-```text
-Admin clicks "Generate"
-  → Edge Function: generate-cover-image
-    → Hugging Face API (stabilityai/SDXL or FLUX.1)
-    → Binary image returned
-    → Upload to Supabase Storage (blog-images bucket)
-    → Return public URL
-  → BlogEditor sets cover_image = stable Supabase URL
-  → Preview loads immediately (image already exists)
-```
-
-### Why This Works
-
-- **No hotlinking**: Images live in your own Supabase Storage
-- **Instant preview**: The URL points to an already-uploaded file
-- **Reliable**: HF Inference API with your own key = authenticated, rate-limited, stable
-- **Zero ongoing cost**: HF free tier provides ~30k inference requests/month
-- **Fallback**: If HF is down, falls back to Pollinations anonymous endpoint
+### Result
+- Database stores: `https://zimpimoierpsocnmnizm.supabase.co/storage/v1/object/public/blog-images/covers/123.jpg`
+- Browser sees: `https://transilvaniatimes.com/media/blog-images/covers/123.jpg`
+- Supabase project ID never appears in page source, network tab, or SEO metadata
 
