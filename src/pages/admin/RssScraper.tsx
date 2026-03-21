@@ -128,9 +128,11 @@ const RssScraper = () => {
           // Check DB for dedup
           const { data: existing } = await supabase.from('scraped_articles').select('id').eq('original_url', art.url).maybeSingle();
           if (!existing) {
+            const articleCategory = source.category === 'auto-detect' ? null : source.category;
             await supabase.from('scraped_articles').insert({
               original_title: art.title, original_url: art.url, original_content: art.content_snippet, source_id: source.id,
-            });
+              category: articleCategory,
+            } as any);
             added++;
           }
         }
