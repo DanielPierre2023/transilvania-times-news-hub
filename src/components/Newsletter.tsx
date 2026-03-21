@@ -27,24 +27,26 @@ const Newsletter = () => {
   };
 
   return (
-    <section className="bg-foreground py-16 px-4">
-      <div className="container mx-auto max-w-xl text-center">
-        <h2 className="text-3xl font-serif font-bold text-background mb-3">{t("newsletter_title")}</h2>
-        <p className="text-background/60 font-sans text-sm mb-8">
+    <section className="bg-primary text-primary-foreground p-12 md:p-20 border-b border-foreground/10 flex flex-col items-center text-center">
+      <div className="max-w-xl">
+        <h3 className="font-serif text-4xl md:text-5xl font-bold italic mb-4">
+          {t("newsletter_title")}
+        </h3>
+        <p className="text-primary-foreground/80 font-sans mb-8">
           {t("newsletter_desc")}
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-col md:flex-row w-full gap-0 shadow-2xl overflow-hidden">
           <input
             type="email"
             placeholder={t("newsletter_placeholder")}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="flex-1 px-4 py-3 bg-background text-foreground font-sans text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="flex-grow p-5 bg-primary-foreground/10 border border-primary-foreground/30 text-primary-foreground placeholder:text-primary-foreground/50 focus:outline-none focus:bg-primary-foreground/20 font-sans"
           />
           <button
             onClick={handleSubscribe}
             disabled={subscribing || !email}
-            className="bg-primary text-primary-foreground px-8 py-3 font-sans font-bold text-sm hover:bg-accent transition-colors disabled:opacity-50"
+            className="bg-background text-primary px-10 py-5 font-bold uppercase text-[10px] tracking-[0.2em] hover:bg-foreground hover:text-background transition-all disabled:opacity-50"
           >
             {subscribing ? "..." : t("newsletter_button")}
           </button>

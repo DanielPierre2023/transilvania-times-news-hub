@@ -31,7 +31,7 @@ const Footer = () => {
 
   return (
     <footer className="bg-background border-t border-foreground/10 pt-12 pb-6 px-4">
-      <div className="container mx-auto max-w-6xl">
+      <div className="container mx-auto max-w-7xl">
         {/* Brand header */}
         <div className="mb-8">
           <h2 className="text-2xl font-serif font-bold text-primary italic tracking-tight">
