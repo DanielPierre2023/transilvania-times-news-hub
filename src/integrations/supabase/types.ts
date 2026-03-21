@@ -133,36 +133,6 @@ export type Database = {
         }
         Relationships: []
       }
-      chat_conversations: {
-        Row: {
-          created_at: string
-          id: string
-          messages: Json | null
-          status: string
-          updated_at: string
-          visitor_email: string | null
-          visitor_name: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          messages?: Json | null
-          status?: string
-          updated_at?: string
-          visitor_email?: string | null
-          visitor_name?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          messages?: Json | null
-          status?: string
-          updated_at?: string
-          visitor_email?: string | null
-          visitor_name?: string | null
-        }
-        Relationships: []
-      }
       contact_messages: {
         Row: {
           admin_reply: string | null
@@ -328,43 +298,9 @@ export type Database = {
         }
         Relationships: []
       }
-      report_requests: {
-        Row: {
-          company: string | null
-          created_at: string
-          email: string
-          id: string
-          name: string
-          report_type: string
-          report_url: string | null
-          status: string
-        }
-        Insert: {
-          company?: string | null
-          created_at?: string
-          email: string
-          id?: string
-          name: string
-          report_type: string
-          report_url?: string | null
-          status?: string
-        }
-        Update: {
-          company?: string | null
-          created_at?: string
-          email?: string
-          id?: string
-          name?: string
-          report_type?: string
-          report_url?: string | null
-          status?: string
-        }
-        Relationships: []
-      }
       rewrite_jobs: {
         Row: {
           article_id: string | null
-          completed_at: string | null
           created_at: string
           editor: string | null
           error_code: string | null
@@ -380,7 +316,6 @@ export type Database = {
         }
         Insert: {
           article_id?: string | null
-          completed_at?: string | null
           created_at?: string
           editor?: string | null
           error_code?: string | null
@@ -396,7 +331,6 @@ export type Database = {
         }
         Update: {
           article_id?: string | null
-          completed_at?: string | null
           created_at?: string
           editor?: string | null
           error_code?: string | null

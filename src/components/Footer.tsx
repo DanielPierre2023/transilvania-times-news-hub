@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { MapPin, Mail, Phone, Facebook, Twitter, Instagram, Github } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const categoryKeys = [
   "cat_politics", "cat_world", "cat_technology", "cat_business",
@@ -23,8 +25,27 @@ const categorySlugs: Record<string, string> = {
 };
 
 const Footer = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [email, setEmail] = useState("");
+  const [subscribing, setSubscribing] = useState(false);
+
+  const handleSubscribe = async () => {
+    if (!email || !email.includes("@")) return;
+    setSubscribing(true);
+    try {
+      const lang = i18n.language.startsWith("ro") ? "ro" : "en";
+      const { error } = await supabase.functions.invoke("confirm-newsletter", {
+        body: { email: email.trim(), language: lang },
+      });
+      if (error) throw error;
+      toast.success(t("newsletter_success") || "Subscribed successfully!");
+      setEmail("");
+    } catch (err: any) {
+      toast.error(err.message || "Subscription failed");
+    } finally {
+      setSubscribing(false);
+    }
+  };
 
   return (
     <footer className="bg-background border-t border-foreground/10 pt-12 pb-6 px-4">
@@ -125,8 +146,12 @@ const Footer = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3 py-2 rounded-sm bg-background text-foreground font-sans text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
-                <button className="w-full bg-primary-foreground text-primary px-4 py-2 font-sans font-bold text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors">
-                  {t("newsletter_button")}
+                <button
+                  onClick={handleSubscribe}
+                  disabled={subscribing || !email}
+                  className="w-full bg-primary-foreground text-primary px-4 py-2 font-sans font-bold text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
+                >
+                  {subscribing ? "..." : t("newsletter_button")}
                 </button>
               </div>
             </div>

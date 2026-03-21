@@ -1,9 +1,30 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const Newsletter = () => {
   const [email, setEmail] = useState("");
-  const { t } = useTranslation();
+  const [subscribing, setSubscribing] = useState(false);
+  const { t, i18n } = useTranslation();
+
+  const handleSubscribe = async () => {
+    if (!email || !email.includes("@")) return;
+    setSubscribing(true);
+    try {
+      const lang = i18n.language.startsWith("ro") ? "ro" : "en";
+      const { error } = await supabase.functions.invoke("confirm-newsletter", {
+        body: { email: email.trim(), language: lang },
+      });
+      if (error) throw error;
+      toast.success(t("newsletter_success") || "Subscribed successfully!");
+      setEmail("");
+    } catch (err: any) {
+      toast.error(err.message || "Subscription failed");
+    } finally {
+      setSubscribing(false);
+    }
+  };
 
   return (
     <section className="bg-foreground py-12 px-4">
@@ -20,8 +41,12 @@ const Newsletter = () => {
             onChange={(e) => setEmail(e.target.value)}
             className="flex-1 px-4 py-2.5 rounded bg-background text-foreground font-sans text-sm placeholder:text-clay focus:outline-none focus:ring-2 focus:ring-primary"
           />
-          <button className="bg-primary text-primary-foreground px-6 py-2.5 font-sans font-semibold text-sm rounded hover:bg-action-orange transition-colors">
-            {t("newsletter_button")}
+          <button
+            onClick={handleSubscribe}
+            disabled={subscribing || !email}
+            className="bg-primary text-primary-foreground px-6 py-2.5 font-sans font-semibold text-sm rounded hover:bg-action-orange transition-colors disabled:opacity-50"
+          >
+            {subscribing ? "..." : t("newsletter_button")}
           </button>
         </div>
       </div>

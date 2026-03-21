@@ -61,6 +61,10 @@ i18n
           newsletter_desc: "Don't miss our exclusive news. We never send spam!",
           newsletter_placeholder: "Your email address",
           newsletter_button: "Subscribe Now",
+          newsletter_success: "Subscribed successfully!",
+
+          // Blog
+          blog_title: "Blog",
 
           // GDPR
           gdpr_label: "Privacy Policy",
@@ -183,6 +187,10 @@ i18n
           newsletter_desc: "Nu rata știrile noastre exclusive. Nu trimitem spam!",
           newsletter_placeholder: "Adresa ta de email",
           newsletter_button: "Abonează-te Acum",
+          newsletter_success: "Te-ai abonat cu succes!",
+
+          // Blog
+          blog_title: "Blog",
 
           // GDPR
           gdpr_label: "Politica de Confidențialitate",

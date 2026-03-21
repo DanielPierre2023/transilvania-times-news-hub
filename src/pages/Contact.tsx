@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Mail, Phone, MapPin, Send } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
 
@@ -11,10 +12,26 @@ const Contact = () => {
   const { t } = useTranslation();
   const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({ title: t("contact_toast_title"), description: t("contact_toast_desc") });
-    setForm({ name: "", email: "", subject: "", message: "" });
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from('contact_messages').insert({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        subject: form.subject.trim(),
+        message: form.message.trim(),
+      });
+      if (error) throw error;
+      toast({ title: t("contact_toast_title"), description: t("contact_toast_desc") });
+      setForm({ name: "", email: "", subject: "", message: "" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to send message", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const update = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -131,10 +148,11 @@ const Contact = () => {
 
             <button
               type="submit"
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-10 py-4 font-sans font-bold uppercase tracking-tight hover:bg-accent active:scale-95 transition-all"
+              disabled={submitting}
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-10 py-4 font-sans font-bold uppercase tracking-tight hover:bg-accent active:scale-95 transition-all disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              {t("contact_send")}
+              {submitting ? '...' : t("contact_send")}
             </button>
           </form>
         </div>
