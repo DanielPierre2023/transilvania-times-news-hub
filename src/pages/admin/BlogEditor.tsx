@@ -413,11 +413,11 @@ const BlogEditor = () => {
                   <Upload className="w-3 h-3" /> Upload
                 </Button>
                 {!form.cover_image ? (
-                  <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => { setCoverLoading(true); setCoverError(false); generateCoverImage(); }}>
+                  <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
                     <ImagePlus className="w-3 h-3" /> ✨ Generate
                   </Button>
                 ) : (
-                  <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => { setCoverLoading(true); setCoverError(false); generateCoverImage(); }}>
+                  <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={generateCoverImage}>
                     <RefreshCw className="w-3 h-3" /> Regenerate
                   </Button>
                 )}
