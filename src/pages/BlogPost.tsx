@@ -86,6 +86,14 @@ const BlogPost = () => {
           </div>
         </div>
 
+        {/* Share Suite — Editorial Row */}
+        <ShareSuite
+          title={title || ""}
+          url={typeof window !== "undefined" ? window.location.href : ""}
+          summary={summary || ""}
+          tags={post.tags || []}
+        />
+
         {post.cover_image && (
           <img src={post.cover_image} alt={title} className="w-full aspect-video object-cover mb-8 border border-foreground/5" />
         )}
