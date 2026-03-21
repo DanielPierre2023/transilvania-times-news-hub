@@ -1,168 +1,323 @@
 
-I reviewed the code, the current admin editor state, and the live data flow. The user is right to be angry: the Romanian SEO issue is not reliably solved end to end.
+## CTO diagnosis: what is actually broken
 
-## What is actually wrong
+I checked the code and the live data. Your criticism is justified. This is not one small bug. It is a broken editorial architecture in 4 places.
 
-There are 3 separate layers, and they are not aligned:
+### 1. Daniel Dobos is still the default in the workflow
+This happens in two separate places:
 
-1. Front-end article page SEO (`src/pages/BlogPost.tsx`)
-   - The page component now prefers Romanian SEO fields correctly.
-   - But it does not set `document.documentElement.lang`, so the page language itself is not synchronized.
-   - It also uses one fallback order on the page and a different one in the OG proxy.
-
-2. Social / crawler SEO (`supabase/functions/og-proxy/index.ts`)
-   - The OG proxy only switches to Romanian if `?lang=ro` exists in the URL.
-   - Your route is `/blog/:slug` with no language segment, and the site language switcher is client-side only.
-   - So bots and previews default to English unless a `lang=ro` param is present.
-   - This is one major reason the user still sees English SEO.
-
-3. Content generation / admin saving pipeline
-   - The database does contain Romanian SEO fields for many posts, so the issue is not only missing data.
-   - But generated `tags` are still English-only in `ai-generate-article`, because it returns `tags: enArticle.tags || []`.
-   - The editor UI uses a single shared `tags` input for both languages, so Romanian keyword pills/keywords cannot be localized independently.
-   - For RSS rewrites, tags come from `rewrite_tags`, also shared, so the Romanian side still inherits English keywords.
-
-## CTO conclusion
-
-This is not one bug. It is an architecture inconsistency:
-- page SEO logic,
-- social sharing SEO logic,
-- and admin/generated metadata storage
-all use different assumptions.
-
-That is why the problem keeps “coming back”.
-
-## High-level enterprise solution
-
-I would fix this as one coherent SEO architecture, not patches:
-
-### 1. Make Romanian SEO deterministic on the article page
-Update `src/pages/BlogPost.tsx` so the article page:
-- sets `document.documentElement.lang` to `ro`/`en`
-- uses one centralized localized metadata resolver for:
-  - title
-  - description
-  - OG title/description
-  - Twitter title/description
-  - JSON-LD `inLanguage`
-- uses the exact Romanian fallback order everywhere:
-  - title: `seo_title_ro -> title_ro -> title_en`
-  - description: `seo_description_ro -> summary_ro -> excerpt_ro -> summary_en -> excerpt_en`
-
-### 2. Fix the real root cause in the OG proxy
-Update `supabase/functions/og-proxy/index.ts` so Romanian metadata is not dependent only on `?lang=ro`.
-
-Recommended enterprise approach:
-- detect requested language from, in order:
-  1. explicit `lang=ro` query param
-  2. `Accept-Language` header if present
-  3. fallback to English
-- pass the bot request `Accept-Language` through `netlify/edge-functions/og-rewrite.ts`
-- use the same fallback resolver in OG proxy as on the React page
-- add `og:locale` and alternate locale in the generated HTML too
-
-This makes crawler/social previews consistent with the live page.
-
-### 3. Separate language-specific tags/keywords properly
-The current model uses one `tags` array for both languages. That is not enterprise-grade for bilingual SEO.
-
-Best solution:
-- add `tags_en text[]` and `tags_ro text[]` to `blog_posts`
-- add `rewrite_tags_en text[]` and `rewrite_tags_ro text[]` to `scraped_articles`
-- keep old `tags` temporarily for backward compatibility during migration
-- update generators:
-  - `ai-generate-article` returns both `tags_en` and `tags_ro`
-  - `process-rewrite-job` and `ai-rewrite-article` store both language-specific tag sets
-- update admin editor to edit EN and RO tags separately
-- update `BlogPost.tsx` to display Romanian pills from `tags_ro` when RO is active
-
-This is the only clean fix for “Romanian SEO tags still in English”.
-
-### 4. Normalize admin editor behavior
-Update `src/pages/admin/BlogEditor.tsx` so:
-- SEO EN and SEO RO are visually separated and clearly labeled
-- tags become two inputs:
-  - Tags (EN)
-  - Tags (RO)
-- when importing from RSS, Romanian SEO fields and Romanian tags are loaded into the Romanian inputs only
-- when saving, all localized metadata is persisted explicitly without cross-language leakage
-
-### 5. Verify the full pipeline for newly created articles
-The current user example is a new article created seconds ago. So the plan must explicitly cover the “just created now” case:
-- RSS rewrite populates `title_ro`, `summary_ro`, `seo_title_ro`, `seo_description_ro`, `rewrite_tags_ro`
-- Blog editor loads them correctly
-- publish action maps them into `blog_posts`
-- article page renders them
-- OG proxy outputs them for bots
-
-## Files to change
-
-- `src/pages/BlogPost.tsx`
-  - centralize localized SEO resolver
-  - set `<html lang>`
-  - unify page metadata fallback order
-  - optionally localize visible hashtag pills from language-specific tags
-
-- `netlify/edge-functions/og-rewrite.ts`
-  - forward `Accept-Language`
-  - preserve language context for bots
-
-- `supabase/functions/og-proxy/index.ts`
-  - detect Romanian from query/header
-  - unify fallback order with page SEO
-  - emit localized OG/Twitter/article meta consistently
-
+- `src/pages/admin/RssScraper.tsx`
+  - rewrite uses `editorSelection[article.id] || 'daniel_dobos'`
+  - the per-row select also defaults to `daniel_dobos`
 - `src/pages/admin/BlogEditor.tsx`
-  - split EN/RO tags
-  - keep SEO fields language-specific and isolated
+  - when opening an article from RSS, `author_name` is set to `'Daniel Dobos'`
 
-- `supabase/functions/ai-generate-article/index.ts`
-  - return `tags_en` and `tags_ro`
+So even if the rewrite job used another persona, the publish form still assigns Daniel by default unless changed manually.
+
+### 2. The six voices are being flattened into one generic voice
+I found two causes:
 
 - `supabase/functions/process-rewrite-job/index.ts`
-  - store `rewrite_tags_en` and `rewrite_tags_ro`
+  - starts with editor persona correctly
+  - but then runs `humanizeContent(...)` afterward
+- `supabase/functions/_shared/sanitize.ts`
+  - `humanizeContent` is generic, not editor-specific
+
+That second pass rewrites the article again without preserving persona. Result: different editors start differently, then end up sounding similar.
+
+### 3. There is still a legacy rewrite pipeline with weaker prompt quality
+`supabase/functions/ai-rewrite-article/index.ts` still exists and uses:
+- simpler prompt
+- direct source rewriting
+- high temperature (`0.85`)
+- no extraction-first discipline like the main pipeline
+
+That creates inconsistency and weaker output if it is used anywhere now or later.
+
+### 4. Source material is too thin, so the articles cannot have depth
+`scrape-rss/index.ts` stores:
+- RSS `content:encoded` / `description` / `summary`
+- truncated to `8000` chars
+- in many cases this is just a feed snippet, not the full article body
+
+Live DB samples confirm some `original_content` values are just short summaries. If the source is shallow, the rewrite becomes shallow. That is one of the biggest reasons the articles feel empty and repetitive.
+
+## What the data shows
+
+### The rewrite jobs are not all Daniel
+Recent `rewrite_jobs` include:
+- `lucian_bratu`
+- `andrei_popescu`
+- `sofia_marinescu`
+- `elena_vasilescu`
+- `mihai_ionescu`
+- `daniel_dobos`
+
+So the problem is not only rotation. The bigger issue is:
+- UI defaults still push Daniel
+- published bylines often become Daniel in the editor
+- final prose gets flattened by generic post-processing
+
+### The output still has the same opening rhythm
+Recent Romanian samples repeat the same formula:
+- “Sâmbătă, 21 martie 2026...”
+- “Astăzi, 21 martie 2026...”
+- similar neutral explanatory cadence
+
+That is evidence of prompt convergence and persona loss.
+
+### Romanian tags are still incomplete in places
+Several recent records still have empty `rewrite_tags_ro` / `tags_ro`, so metadata generation is also inconsistent.
+
+---
+
+## Enterprise fix plan
+
+### A. Separate 3 concepts that are currently mixed together
+Right now the app mixes:
+1. rewrite persona
+2. published byline
+3. manual author
+
+That must be split cleanly.
+
+#### New model
+- **AI editor/persona** = who rewrote the article
+- **Byline** = what appears publicly
+- **Manual author** = only for real journalists creating original pieces
+
+#### Implementation
+- Add persistent `assigned_editor` to `scraped_articles`
+- Add `ai_editor` to `blog_posts`
+- Keep `author_name` for public byline
+- For RSS articles:
+  - default byline should be `Redacția Transilvania Times` or the selected AI editor, per your preference
+  - never default to Daniel Dobos
+- For manual articles:
+  - default author options only: Daniel Dobos, Cristina Erika, Corina Bugner
+
+### B. Remove local-state editor selection and replace with persistent editorial assignment
+Current editor selection in RSS is only local React state, so it is fragile and resets.
+
+#### Fix
+- Persist selected editor on each scraped article before rewrite
+- Show current assigned editor in the table even after refresh
+- Add optional bulk action:
+  - “Auto-rotate editors”
+  - “Assign editor manually”
+
+### C. Replace naive defaults with a real rotation engine
+Need an editorial dispatcher, not a hardcoded fallback.
+
+#### Rotation rules
+- Auto-scraped articles rotate only among the 6 agreed personas:
+  - Daniel Dobos
+  - Andrei Popescu
+  - Elena Vasilescu
+  - Lucian Bratu
+  - Sofia Marinescu
+  - Mihai Ionescu
+- Manual authors:
+  - Daniel Dobos
+  - Cristina Erika
+  - Corina Bugner
+- Optional category weighting:
+  - Mihai / Daniel stronger for technology
+  - Lucian / Elena stronger for culture/features
+  - Andrei stronger for politics/investigative
+  - Sofia for analytical/science
+- Rotation should avoid repeating the same editor in consecutive jobs
+
+### D. Unify the rewrite pipeline into one authoritative enterprise pipeline
+There should be one source of truth.
+
+#### Fix
+- Keep `process-rewrite-job` as the only rewrite pipeline
+- Decommission or hard-disable `ai-rewrite-article`
+- Ensure all UI buttons and backend flows enqueue only `process-rewrite-job`
+
+### E. Preserve persona during humanization
+This is critical.
+
+#### Current problem
+A generic humanizer rewrites the already-persona-shaped article and erases voice.
+
+#### Fix
+Replace generic `humanizeContent(text, language, apiKey)` with:
+- `humanizeContent(text, language, apiKey, editorPersona)`
+- or remove the second pass entirely and fold humanization into the main synthesis prompt
+
+Best enterprise option:
+- keep one synthesis pass with extraction-first + persona + anti-plagiarism constraints
+- add a **persona-aware refinement pass**, not a generic one
+
+That refinement must explicitly say:
+- preserve this editor’s linguistic fingerprint
+- do not normalize tone
+- do not rewrite the opening into generic date hooks
+
+### F. Stop rewriting from RSS snippets; ingest full article bodies
+This is the other major root cause.
+
+#### Fix
+Upgrade the ingestion pipeline:
+1. RSS feed gives URL + teaser
+2. fetch the actual article URL
+3. extract main body with readability-style extraction
+4. store:
+   - `original_excerpt`
+   - `original_content_full`
+   - `source_word_count`
+
+#### Quality gates
+- if source body is below a threshold, mark as `needs_source_review`
+- do not run premium rewrite on teaser-only input
+- display “snippet only” warning in admin
+
+### G. Improve editorial depth rules
+Right now “1200+ words” is not enough. It can still become padded fluff.
+
+#### Fix prompt architecture
+For scraped articles, require:
+- first 3 paragraphs = hard news
+- then evidence/context
+- then counterpoint / implications
+- then background
+- explicit instruction: no generic scene-setting unless directly relevant
+- no “calendar hook” unless tied to the event itself
+- no filler metaphors for hard news
+
+Also add category-specific depth modules:
+- politics: actors, stakes, policy consequences
+- business: numbers, market impact, institutions
+- culture: historical context, critical framing
+- technology: systems, versions, infra, tradeoffs
+
+### H. Fix publish flow so byline and editor are coherent
+`BlogEditor` currently imports RSS articles with `author_name: 'Daniel Dobos'`.
+
+#### Fix
+For RSS imports:
+- prefill `ai_editor` from scraped article assignment
+- prefill `author_name` as:
+  - `Redacția Transilvania Times`, or
+  - selected AI editor name if you want persona bylines
+- show both fields separately:
+  - AI Editor
+  - Public Byline
+
+For manual articles:
+- AI editor optional
+- author defaults to the real journalist creating/editing it
+
+### I. Add admin visibility so the editorial team can actually trust the system
+On RSS/Admin tables add columns:
+- Assigned editor
+- Last rewrite editor
+- Source depth score / word count
+- Prompt pipeline used
+- Quality flags:
+  - thin source
+  - missing RO tags
+  - repeated opening pattern
+  - needs human review
+
+### J. Backfill and cleanup
+After architecture changes:
+- backfill `assigned_editor` from latest `rewrite_jobs.editor`
+- backfill `ai_editor` in `blog_posts`
+- identify published posts where:
+  - `author_name = Daniel Dobos`
+  - but latest rewrite job used another editor
+- review and correct those records
+
+---
+
+## Files that need to change
+
+### Frontend admin
+- `src/pages/admin/RssScraper.tsx`
+  - remove Daniel fallback
+  - persist editor assignment
+  - add rotation controls and source-depth indicators
+
+- `src/pages/admin/BlogEditor.tsx`
+  - separate AI editor from byline author
+  - stop defaulting RSS imports to Daniel
+  - restrict manual-author defaults appropriately
+
+- `src/pages/admin/BlogManager.tsx`
+  - show byline vs AI editor distinctly
+
+### Edge functions
+- `supabase/functions/process-rewrite-job/index.ts`
+  - preserve editor fingerprint end-to-end
+  - remove generic flattening
+  - strengthen depth rules
+  - consume full article body, not snippet-only input
+
+- `supabase/functions/_shared/sanitize.ts`
+  - replace generic humanizer with persona-aware refinement
+  - stop normalizing all editors into one neutral cadence
 
 - `supabase/functions/ai-rewrite-article/index.ts`
-  - store separate EN/RO tags if still used in the pipeline
+  - retire or redirect to main pipeline
 
-- `supabase/migrations/*`
-  - add bilingual tag columns and backward-compatible defaults
+- `supabase/functions/scrape-rss/index.ts`
+  - extend feed ingestion to fetch full article pages
 
-## Database / migration plan
+### Database
+- new migration for:
+  - `scraped_articles.assigned_editor`
+  - `scraped_articles.source_word_count`
+  - `scraped_articles.original_excerpt`
+  - `scraped_articles.original_content_full`
+  - `blog_posts.ai_editor`
 
-Add:
-- `blog_posts.tags_en text[] default '{}'::text[]`
-- `blog_posts.tags_ro text[] default '{}'::text[]`
-- `scraped_articles.rewrite_tags_en text[] default '{}'::text[]`
-- `scraped_articles.rewrite_tags_ro text[] default '{}'::text[]`
-
-Backfill strategy:
-- copy existing `tags` into `tags_en`
-- leave `tags_ro` empty until regenerated or manually edited
-- copy `rewrite_tags` into `rewrite_tags_en`
-
-This avoids breaking existing pages while enabling proper Romanian SEO going forward.
-
-## Why this is the best solution
-
-Because it fixes the real architectural gap:
-- client SEO
-- bot SEO
-- generated metadata
-- editor persistence
-all become language-aware in the same way.
-
-Anything smaller will keep producing English leakage into Romanian SEO.
+---
 
 ## Acceptance criteria
 
-After implementation, a newly created Romanian article must satisfy all of these:
-- browser tab title is Romanian
-- `meta[name="description"]` is Romanian
-- `og:title` and `og:description` are Romanian
-- `twitter:title` and `twitter:description` are Romanian
-- JSON-LD `headline`, `description`, and `inLanguage` are Romanian
-- page `<html lang="ro">`
-- Romanian keyword/tag pills are Romanian
-- social preview endpoint returns Romanian metadata when the request language is Romanian
-- admin editor shows separate EN and RO tags and preserves them on save
+After implementation:
+
+1. Scraped articles no longer default to Daniel Dobos.
+2. Editor assignment survives refresh and is visible in admin.
+3. Manual journalists remain only:
+   - Daniel Dobos
+   - Cristina Erika
+   - Corina Bugner
+4. Auto-scraped rewrites rotate across the 6 personas consistently.
+5. Published byline is no longer accidentally Daniel unless explicitly chosen.
+6. Two articles rewritten by different editors have clearly different openings, cadence, framing, and lexical choices.
+7. Rewrite pipeline uses full extracted article body, not just RSS teaser text.
+8. Thin-source articles are flagged instead of being turned into padded pseudo-depth.
+9. Legacy weaker rewrite path is removed from production behavior.
+
+## Priority order
+
+### Phase 1 — stop the damage
+- remove Daniel defaults
+- persist assigned editor
+- separate byline from AI editor
+- disable legacy `ai-rewrite-article`
+
+### Phase 2 — restore voice quality
+- make humanization persona-aware or remove generic pass
+- strengthen prompt structure by category
+- add editor rotation logic
+
+### Phase 3 — restore depth
+- ingest full article bodies
+- add thin-source detection
+- backfill and clean already-misassigned records
+
+## Bottom line
+
+The core problem is not “just the prompt.”  
+It is that the system currently:
+- defaults to Daniel in the UI,
+- mixes persona with byline,
+- rewrites shallow RSS snippets,
+- and then flattens editor voice with a generic post-pass.
+
+That combination is exactly why the articles feel shallow, repetitive, and off-brief.
