@@ -79,7 +79,7 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Contact Us */}
+        {/* Contact Us */}
           <div>
             <h4 className="font-serif font-bold text-primary text-lg mb-4">
               {t("contact_us")}
@@ -88,19 +88,28 @@ const Footer = () => {
               <div className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                 <div>
+                  <p className="font-bold text-foreground/90">{t("footer_editorial_desk")}</p>
                   <p>str. Memorandumului nr 2</p>
                   <p>Cluj-Napoca, Transilvania</p>
                 </div>
               </div>
+              <div className="flex items-start gap-2">
+                <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-bold text-foreground/90">{t("footer_corporate_hq")}</p>
+                  <p>Sunset Valley, 7081 Pyla</p>
+                  <p>Cyprus</p>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-primary shrink-0" />
-                <a href="mailto:needhelp@transilvaniatimes.com" className="hover:text-primary transition-colors">
-                  needhelp@transilvaniatimes.com
+                <a href="mailto:contact@add-individual-solutions.com" className="hover:text-primary transition-colors">
+                  contact@add-individual-solutions.com
                 </a>
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-primary shrink-0" />
-                <span>+40 264 123 456</span>
+                <span>+357 96 919 606</span>
               </div>
             </div>
           </div>
