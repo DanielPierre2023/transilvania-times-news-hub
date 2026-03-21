@@ -322,19 +322,29 @@ Respond with valid JSON:
       console.warn(`[${jobId}] Cover image generation error: ${(imgErr as Error).message}`);
     }
 
+    // ═══════════════════════════════════════════════════
+    // POST-PROCESS: Normalize tags and sanitize titles
+    // ═══════════════════════════════════════════════════
+    const normalizedTagsEn = normalizeTags(parsed.tags_en || parsed.tags || []);
+    const normalizedTagsRo = normalizeTags(parsed.tags_ro || []);
+    const cleanTitleEn = sanitizeTitle(sanitizeContent(parsed.title_en || article.original_title, 'en'));
+    const cleanTitleRo = sanitizeTitle(sanitizeContent(parsed.title_ro || article.original_title, 'ro'));
+    const cleanSeoTitleEn = sanitizeTitle(sanitizeContent(parsed.seo_title_en || '', 'en'));
+    const cleanSeoTitleRo = sanitizeTitle(sanitizeContent(parsed.seo_title_ro || '', 'ro'));
+
     const { error: articleUpdateErr } = await supabaseAdmin.from('scraped_articles').update({
       rewritten_en: contentEn, rewritten_ro: contentRo,
-      title_en: sanitizeContent(parsed.title_en || article.original_title, 'en'),
-      title_ro: sanitizeContent(parsed.title_ro || article.original_title, 'ro'),
+      title_en: cleanTitleEn,
+      title_ro: cleanTitleRo,
       excerpt_en: sanitizeContent(parsed.excerpt_en || '', 'en'),
       excerpt_ro: sanitizeContent(parsed.excerpt_ro || '', 'ro'),
       summary_en: sanitizeContent(parsed.summary_en || '', 'en'),
       summary_ro: sanitizeContent(parsed.summary_ro || '', 'ro'),
-      rewrite_tags: parsed.tags_en || parsed.tags || [],
-      rewrite_tags_en: parsed.tags_en || parsed.tags || [],
-      rewrite_tags_ro: parsed.tags_ro || [],
-      seo_title_en: sanitizeContent(parsed.seo_title_en || '', 'en'),
-      seo_title_ro: sanitizeContent(parsed.seo_title_ro || '', 'ro'),
+      rewrite_tags: normalizedTagsEn,
+      rewrite_tags_en: normalizedTagsEn,
+      rewrite_tags_ro: normalizedTagsRo,
+      seo_title_en: cleanSeoTitleEn,
+      seo_title_ro: cleanSeoTitleRo,
       seo_description_en: sanitizeContent(parsed.seo_description_en || '', 'en'),
       seo_description_ro: sanitizeContent(parsed.seo_description_ro || '', 'ro'),
       cover_image: coverImageUrl,
