@@ -9,7 +9,6 @@ import Footer from "@/components/Footer";
 import AdUnit from "@/components/AdUnit";
 import ArticleCard from "@/components/ArticleCard";
 import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
-import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
 
 const Index = () => {
