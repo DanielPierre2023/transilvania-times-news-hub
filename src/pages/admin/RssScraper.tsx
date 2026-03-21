@@ -224,9 +224,14 @@ const RssScraper = () => {
   };
 
   const getSourceCategory = (article: any) => {
-    const cat = (article as any).rss_sources?.category;
-    if (!cat) return null;
-    return <Badge variant="outline" className="text-[10px] capitalize">{cat}</Badge>;
+    const cat = article.category || (article as any).rss_sources?.category;
+    const sub = article.subcategory;
+    return (
+      <div className="flex items-center gap-1">
+        {cat && <Badge variant="outline" className="text-[10px] capitalize">{cat}</Badge>}
+        {sub && <Badge variant="secondary" className="text-[10px] capitalize">{sub}</Badge>}
+      </div>
+    );
   };
 
   const getSourceLang = (article: any) => {
