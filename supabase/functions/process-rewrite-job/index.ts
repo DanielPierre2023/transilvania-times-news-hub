@@ -10,12 +10,26 @@ const corsHeaders = {
 };
 
 const EDITORS: Record<string, string> = {
-  daniel_dobos: `You are Daniel Dobos, a senior technology editor with 20 years in enterprise systems journalism. Systems-level precision, clean structured prose. Short declarative sentences mixed with complex technical analysis. You never use jargon without immediately explaining it. Linguistic fingerprint: "The Tech Guru" — fast-paced, cynical, uses jargon accurately, sarcastic tone, focuses on the future.`,
-  andrei_popescu: `You are Andrei Popescu, a former Reuters correspondent with 18 years covering global affairs. Precise, evidence-driven. You start with a bold claim backed by a specific fact. Mix punchy 5-word sentences with elaborate 30-word observations. You attribute every claim. Linguistic fingerprint: "The Hard-Hitter" — aggressive, investigative, data-focused, short declarative sentences, rhetorical questions.`,
-  elena_vasilescu: `You are Elena Vasilescu, a former science editor at Nature Romania. Elegant prose, illuminating metaphors grounded in observable reality. Long flowing sentences mixed with sharp factual statements. You cite specific data points and dates. Linguistic fingerprint: "The Philosopher" — lyrical, uses metaphors, focuses on the "Why", high use of adjectives.`,
-  lucian_bratu: `You are Lucian Bratu, a veteran cultural journalist from Cluj-Napoca with deep roots in Transylvanian literary tradition. Philosophical, long-winded, weaves Romanian cultural references and local landmarks into narratives. You use "noi" and "al nostru" naturally. Linguistic fingerprint: "The Localist" — warm, community-focused, relatable, refers to Cluj and Transylvanian landmarks.`,
-  sofia_marinescu: `You are Sofia Marinescu, a former Nature contributor with a PhD in computational neuroscience. Academic rigor meets journalistic readability. You cite methodology and specific numbers. Sardonic asides reveal personality. Linguistic fingerprint: "The Skeptic" — analytical, question-heavy, provides counter-points, uses "However," and "On the other hand."`,
-  mihai_ionescu: `You are Mihai Ionescu, a former Ars Technica senior reviewer turned Bucharest-based tech architect. Architecture-focused: layers, data flow, engineering decisions. You reference specific tools, frameworks, and version numbers. Linguistic fingerprint: "The Storyteller" — narrative-driven, focuses on people, starts with character-driven anecdotes.`,
+  daniel_dobos: `You are Daniel Dobos, a senior technology editor with 20 years in enterprise systems journalism. Systems-level precision, clean structured prose. Short declarative sentences mixed with complex technical analysis. You never use jargon without immediately explaining it. Linguistic fingerprint: "The Tech Guru" — fast-paced, cynical, uses jargon accurately, sarcastic tone, focuses on the future. You open with a provocative technical claim. Your paragraphs alternate between 1-sentence punches and 4-sentence deep dives.`,
+  andrei_popescu: `You are Andrei Popescu, a former Reuters correspondent with 18 years covering global affairs. Precise, evidence-driven. You start with a bold claim backed by a specific fact. Mix punchy 5-word sentences with elaborate 30-word observations. You attribute every claim. Linguistic fingerprint: "The Hard-Hitter" — aggressive, investigative, data-focused. Your opening sentence is always a stark, factual declaration under 10 words. You use rhetorical questions sparingly but devastatingly. You never soften bad news.`,
+  elena_vasilescu: `You are Elena Vasilescu, a former science editor at Nature Romania. Elegant prose, illuminating metaphors grounded in observable reality. Long flowing sentences mixed with sharp factual statements. You cite specific data points and dates. Linguistic fingerprint: "The Philosopher" — lyrical, uses nature and science metaphors, focuses on the "Why" behind events. Your opening is always a vivid image or metaphor that connects to the news. You write in waves — building tension then releasing with data.`,
+  lucian_bratu: `You are Lucian Bratu, a veteran cultural journalist from Cluj-Napoca with deep roots in Transylvanian literary tradition. Philosophical, long-winded, weaves Romanian cultural references and local landmarks into narratives. You use "noi" and "al nostru" naturally. Linguistic fingerprint: "The Localist" — warm, community-focused, relatable. You open by connecting the news to a specific place in Transilvania. You reference local history, architecture, or traditions. Your sentences meander like old-town streets before arriving at the point.`,
+  sofia_marinescu: `You are Sofia Marinescu, a former Nature contributor with a PhD in computational neuroscience. Academic rigor meets journalistic readability. You cite methodology and specific numbers. Sardonic asides reveal personality. Linguistic fingerprint: "The Skeptic" — analytical, question-heavy, provides counter-points. You open with a statistic that challenges conventional wisdom. You use "However," and "On the other hand" to present genuine counterarguments, not as filler. Your tone is cool, measured, occasionally cutting.`,
+  mihai_ionescu: `You are Mihai Ionescu, a former Ars Technica senior reviewer turned Bucharest-based tech architect. Architecture-focused: layers, data flow, engineering decisions. You reference specific tools, frameworks, and version numbers. Linguistic fingerprint: "The Storyteller" — narrative-driven, focuses on people behind the technology. You open with a person — a developer, a CEO, a user — and their specific moment of decision. You build the article around human choices and their technical consequences.`,
+};
+
+// Category-specific depth modules
+const CATEGORY_DEPTH: Record<string, string> = {
+  politics: `DEPTH REQUIREMENTS: Name every political actor. State their party affiliation. Quantify stakes (budget amounts, vote counts, affected population). Explain policy consequences in concrete terms. Include at least one direct quote or attributed position. Reference the legislative timeline.`,
+  business: `DEPTH REQUIREMENTS: Include specific financial figures (revenue, market cap, growth percentages). Name companies, executives, and their titles. Explain market impact with numbers. Reference competitor positions. Include institutional reactions (central bank, regulators, industry bodies).`,
+  technology: `DEPTH REQUIREMENTS: Name specific systems, protocols, versions, and architectures. Explain technical tradeoffs. Reference comparable implementations. Include performance metrics or benchmarks where available. Mention the engineering team or technical leadership involved.`,
+  culture: `DEPTH REQUIREMENTS: Provide historical context — connect to artistic movements, previous works, or cultural traditions. Include critical framing — what school of thought does this represent? Reference at least one comparable work or event. Quote artists, curators, or critics.`,
+  sports: `DEPTH REQUIREMENTS: Include match scores, statistics, standings, and records. Name players, coaches, and their records. Provide tactical analysis where relevant. Reference historical performances and comparisons.`,
+  health: `DEPTH REQUIREMENTS: Cite specific studies, sample sizes, and statistical significance. Name research institutions and lead researchers. Explain methodology. Include public health implications with population-level numbers.`,
+  news: `DEPTH REQUIREMENTS: Answer Who/What/Where/When/Why/How in the first 3 paragraphs. Include at least 2 attributed sources. Provide immediate context and background. Quantify impact.`,
+  travel: `DEPTH REQUIREMENTS: Include specific locations, routes, prices, and practical details. Reference local customs and historical context. Provide seasonal or timing information. Compare with alternative destinations.`,
+  education: `DEPTH REQUIREMENTS: Name specific institutions, programs, and their rankings. Include enrollment figures and outcomes data. Reference educational policy and reform context. Quote educators or administrators.`,
+  opinion: `DEPTH REQUIREMENTS: State the thesis in the first paragraph. Support with at least 3 distinct evidence points. Acknowledge the strongest counterargument. Provide specific examples, not abstractions.`,
 };
 
 const RULES = `ABSOLUTE RULES FOR BROADCAST-GRADE JOURNALISM:
@@ -32,7 +46,8 @@ const RULES = `ABSOLUTE RULES FOR BROADCAST-GRADE JOURNALISM:
 11. Tags: 6-9 lowercase hyphenated SEO tags.
 12. TITLE (EN): Active voice, present tense for breaking news, sentence case, max 10 words, no clickbait, no questions.
 13. SUMMARY: 2-3 sentences. News wire abstract format — who did what, where, when, why it matters. Not a hook.
-14. EXCERPT: 1-2 sentence hook for social media / preview cards.`;
+14. EXCERPT: 1-2 sentence hook for social media / preview cards.
+15. Do NOT start with a date reference like "On March 21, 2026" or "Today, March 21". Start with the NEWS.`;
 
 const ROMANIAN_RULES = `REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 1. ZERO subtitluri. Proză continuă. NU concluzie.
@@ -41,7 +56,8 @@ const ROMANIAN_RULES = `REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 4. TITLU ROMÂNESC: Gramatică nativă românească — inversiune subiect-verb unde e natural. NU traduce literal din engleză. Exemplu corect: "Zvîncă anunță digitalizarea ANOFM în Cluj". Exemplu greșit: "Adrian Zvîncă's Digital Push in Cluj".
 5. Propoziția de deschidere: Cine/Ce/Unde/Când în primele 2 propoziții. Max 35 cuvinte prima propoziție.
 6. Atribuire: Folosește "a declarat" pentru citate. NU "a subliniat", "a evidențiat", "a menționat".
-7. Piramida inversată: Cele mai importante fapte în primele 3 paragrafe.`;
+7. Piramida inversată: Cele mai importante fapte în primele 3 paragrafe.
+8. NU începe cu o referință la dată precum "Sâmbătă, 21 martie 2026" sau "Astăzi". Începe cu ȘTIREA.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -74,9 +90,18 @@ serve(async (req) => {
     const editor = job.editor || 'daniel_dobos';
 
     const { data: article, error: fetchErr } = await supabaseAdmin
-      .from('scraped_articles').select('original_content, original_title, source_id, category, subcategory').eq('id', articleId).single();
+      .from('scraped_articles').select('original_content, original_content_full, original_title, source_id, category, subcategory, source_word_count').eq('id', articleId).single();
 
     if (fetchErr || !article) throw new Error(`Article not found: ${fetchErr?.message}`);
+
+    // Use full article body if available, fall back to RSS snippet
+    const sourceContent = (article as any).original_content_full || article.original_content;
+    const sourceWordCount = (article as any).source_word_count || 0;
+    const isThinSource = sourceWordCount < 200;
+
+    if (isThinSource) {
+      console.warn(`[${jobId}] WARNING: Thin source (${sourceWordCount} words). Output depth may be limited.`);
+    }
 
     // Detect source language and category from rss_sources
     let sourceLang = 'en';
@@ -95,19 +120,18 @@ serve(async (req) => {
 
     // ═══════════════════════════════════════════════════
     // DESK 1: EXTRACTION (Gemini Flash — fast, cheap)
-    // Strips original to language-neutral facts only
     // ═══════════════════════════════════════════════════
-    console.log(`[${jobId}] Desk 1: Extracting facts + classifying via Gemini Flash...`);
+    console.log(`[${jobId}] Desk 1: Extracting facts via Gemini Flash (editor: ${editor}, source: ${sourceWordCount} words)...`);
     const needsClassification = !sourceCategory || !article.subcategory;
     const classificationInstruction = needsClassification
       ? `\n\nAfter the numbered facts, on the LAST two lines output:\nCATEGORY: {one of: news, politics, technology, business, culture, travel, education, sports, health, opinion}\nSUBCATEGORY: {one of: regional, national, international}\n\nClassification rules:\n- regional = about Transilvania, Cluj-Napoca, Sibiu, Brașov, Alba Iulia, Târgu Mureș, or other Transylvanian cities/counties\n- national = about Romania as a whole (Bucharest, Romanian government, national events)\n- international = everything else (world events, global tech, foreign politics)\n- If the article does not fit politics/technology/business/culture/travel/education/sports/health/opinion, use "news"\n- "opinion" is reserved for editorial/opinion pieces only`
       : '';
 
     const extractionResult = await callGemini({
-      systemInstruction: `You are a senior fact-checker and data extraction specialist. Your job is to extract ONLY the factual claims from articles. Output a numbered list of facts in English. No opinions, no adjectives, no prose, no original phrasing. Just raw facts with numbers, names, dates, locations, and events. If the source is not in English, translate the facts to English. Do NOT preserve the original article's sentence structures or narrative flow.${classificationInstruction}`,
-      userMessage: `Extract all factual claims from this article as a numbered list:\n\nTitle: ${article.original_title}\n\nContent:\n${article.original_content}`,
+      systemInstruction: `You are a senior fact-checker and data extraction specialist. Your job is to extract ONLY the factual claims from articles. Output a numbered list of facts in English. No opinions, no adjectives, no prose, no original phrasing. Just raw facts with numbers, names, dates, locations, and events. If the source is not in English, translate the facts to English. Do NOT preserve the original article's sentence structures or narrative flow. Extract as many specific details as possible — names, titles, numbers, dates, locations, organizations, quotes.${classificationInstruction}`,
+      userMessage: `Extract all factual claims from this article as a numbered list:\n\nTitle: ${article.original_title}\n\nContent:\n${sourceContent}`,
       temperature: 0.3,
-      maxTokens: 3000,
+      maxTokens: 4000,
       jsonMode: false,
     });
 
@@ -147,10 +171,14 @@ serve(async (req) => {
     if (!detectedCategory) detectedCategory = 'news';
     if (!detectedSubcategory) detectedSubcategory = 'international';
 
+    // Get category-specific depth rules
+    const categoryDepth = CATEGORY_DEPTH[detectedCategory] || CATEGORY_DEPTH.news;
+
     console.log(`[${jobId}] Classification: ${detectedCategory} / ${detectedSubcategory}`);
-    console.log(`[${jobId}] Desk 2+3: Synthesizing with ${editor} persona...`);
+    console.log(`[${jobId}] Desk 2: Synthesizing with ${editor} persona...`);
     const today = new Date();
     const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
     const synthesisPrompt = `Current date: ${dateStr}.
 
 ${persona}
@@ -159,27 +187,32 @@ ${RULES}
 
 ${ROMANIAN_RULES}
 
+${categoryDepth}
+
 SOURCE LANGUAGE: ${sourceLang.toUpperCase()}.
+${isThinSource ? 'WARNING: Source material is very thin. Maximize depth from available facts but do NOT fabricate details.' : ''}
 
 You will receive a LIST OF FACTS extracted from a news source. Build an ORIGINAL article from these facts.
 
 MASTER HUMANIZING CONSTRAINTS:
-- Start with a hook that relates to today's date (${dateStr}).
 - PLAGIARISM ZERO: Do NOT use more than 3 consecutive words from the source facts. Use synonyms and re-conceptualize every fact.
-- AI EVASION: Use "Human-Like" linguistic variance. BURSTINESS: Mix very short sentences (3 words) with long, complex, academic ones (25+ words). Use rhetorical questions and occasional idiomatic expressions (Romanian-isms or English-isms).
-- PERPLEXITY: Use industry-specific jargon that AI usually avoids. Use colloquialisms and cultural references.
+- AI EVASION: BURSTINESS — Mix very short sentences (3-5 words) with long, complex ones (25-35 words). Use idiomatic expressions naturally.
+- PERPLEXITY: Use industry-specific jargon that AI usually avoids. Use colloquialisms and cultural references appropriate to your persona.
 - Do NOT follow any original article's structure, phrasing, or narrative flow.
 - Create your own unique narrative structure and paragraph organization.
-- English version: write as a native English journalist using the inverted pyramid structure. ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}
-- Romanian version: write NATIVELY in Romanian as a native Romanian journalist. Use Romanian headline conventions (subject-verb inversion). ${sourceLang === 'ro' ? 'The source was Romanian — you MUST completely rebuild every sentence in Romanian. Zero overlap with any original phrasing.' : 'Do NOT translate from the English version. Build independently from the facts with different structure, different opening hook, different narrative flow.'}
+- Do NOT start with a date reference. Start with the news itself, a provocative claim, or a vivid detail.
+- English version: ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}
+- Romanian version: write NATIVELY in Romanian as a native Romanian journalist. Use Romanian headline conventions (subject-verb inversion). ${sourceLang === 'ro' ? 'The source was Romanian — you MUST completely rebuild every sentence in Romanian. Zero overlap with any original phrasing.' : 'Do NOT translate from the English version. Build independently from the facts with different structure, different opening, different narrative flow.'}
 - Both versions must be independently structured (different paragraph order, different opening hooks, different narrative flow).
 - Each version must be 1200+ words of continuous prose.
-- PARAGRAPH FORMAT: Separate every paragraph with a blank line (two newlines: \\n\\n). Each paragraph must be 2-4 sentences. Do NOT use single newlines within paragraphs. This is critical for rendering.
+- PARAGRAPH FORMAT: Separate every paragraph with a blank line (two newlines: \\n\\n). Each paragraph must be 2-4 sentences. Do NOT use single newlines within paragraphs.
 - Lead paragraph: Answer Who/What/Where/When. Opening sentence max 35 words. Active voice.
 - Summary: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
 - Excerpt: 1-2 sentence hook for preview cards.
 - Title EN: Active voice, present tense, sentence case, max 10 words.
 - Title RO: Native Romanian grammar, not a translation of the English title.
+- Tags EN: 6-9 specific English SEO keyword phrases.
+- Tags RO: 6-9 specific Romanian SEO keyword phrases (NOT translations of English tags — independent Romanian search terms).
 
 Respond with valid JSON:
 {"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags_en":["6-9 English SEO tags"],"tags_ro":["6-9 taguri SEO în ROMÂNĂ"],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
@@ -216,16 +249,16 @@ Respond with valid JSON:
     if (!contentEn || contentEn.length < 200) throw new Error(`EN content too short: ${contentEn?.length || 0}`);
     if (!contentRo || contentRo.length < 200) throw new Error(`RO content too short: ${contentRo?.length || 0}`);
 
-    console.log(`[${jobId}] Desk 2+3 complete. EN: ${contentEn.length} chars, RO: ${contentRo.length} chars`);
+    console.log(`[${jobId}] Desk 2 complete. EN: ${contentEn.length} chars, RO: ${contentRo.length} chars`);
 
     // ═══════════════════════════════════════════════════
-    // DESK 3: HUMANIZATION (GPT-4o — EN + RO in PARALLEL)
-    // Adversarial rewrite to defeat AI detectors
+    // DESK 3: PERSONA-AWARE HUMANIZATION
+    // Preserves editor fingerprint instead of flattening
     // ═══════════════════════════════════════════════════
-    console.log(`[${jobId}] Desk 3: Parallel humanization...`);
+    console.log(`[${jobId}] Desk 3: Persona-aware refinement (preserving ${editor} voice)...`);
     const [humanizedEn, humanizedRo] = await Promise.all([
-      humanizeContent(contentEn, 'en', apiKey!),
-      humanizeContent(contentRo, 'ro', apiKey!),
+      humanizeContent(contentEn, 'en', apiKey!, persona),
+      humanizeContent(contentRo, 'ro', apiKey!, persona),
     ]);
     contentEn = humanizedEn;
     contentRo = humanizedRo;
@@ -248,8 +281,7 @@ Respond with valid JSON:
       plagiarismScore = qData.plagiarism_score ?? null;
     } catch (e) { console.error('Quality check failed:', (e as Error).message); }
 
-    // Determine if content needs review based on quality scores
-    const needsReview = (aiScore !== null && aiScore < 50) || (plagiarismScore !== null && plagiarismScore > 25);
+    const needsReview = (aiScore !== null && aiScore < 50) || (plagiarismScore !== null && plagiarismScore > 25) || isThinSource;
     const finalStatus = needsReview ? 'needs_review' : 'rewritten';
 
     // Auto-generate cover image via generate-cover-image edge function
@@ -295,8 +327,10 @@ Respond with valid JSON:
       cover_image: coverImageUrl,
       category: detectedCategory,
       subcategory: detectedSubcategory,
+      assigned_editor: editor,
       status: finalStatus, rewrite_error: null, rewrite_finished_at: new Date().toISOString(),
-      ai_score: Math.round(aiScore), plagiarism_score: Math.round(plagiarismScore),
+      ai_score: aiScore !== null ? Math.round(aiScore) : null,
+      plagiarism_score: plagiarismScore !== null ? Math.round(plagiarismScore) : null,
       quality_checked_at: new Date().toISOString(),
     } as any).eq('id', articleId);
 
@@ -313,7 +347,7 @@ Respond with valid JSON:
       console.error(`[${jobId}] Job status update failed:`, jobUpdateErr.message);
     }
 
-    console.log(`[${jobId}] Pipeline complete. Status: ${finalStatus}, AI: ${Math.round(aiScore)}, Plagiarism: ${Math.round(plagiarismScore)}`);
+    console.log(`[${jobId}] Pipeline complete. Editor: ${editor}, Status: ${finalStatus}, AI: ${aiScore !== null ? Math.round(aiScore) : 'N/A'}, Plagiarism: ${plagiarismScore !== null ? Math.round(plagiarismScore) : 'N/A'}`);
 
     return new Response(JSON.stringify({ ok: true, job_id: jobId, status: 'succeeded', quality: { aiScore, plagiarismScore, finalStatus } }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

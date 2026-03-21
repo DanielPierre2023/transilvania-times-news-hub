@@ -252,7 +252,6 @@ function dedupParagraphOpeners(text: string): string {
 }
 
 function removeExcessiveExclamations(text: string): string {
-  // Allow max 1 exclamation mark in entire article (in quotes is fine)
   let count = 0;
   return text.replace(/!/g, () => {
     count++;
@@ -261,11 +260,8 @@ function removeExcessiveExclamations(text: string): string {
 }
 
 function removeEditorialQuestions(text: string): string {
-  // Remove rhetorical questions that aren't in quotes
   return text.replace(/^(?!.*[""])([^.!?]*\?)\s*$/gm, (match) => {
-    // Keep if it looks like a direct quote
     if (/["«»„"]/.test(match)) return match;
-    // Replace question with declarative rewrite marker (just remove the line)
     return '';
   });
 }
@@ -310,11 +306,26 @@ export function countWords(text: string): number {
   return clean.split(/\s+/).filter(w => w.length > 0).length;
 }
 
-export async function humanizeContent(text: string, language: 'en' | 'ro', apiKey: string): Promise<string> {
+/**
+ * Persona-aware humanization pass.
+ * Instead of a generic rewrite that flattens all voices into neutral prose,
+ * this explicitly preserves the editor's linguistic fingerprint.
+ */
+export async function humanizeContent(
+  text: string,
+  language: 'en' | 'ro',
+  apiKey: string,
+  editorPersona?: string
+): Promise<string> {
   if (!text || text.length < 200) return text;
+
+  const personaInstruction = editorPersona
+    ? `You are refining an article written by a specific journalist. PRESERVE their unique voice, cadence, sentence rhythm, and personality. The journalist's style: ${editorPersona}\n\nDo NOT normalize the tone. Do NOT make it sound generic. Keep their fingerprint intact.`
+    : '';
+
   const prompt = language === 'ro'
-    ? `Rescrie textul de mai jos astfel încât să fie imposibil de distins de proza scrisă de un om. Variază dramatic lungimea propozițiilor — amestecă propoziții de 4 cuvinte cu altele de 30. Folosește contracții unde sună natural. Adaugă tranziții ocazional imperfecte. Înlocuiește orice tipare formulate. NU schimba sensul, faptele sau structura. NU adăuga titluri. NU adăuga concluzii. NU folosi cuvintele: crucial, esențial, robust, vital, fundamental, semnificativ, paradigmă, ecosistem, sinergie, peisajul. Returnează doar textul rescris, fără explicații.`
-    : `Rewrite the text below to be indistinguishable from human-written prose. Vary sentence length dramatically — mix 4-word sentences with 30-word ones. Use contractions where natural. Add occasional imperfect transitions. Replace any remaining formulaic patterns. Do NOT change the meaning, facts, or structure. Do NOT add headings. Do NOT add a conclusion. Do NOT use the words: delve, landscape, robust, comprehensive, crucial, essential, vital, pivotal, leverage, navigate, paradigm, ecosystem, synergy, foster, bolster, harness, streamline. Return only the rewritten text, no explanations.`;
+    ? `${personaInstruction}\n\nRefinează textul de mai jos păstrând vocea și stilul autorului. Variază lungimea propozițiilor — amestecă propoziții scurte cu altele lungi. Adaugă tranziții naturale. NU schimba sensul, faptele sau structura narativă. NU adăuga titluri sau concluzii. NU folosi: crucial, esențial, robust, vital, fundamental, semnificativ, paradigmă, ecosistem, sinergie, peisajul. Returnează doar textul refinat.`
+    : `${personaInstruction}\n\nRefine the text below while preserving the author's voice and style. Vary sentence length — mix short with long. Add natural transitions. Do NOT change meaning, facts, or narrative structure. Do NOT add headings or conclusion. Do NOT use: delve, landscape, robust, comprehensive, crucial, essential, vital, pivotal, leverage, navigate, paradigm, ecosystem, synergy, foster, bolster, harness, streamline. Return only the refined text.`;
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {

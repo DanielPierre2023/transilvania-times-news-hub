@@ -31,7 +31,11 @@ const EDITOR_NAMES: Record<string, string> = {
   sofia_marinescu: 'Sofia Marinescu', mihai_ionescu: 'Mihai Ionescu',
 };
 
-const AUTHORS = [
+// Manual authors (real journalists who write their own articles)
+const MANUAL_AUTHORS = ['Daniel Dobos', 'Cristina Erika', 'Corina Bugner'];
+// All possible bylines (includes AI editor names for RSS-imported articles)
+const ALL_AUTHORS = [
+  'Redacția Transilvania Times',
   'Daniel Dobos', 'Cristina Erika', 'Corina Bugner',
   'Andrei Popescu', 'Elena Vasilescu', 'Lucian Bratu',
   'Sofia Marinescu', 'Mihai Ionescu',
@@ -89,7 +93,7 @@ const BlogEditor = () => {
     summary_en: '', summary_ro: '',
     content_en: '', content_ro: '', tags_en: '' as string, tags_ro: '' as string, cover_image: '',
     status: 'draft', category: 'politics', subcategory: 'international' as string,
-    author_name: 'Daniel Dobos',
+    author_name: 'Redacția Transilvania Times',
     is_breaking: false,
     seo_title_en: '', seo_title_ro: '', seo_description_en: '', seo_description_ro: '',
   });
@@ -126,7 +130,7 @@ const BlogEditor = () => {
         cover_image: p.cover_image || '',
         status: p.status || 'draft', category: p.category || 'politics',
         subcategory: p.subcategory || 'international',
-        author_name: p.author_name || 'Daniel Dobos',
+        author_name: p.author_name || 'Redacția Transilvania Times',
         is_breaking: p.is_breaking || false,
         seo_title_en: p.seo_title_en || '', seo_title_ro: p.seo_title_ro || '',
         seo_description_en: p.seo_description_en || '', seo_description_ro: p.seo_description_ro || '',
@@ -139,7 +143,11 @@ const BlogEditor = () => {
       const r = rssArticle as any;
       const categoryFromUrl = searchParams.get('category');
       const subcategoryFromUrl = searchParams.get('subcategory');
+      const aiEditorFromUrl = searchParams.get('ai_editor');
       const rssCover = r.cover_image || '';
+      // Resolve byline: use AI editor name if available, else "Redacția Transilvania Times"
+      const assignedEditor = r.assigned_editor || aiEditorFromUrl || '';
+      const editorName = EDITOR_NAMES[assignedEditor] || 'Redacția Transilvania Times';
       setForm({
         title_en: r.title_en || r.original_title || '',
         title_ro: r.title_ro || '',
@@ -155,7 +163,7 @@ const BlogEditor = () => {
         status: 'draft',
         category: r.category || categoryFromUrl || 'news',
         subcategory: r.subcategory || subcategoryFromUrl || 'international',
-        author_name: 'Daniel Dobos',
+        author_name: editorName,
         is_breaking: false,
       });
       setGenOpen(false);
@@ -500,8 +508,8 @@ const BlogEditor = () => {
               <SelectContent>{SUBCATEGORIES.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={form.author_name} onValueChange={v => handleChange('author_name', v)}>
-              <SelectTrigger className="text-xs"><SelectValue placeholder="Author" /></SelectTrigger>
-              <SelectContent>{AUTHORS.map(a => <SelectItem key={a} value={a} className="text-xs">{a}</SelectItem>)}</SelectContent>
+              <SelectTrigger className="text-xs"><SelectValue placeholder="Author / Byline" /></SelectTrigger>
+              <SelectContent>{ALL_AUTHORS.map(a => <SelectItem key={a} value={a} className="text-xs">{a}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="flex items-center gap-3 px-1">

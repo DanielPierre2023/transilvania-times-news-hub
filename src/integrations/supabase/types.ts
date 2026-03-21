@@ -57,6 +57,7 @@ export type Database = {
       }
       blog_posts: {
         Row: {
+          ai_editor: string | null
           author_name: string | null
           category: string | null
           content_en: string | null
@@ -86,6 +87,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_editor?: string | null
           author_name?: string | null
           category?: string | null
           content_en?: string | null
@@ -115,6 +117,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_editor?: string | null
           author_name?: string | null
           category?: string | null
           content_en?: string | null
@@ -409,6 +412,7 @@ export type Database = {
       scraped_articles: {
         Row: {
           ai_score: number | null
+          assigned_editor: string | null
           category: string | null
           cover_image: string | null
           created_at: string
@@ -417,6 +421,7 @@ export type Database = {
           id: string
           last_rewrite_job_id: string | null
           original_content: string | null
+          original_content_full: string | null
           original_title: string
           original_url: string | null
           plagiarism_score: number | null
@@ -435,6 +440,7 @@ export type Database = {
           seo_title_en: string | null
           seo_title_ro: string | null
           source_id: string | null
+          source_word_count: number | null
           status: string
           subcategory: string | null
           summary_en: string | null
@@ -444,6 +450,7 @@ export type Database = {
         }
         Insert: {
           ai_score?: number | null
+          assigned_editor?: string | null
           category?: string | null
           cover_image?: string | null
           created_at?: string
@@ -452,6 +459,7 @@ export type Database = {
           id?: string
           last_rewrite_job_id?: string | null
           original_content?: string | null
+          original_content_full?: string | null
           original_title: string
           original_url?: string | null
           plagiarism_score?: number | null
@@ -470,6 +478,7 @@ export type Database = {
           seo_title_en?: string | null
           seo_title_ro?: string | null
           source_id?: string | null
+          source_word_count?: number | null
           status?: string
           subcategory?: string | null
           summary_en?: string | null
@@ -479,6 +488,7 @@ export type Database = {
         }
         Update: {
           ai_score?: number | null
+          assigned_editor?: string | null
           category?: string | null
           cover_image?: string | null
           created_at?: string
@@ -487,6 +497,7 @@ export type Database = {
           id?: string
           last_rewrite_job_id?: string | null
           original_content?: string | null
+          original_content_full?: string | null
           original_title?: string
           original_url?: string | null
           plagiarism_score?: number | null
@@ -505,6 +516,7 @@ export type Database = {
           seo_title_en?: string | null
           seo_title_ro?: string | null
           source_id?: string | null
+          source_word_count?: number | null
           status?: string
           subcategory?: string | null
           summary_en?: string | null
