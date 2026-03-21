@@ -220,13 +220,15 @@ MASTER HUMANIZING CONSTRAINTS:
 - Lead paragraph: Answer Who/What/Where/When. Opening sentence max 35 words. Active voice.
 - Summary: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
 - Excerpt: 1-2 sentence hook for preview cards.
-- Title EN: Active voice, present tense, sentence case, max 10 words.
-- Title RO: Native Romanian grammar, not a translation of the English title.
-- Tags EN: 6-9 specific English SEO keyword phrases.
-- Tags RO: 6-9 specific Romanian SEO keyword phrases (NOT translations of English tags — independent Romanian search terms).
+- Title EN: Active verb, present tense, sentence case, 6-10 words. NO period. NO question mark. Name the actor and the action. Strong verbs only.
+- Title RO: Native Romanian grammar, NOT a translation. NO period. NO question mark. Strong verbs, subject-verb inversion where natural.
+- Tags EN: 6-9 lowercase hyphenated SEO slugs. Example: ["digital-health-romania", "eu-ai-regulation-2026"]. NOT: ["Digital Health", "EU AI Regulation"].
+- Tags RO: 6-9 lowercase hyphenated Romanian SEO slugs. Example: ["sanatate-digitala-romania", "reforma-spitale-cluj"]. NOT: ["Sănătate Digitală"]. Independent Romanian search terms, NOT translations.
+- SEO Title: Under 60 chars. NO period at end.
+- SEO Description: Under 160 chars. NO period at end unless it's a complete sentence.
 
 Respond with valid JSON:
-{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags_en":["6-9 English SEO tags"],"tags_ro":["6-9 taguri SEO în ROMÂNĂ"],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
+{"title_en":"...","title_ro":"...","excerpt_en":"...","excerpt_ro":"...","summary_en":"...","summary_ro":"...","content_en":"...","content_ro":"...","tags_en":["lowercase-hyphenated-tag"],"tags_ro":["tag-romanesc-lowercase"],"seo_title_en":"...","seo_title_ro":"...","seo_description_en":"...","seo_description_ro":"..."}`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
