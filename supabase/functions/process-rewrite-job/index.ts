@@ -32,7 +32,7 @@ const CATEGORY_DEPTH: Record<string, string> = {
   opinion: `DEPTH REQUIREMENTS: State the thesis in the first paragraph. Support with at least 3 distinct evidence points. Acknowledge the strongest counterargument. Provide specific examples, not abstractions.`,
 };
 
-const RULES = `ABSOLUTE RULES FOR BROADCAST-GRADE JOURNALISM:
+const RULES = `ABSOLUTE RULES FOR NYT/WAPO-GRADE JOURNALISM:
 1. ZERO subheadings (no ## or ###). Flow as continuous prose.
 2. No bold-on-own-line. NO conclusion paragraph.
 3. INVERTED PYRAMID: Most newsworthy facts in the first 3 paragraphs. Supporting detail follows. Background context last.
@@ -43,11 +43,21 @@ const RULES = `ABSOLUTE RULES FOR BROADCAST-GRADE JOURNALISM:
 8. Specific numbers, dates, proper nouns — no vague language ("many", "significant", "various").
 9. ZERO AI fingerprints. BANNED words: delve, landscape, game-changer, revolutionize, cutting-edge, leverage, navigate, paradigm, holistic, robust, comprehensive, essential, crucial, vital, pivotal, foster, bolster, harness, streamline, synergy, ecosystem, spearhead, underpin, unlock, empower.
 10. Sentence-case only. 100% original prose.
-11. Tags: 6-9 lowercase hyphenated SEO tags.
-12. TITLE (EN): Active voice, present tense for breaking news, sentence case, max 10 words, no clickbait, no questions.
-13. SUMMARY: 2-3 sentences. News wire abstract format — who did what, where, when, why it matters. Not a hook.
-14. EXCERPT: 1-2 sentence hook for social media / preview cards.
-15. Do NOT start with a date reference like "On March 21, 2026" or "Today, March 21". Start with the NEWS.`;
+11. TITLE (EN): Active verb, present tense, sentence case, 6-10 words. NO period at the end. NO question marks. NO trailing punctuation. Name the actor and the action. Use strong specific verbs: launches, cuts, blocks, faces, reveals, expands, warns, defies. AVOID weak verbs: announces, discusses, addresses, focuses, highlights. Imply stakes or conflict. Bad: "New developments in healthcare." Good: "Romania slashes hospital wait times by 40%"
+12. SUMMARY: 2-3 sentences. News wire abstract format — who did what, where, when, why it matters. Not a hook.
+13. EXCERPT: 1-2 sentence hook for social media / preview cards.
+14. Do NOT start with a date reference like "On March 21, 2026" or "Today, March 21". Start with the NEWS.
+15. Tags EN: Each tag is a lowercase hyphenated slug. Example: ["digital-health-romania", "hospital-reform-2026", "cluj-medical-center"]. NOT: ["Digital Health", "Hospital Reform"]. Every tag MUST be hyphenated, lowercase, 2-5 words.
+
+ARTICLE STRUCTURE (NYT/WAPO STANDARD):
+- Paragraph 1-2: The lede. Most newsworthy fact. Who did what, with what consequence. No throat-clearing.
+- Paragraph 3-4: The "nut graf." Why this matters NOW. What changed. What is at stake.
+- Paragraph 5-7: Evidence. Specific data, quotes, institutional reactions.
+- Paragraph 8-10: Context. Historical precedent, comparable situations, expert analysis.
+- Paragraph 11+: Background, methodology, caveats, opposing viewpoints.
+- EVERY paragraph must contain at least one specific fact (name, number, date, or place).
+- NO filler paragraphs. NO generic context that could apply to any article on the topic.
+- If you cannot add a specific fact to a paragraph, cut the paragraph.`;
 
 const ROMANIAN_RULES = `REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 1. ZERO subtitluri. Proză continuă. NU concluzie.
