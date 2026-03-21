@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { Save, Eye, Wand2, Send, Bold, Italic, Heading, Link, Image, Code, List, ChevronRight, ChevronDown, Sparkles, Upload, AlignLeft, AlignCenter, AlignRight, Square, ShieldCheck, Loader2, RefreshCw, ImagePlus } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { toPublicMediaUrl } from '@/lib/mediaUrl';
 
