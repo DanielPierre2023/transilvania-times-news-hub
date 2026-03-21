@@ -137,17 +137,17 @@ i18n
           breaking: "Ultima Oră",
           support_us: "Susține-ne",
           search_placeholder: "Caută articole...",
-          date_full: "Joi, 19 Martie 2026",
-
           // Categories
           cat_politics: "Politică",
+          cat_world: "Lume",
           cat_technology: "Tehnologie",
+          cat_business: "Afaceri",
+          cat_culture: "Cultură",
+          cat_opinion: "Opinie",
+          cat_travel: "Călătorii",
           cat_education: "Educație",
           cat_sports: "Sport",
-          cat_showbiz: "Showbiz",
           cat_health: "Sănătate",
-          cat_beauty: "Frumusețe",
-          cat_travel: "Călătorii",
 
           // Breaking headlines
           breaking_1: "Liderul Opoziției solicită alegeri anticipate pe fondul nemulțumirii publice crescânde",

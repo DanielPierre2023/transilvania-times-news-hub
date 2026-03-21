@@ -4,19 +4,22 @@ import { useTranslation } from "react-i18next";
 import { MapPin, Mail, Phone, Facebook, Twitter, Instagram, Github } from "lucide-react";
 
 const categoryKeys = [
-  "cat_politics", "cat_technology", "cat_education", "cat_sports",
-  "cat_showbiz", "cat_health", "cat_beauty", "cat_travel",
+  "cat_politics", "cat_world", "cat_technology", "cat_business",
+  "cat_culture", "cat_opinion", "cat_travel", "cat_education",
+  "cat_sports", "cat_health",
 ] as const;
 
 const categorySlugs: Record<string, string> = {
   cat_politics: "politics",
+  cat_world: "world",
   cat_technology: "technology",
+  cat_business: "business",
+  cat_culture: "culture",
+  cat_opinion: "opinion",
+  cat_travel: "travel",
   cat_education: "education",
   cat_sports: "sports",
-  cat_showbiz: "showbiz",
   cat_health: "health",
-  cat_beauty: "beauty",
-  cat_travel: "travel",
 };
 
 const Footer = () => {

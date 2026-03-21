@@ -47,7 +47,7 @@ REGULI PENTRU ROMÂNĂ:
 - Sentence case. Scrie nativ în română.
 `;
 
-const CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion'];
+const CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health'];
 
 async function expandArticle(apiKey: string, content: string, targetWords: number, language: string, editorSystem: string): Promise<string> {
   const currentWords = countWords(content);
