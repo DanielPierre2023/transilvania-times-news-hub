@@ -7,6 +7,7 @@ import MostReadSidebar from "@/components/MostReadSidebar";
 import ArticleSEO from "@/components/ArticleSEO";
 import AdUnit from "@/components/AdUnit";
 import ShareSuite from "@/components/ShareSuite";
+import { toPublicMediaUrl } from "@/lib/mediaUrl";
 import CommentSection from "@/components/CommentSection";
 import NotFound from "./NotFound";
 
