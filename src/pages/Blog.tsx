@@ -52,7 +52,7 @@ const Blog = () => {
                 {post.cover_image && (
                   <div className="overflow-hidden mb-4 border border-foreground/5">
                     <img
-                      src={post.cover_image}
+                      src={toPublicMediaUrl(post.cover_image)}
                       alt={isRo ? post.title_ro || post.title_en : post.title_en}
                       className="w-full aspect-[3/2] object-cover grayscale group-hover:grayscale-0 transition-all duration-700 transform group-hover:scale-105"
                     />
