@@ -110,7 +110,8 @@ i18n
           terms_s4_title: "4. User Conduct",
           terms_s4_body: "Users must not use this site for any fraudulent purposes or to distribute malware. We actively fortify our essential systems to ensure that our readers remain protected in an ever-changing digital threat landscape.",
           terms_contact_title: "Contact Our Legal Desk",
-          terms_hq: "Transilvania Times HQ",
+          terms_hq: "ADD Individual Solutions Ltd.",
+          terms_reg: "Registration",
           terms_back: "Back to Homepage",
 
           // Privacy Policy
