@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import Newsletter from "@/components/Newsletter";
 import AdUnit from "@/components/AdUnit";
 import ArticleCard from "@/components/ArticleCard";
 import MostReadSidebar from "@/components/MostReadSidebar";
