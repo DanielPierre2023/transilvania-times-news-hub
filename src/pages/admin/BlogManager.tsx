@@ -88,13 +88,24 @@ const BlogManager = () => {
           <TableBody>
             {filtered.map((post: any) => (
               <TableRow key={post.id} className="cursor-pointer" onClick={() => navigate(`/admin/blog/${post.id}`)}>
-                <TableCell className="font-medium">{post.title_en || 'Untitled'}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    {(post as any).is_breaking && <Badge variant="destructive" className="gap-1 text-[10px]"><Zap className="w-3 h-3" /> Breaking</Badge>}
+                    {post.title_en || 'Untitled'}
+                  </div>
+                </TableCell>
                 <TableCell>
                   <Badge variant={post.status === 'published' ? 'default' : 'secondary'}>
                     {post.status}
                   </Badge>
                 </TableCell>
                 <TableCell className="capitalize">{post.category || 'news'}</TableCell>
+                <TableCell onClick={e => e.stopPropagation()}>
+                  <Switch
+                    checked={(post as any).is_breaking || false}
+                    onCheckedChange={v => toggleBreaking.mutate({ id: post.id, value: v })}
+                  />
+                </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{(post.tags || []).join(', ')}</TableCell>
                 <TableCell className="text-sm">{format(parseISO(post.created_at), 'MMM dd, yyyy')}</TableCell>
                 <TableCell onClick={e => e.stopPropagation()}>
