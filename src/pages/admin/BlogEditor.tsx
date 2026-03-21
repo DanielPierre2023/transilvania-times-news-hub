@@ -148,7 +148,7 @@ const BlogEditor = () => {
         seo_title_en: r.seo_title_en || '', seo_title_ro: r.seo_title_ro || '',
         seo_description_en: r.seo_description_en || '', seo_description_ro: r.seo_description_ro || '',
         tags: (r.rewrite_tags || []).join(', '),
-        cover_image: rssCover || generatePollinationsUrl(r.title_en || r.original_title || '', r.excerpt_en || ''),
+        cover_image: rssCover || '',
         status: 'draft',
         category: categoryFromUrl || 'politics',
         author_name: 'Marcus Webb',
