@@ -183,8 +183,9 @@ const RssScraper = () => {
   };
 
   const editAndPublish = (article: any) => {
-    const sourceCategory = (article as any).rss_sources?.category || 'politics';
-    navigate(`/admin/blog/new?from_rss=${article.id}&category=${sourceCategory}`);
+    const artCategory = article.category || (article as any).rss_sources?.category || 'news';
+    const artSubcategory = article.subcategory || '';
+    navigate(`/admin/blog/new?from_rss=${article.id}&category=${artCategory}&subcategory=${artSubcategory}`);
   };
 
   const canPublish = (article: any) => {
