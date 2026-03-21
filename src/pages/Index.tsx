@@ -25,7 +25,7 @@ const Index = () => {
         .select("*")
         .eq("status", "published")
         .order("published_at", { ascending: false })
-        .limit(30);
+        .limit(50);
       return data || [];
     },
   });
