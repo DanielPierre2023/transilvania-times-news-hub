@@ -59,6 +59,9 @@ const Article = () => {
               tags={article.category ? [tBi(article.category, lang)] : []}
             />
           </header>
+
+          <section className="py-10">
+            <img
               src={article.image}
               alt={tBi(article.title, lang)}
               className="w-full aspect-[2/1] object-cover shadow-2xl rounded-sm"
