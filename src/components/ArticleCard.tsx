@@ -1,45 +1,65 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { t as tBi } from "@/data/articles";
 import { toPublicMediaUrl } from "@/lib/mediaUrl";
+import { categoryI18nKey, subcategoryI18nKey } from "@/lib/categories";
 
 interface ArticleCardProps {
   slug: string;
   category: string;
   title: string;
-  author: string;
-  timeAgo: string;
-  excerpt: string;
+  timeAgo?: string;
   image: string;
-  featured?: boolean;
+  subcategory?: string;
+  linkPrefix?: string;
+  variant?: "hero" | "grid";
+  excerpt?: string;
+  author?: string;
 }
 
-const ArticleCard = ({ slug, category, title, author, timeAgo, excerpt, image, featured = false }: ArticleCardProps) => {
+const ArticleCard = ({
+  slug,
+  category,
+  title,
+  timeAgo,
+  image,
+  subcategory,
+  linkPrefix = "/blog/",
+  variant = "grid",
+  excerpt,
+  author,
+}: ArticleCardProps) => {
   const { t } = useTranslation();
 
-  if (featured) {
+  if (variant === "hero") {
     return (
-      <Link to={`/article/${slug}`} className="block">
+      <Link to={`${linkPrefix}${slug}`} className="block">
         <article className="group cursor-pointer">
-          <div className="overflow-hidden rounded">
+          <div className="relative overflow-hidden border border-foreground/5">
             <img
               src={toPublicMediaUrl(image)}
               alt={title}
-              className="w-full h-[400px] object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full aspect-video object-cover grayscale group-hover:grayscale-0 transition-all duration-700 ease-in-out transform group-hover:scale-105"
             />
+            <div className="absolute bottom-0 left-0 bg-primary text-primary-foreground px-2.5 py-1 text-[9px] font-sans font-bold uppercase tracking-widest flex items-center gap-1.5">
+              {t(categoryI18nKey(category))}
+              {subcategory && (
+                <span className="opacity-80">· {t(subcategoryI18nKey(subcategory))}</span>
+              )}
+            </div>
           </div>
           <div className="mt-4">
-            <span className="inline-block bg-primary text-primary-foreground text-xs font-sans font-semibold px-3 py-1 rounded mb-3">
-              {category}
-            </span>
             <h2 className="text-2xl md:text-3xl font-serif font-bold text-foreground leading-tight group-hover:text-primary transition-colors">
               {title}
             </h2>
-            <p className="mt-2 text-clay font-sans text-sm leading-relaxed line-clamp-3">{excerpt}</p>
-            <div className="flex items-center gap-3 mt-3 text-xs text-clay font-sans">
-              <span className="font-medium">{t("by_author")} {author}</span>
-              <span>•</span>
-              <span>{timeAgo}</span>
+            {excerpt && (
+              <p className="mt-2 text-muted-foreground font-sans text-sm leading-relaxed line-clamp-3">
+                {excerpt}
+              </p>
+            )}
+            <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground font-sans">
+              {author && <span className="font-medium">{t("by_author")} {author}</span>}
+              {author && timeAgo && <span>•</span>}
+              {timeAgo && <span>{timeAgo}</span>}
             </div>
           </div>
         </article>
@@ -47,28 +67,35 @@ const ArticleCard = ({ slug, category, title, author, timeAgo, excerpt, image, f
     );
   }
 
+  // Grid variant — newspaper card
   return (
-    <Link to={`/article/${slug}`} className="block">
-      <article className="group cursor-pointer flex gap-4">
-        <div className="overflow-hidden rounded shrink-0 w-32 h-24">
-          <img
-            src={toPublicMediaUrl(image)}
-            alt={title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          />
+    <Link
+      to={`${linkPrefix}${slug}`}
+      className="group flex flex-col p-4"
+    >
+      <div className="relative overflow-hidden mb-4 aspect-[4/3] border border-foreground/5">
+        <img
+          src={toPublicMediaUrl(image)}
+          alt={title}
+          className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700 ease-in-out transform group-hover:scale-105"
+        />
+        <div className="absolute bottom-0 left-0 bg-primary text-primary-foreground px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest flex items-center gap-1.5">
+          {t(categoryI18nKey(category))}
+          {subcategory && (
+            <span className="opacity-80">· {t(subcategoryI18nKey(subcategory))}</span>
+          )}
         </div>
-        <div className="flex flex-col justify-center">
-          <span className="text-xs font-sans font-semibold text-primary mb-1">{category}</span>
-          <h3 className="font-serif font-bold text-foreground text-sm leading-snug group-hover:text-primary transition-colors line-clamp-2">
-            {title}
-          </h3>
-          <div className="flex items-center gap-2 mt-1.5 text-xs text-clay font-sans">
-            <span>{t("by_author")} {author}</span>
-            <span>•</span>
-            <span>{timeAgo}</span>
-          </div>
-        </div>
-      </article>
+      </div>
+      <h3 className="font-serif font-bold text-lg leading-tight text-foreground mb-2 group-hover:text-primary transition-colors">
+        {title}
+      </h3>
+      <div className="flex items-center gap-2 mt-auto pt-4 border-t border-foreground/5">
+        {timeAgo && (
+          <span className="text-[10px] font-sans font-bold text-muted-foreground uppercase tracking-widest">
+            {timeAgo}
+          </span>
+        )}
+      </div>
     </Link>
   );
 };
