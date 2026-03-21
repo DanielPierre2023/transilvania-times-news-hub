@@ -12,15 +12,17 @@ function buildPrompt(title: string, excerpt: string): string {
 }
 
 async function generateWithHuggingFace(prompt: string, apiKey: string): Promise<Uint8Array> {
-  const models = [
-    'black-forest-labs/FLUX.1-schnell',
-    'stabilityai/stable-diffusion-xl-base-1.0',
+  // Try multiple providers: hf-inference, fal-ai, replicate
+  const providers = [
+    { provider: 'fal-ai', model: 'black-forest-labs/FLUX.1-schnell' },
+    { provider: 'hf-inference', model: 'black-forest-labs/FLUX.1-schnell' },
+    { provider: 'hf-inference', model: 'stabilityai/stable-diffusion-xl-base-1.0' },
   ];
 
-  for (const model of models) {
+  for (const { provider, model } of providers) {
     try {
-      console.log(`Trying HF model: ${model}`);
-      const res = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
+      console.log(`Trying HF provider=${provider} model=${model}`);
+      const res = await fetch(`https://router.huggingface.co/${provider}/models/${model}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -28,36 +30,35 @@ async function generateWithHuggingFace(prompt: string, apiKey: string): Promise<
         },
         body: JSON.stringify({
           inputs: prompt,
-          parameters: { width: 1200, height: 630 },
+          parameters: { width: 1024, height: 576 },
         }),
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error(`HF ${model} failed (${res.status}): ${errText}`);
-        // If model is loading, try next
-        if (res.status === 503 || res.status === 429) continue;
+        console.error(`HF ${provider}/${model} failed (${res.status}): ${errText.substring(0, 200)}`);
         continue;
       }
 
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('image')) {
-        console.error(`HF ${model} returned non-image: ${contentType}`);
+        console.error(`HF ${provider}/${model} returned non-image: ${contentType}`);
         continue;
       }
 
       const buffer = await res.arrayBuffer();
       if (buffer.byteLength < 1000) {
-        console.error(`HF ${model} returned tiny response: ${buffer.byteLength} bytes`);
+        console.error(`HF ${provider}/${model} returned tiny: ${buffer.byteLength}b`);
         continue;
       }
 
-      console.log(`HF ${model} success: ${buffer.byteLength} bytes`);
+      console.log(`HF ${provider}/${model} success: ${buffer.byteLength} bytes`);
       return new Uint8Array(buffer);
     } catch (e) {
-      console.error(`HF ${model} error: ${(e as Error).message}`);
+      console.error(`HF ${provider}/${model} error: ${(e as Error).message}`);
       continue;
     }
+  }
   }
 
   throw new Error('ALL_HF_MODELS_FAILED');
