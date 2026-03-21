@@ -151,6 +151,8 @@ serve(async (req) => {
       content_en: finalEn,
       content_ro: finalRo,
       tags: enArticle.tags || [],
+      tags_en: enArticle.tags || [],
+      tags_ro: roArticle.tags_ro || roArticle.tags || [],
       seo_title_en: sanitizeContent(enArticle.seo_title || '', 'en'),
       seo_title_ro: sanitizeContent(roArticle.seo_title || '', 'ro'),
       seo_description_en: sanitizeContent(enArticle.seo_description || '', 'en'),
