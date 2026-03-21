@@ -267,18 +267,25 @@ const BlogEditor = () => {
         body: { prompt: genPrompt, word_count: parseInt(genWordCount), editor: genEditor, category: genCategory },
       });
       if (error) throw error;
-      setForm(prev => ({
-        ...prev,
-        title_en: data.title_en || prev.title_en, title_ro: data.title_ro || prev.title_ro,
-        slug: data.slug || prev.slug, excerpt_en: data.excerpt_en || prev.excerpt_en,
-        excerpt_ro: data.excerpt_ro || prev.excerpt_ro,
-        summary_en: data.summary_en || prev.summary_en, summary_ro: data.summary_ro || prev.summary_ro,
-        content_en: data.content_en || prev.content_en, content_ro: data.content_ro || prev.content_ro,
-        tags: (data.tags || []).join(', '),
-        category: genCategory, author_name: data.author_name || EDITOR_NAMES[genEditor] || prev.author_name,
-        seo_title_en: data.seo_title_en || prev.seo_title_en, seo_title_ro: data.seo_title_ro || prev.seo_title_ro,
-        seo_description_en: data.seo_description_en || prev.seo_description_en, seo_description_ro: data.seo_description_ro || prev.seo_description_ro,
-      }));
+      setForm(prev => {
+        const newForm = {
+          ...prev,
+          title_en: data.title_en || prev.title_en, title_ro: data.title_ro || prev.title_ro,
+          slug: data.slug || prev.slug, excerpt_en: data.excerpt_en || prev.excerpt_en,
+          excerpt_ro: data.excerpt_ro || prev.excerpt_ro,
+          summary_en: data.summary_en || prev.summary_en, summary_ro: data.summary_ro || prev.summary_ro,
+          content_en: data.content_en || prev.content_en, content_ro: data.content_ro || prev.content_ro,
+          tags: (data.tags || []).join(', '),
+          category: genCategory, author_name: data.author_name || EDITOR_NAMES[genEditor] || prev.author_name,
+          seo_title_en: data.seo_title_en || prev.seo_title_en, seo_title_ro: data.seo_title_ro || prev.seo_title_ro,
+          seo_description_en: data.seo_description_en || prev.seo_description_en, seo_description_ro: data.seo_description_ro || prev.seo_description_ro,
+        };
+        // Auto-generate cover image
+        if (!newForm.cover_image) {
+          newForm.cover_image = generatePollinationsUrl(newForm.title_en, newForm.excerpt_en);
+        }
+        return newForm;
+      });
       toast.success('Article generated! Review and edit before saving.');
       setGenOpen(false);
     } catch (e: any) { toast.error(e.message); } finally { setGenerating(false); }
