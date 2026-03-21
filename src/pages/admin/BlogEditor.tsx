@@ -93,7 +93,7 @@ const BlogEditor = () => {
     summary_en: '', summary_ro: '',
     content_en: '', content_ro: '', tags_en: '' as string, tags_ro: '' as string, cover_image: '',
     status: 'draft', category: 'politics', subcategory: 'international' as string,
-    author_name: 'Daniel Dobos',
+    author_name: 'Redacția Transilvania Times',
     is_breaking: false,
     seo_title_en: '', seo_title_ro: '', seo_description_en: '', seo_description_ro: '',
   });
