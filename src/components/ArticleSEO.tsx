@@ -46,7 +46,7 @@ const ArticleSEO = ({ article }: { article: Article }) => {
       "twitter:card": "summary_large_image",
       "twitter:title": headline,
       "twitter:description": description,
-      "twitter:image": article.image,
+      "twitter:image": toPublicMediaUrl(article.image),
     };
 
     const metaEls: HTMLMetaElement[] = [];

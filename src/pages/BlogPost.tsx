@@ -96,7 +96,7 @@ const BlogPost = () => {
         />
 
         {post.cover_image && (
-          <img src={post.cover_image} alt={title} className="w-full aspect-video object-cover mb-8 border border-foreground/5" />
+          <img src={toPublicMediaUrl(post.cover_image)} alt={title} className="w-full aspect-video object-cover mb-8 border border-foreground/5" />
         )}
 
         {summary && (

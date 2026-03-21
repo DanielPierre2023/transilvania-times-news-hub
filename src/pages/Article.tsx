@@ -63,7 +63,7 @@ const Article = () => {
 
           <section className="py-10">
             <img
-              src={article.image}
+              src={toPublicMediaUrl(article.image)}
               alt={tBi(article.title, lang)}
               className="w-full aspect-[2/1] object-cover shadow-2xl rounded-sm"
             />

@@ -52,7 +52,7 @@ const ArticleCard = ({ slug, category, title, author, timeAgo, excerpt, image, f
       <article className="group cursor-pointer flex gap-4">
         <div className="overflow-hidden rounded shrink-0 w-32 h-24">
           <img
-            src={image}
+            src={toPublicMediaUrl(image)}
             alt={title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />

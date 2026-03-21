@@ -460,7 +460,7 @@ const BlogEditor = () => {
                     </div>
                   ) : (
                     <img
-                      src={form.cover_image}
+                      src={toPublicMediaUrl(form.cover_image)}
                       alt="Cover preview"
                       className="w-full h-full object-cover"
                       onLoad={() => setCoverLoading(false)}
