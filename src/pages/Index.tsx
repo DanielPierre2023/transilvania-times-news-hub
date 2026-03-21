@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import Newsletter from "@/components/Newsletter";
 import AdUnit from "@/components/AdUnit";
 import ArticleCard from "@/components/ArticleCard";
 import MostReadSidebar from "@/components/MostReadSidebar";
@@ -91,7 +92,7 @@ const Index = () => {
                 </div>
               </Link>
             </div>
-            <div className="lg:col-span-4 p-6">
+            <div className="lg:col-span-4 p-6 bg-primary/5">
               <MostReadSidebar />
             </div>
           </section>
@@ -156,6 +157,8 @@ const Index = () => {
           </div>
         )}
       </main>
+
+      <Newsletter />
 
       <Footer />
     </div>

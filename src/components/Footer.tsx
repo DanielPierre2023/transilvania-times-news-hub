@@ -125,11 +125,11 @@ const Footer = () => {
 
           {/* Newsletter */}
           <div>
-            <div className="bg-primary rounded-sm p-5">
-              <h4 className="font-serif font-bold text-primary-foreground text-lg mb-2">
+            <div className="bg-primary p-6">
+              <h4 className="font-serif font-bold text-primary-foreground text-2xl mb-3">
                 {t("newsletter_title")}
               </h4>
-              <p className="text-primary-foreground/80 font-sans text-xs mb-4">
+              <p className="text-primary-foreground/80 font-sans text-xs mb-5">
                 {t("newsletter_desc")}
               </p>
               <div className="flex flex-col gap-2">
@@ -138,12 +138,12 @@ const Footer = () => {
                   placeholder={t("newsletter_placeholder")}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded-sm bg-background text-foreground font-sans text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full px-3 py-2.5 bg-background text-foreground font-sans text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 />
                 <button
                   onClick={handleSubscribe}
                   disabled={subscribing || !email}
-                  className="w-full bg-primary-foreground text-primary px-4 py-2 font-sans font-bold text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
+                  className="w-full bg-primary-foreground text-primary px-4 py-2.5 font-sans font-bold text-sm hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
                 >
                   {subscribing ? "..." : t("newsletter_button")}
                 </button>
