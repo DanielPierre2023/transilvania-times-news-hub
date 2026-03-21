@@ -149,7 +149,9 @@ serve(async (req) => {
 
     console.log(`[${jobId}] Classification: ${detectedCategory} / ${detectedSubcategory}`);
     console.log(`[${jobId}] Desk 2+3: Synthesizing with ${editor} persona...`);
-    const synthesisPrompt = `Current date: March 2026.
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const synthesisPrompt = `Current date: ${dateStr}.
 
 ${persona}
 
@@ -161,7 +163,11 @@ SOURCE LANGUAGE: ${sourceLang.toUpperCase()}.
 
 You will receive a LIST OF FACTS extracted from a news source. Build an ORIGINAL article from these facts.
 
-CRITICAL INSTRUCTIONS:
+MASTER HUMANIZING CONSTRAINTS:
+- Start with a hook that relates to today's date (${dateStr}).
+- PLAGIARISM ZERO: Do NOT use more than 3 consecutive words from the source facts. Use synonyms and re-conceptualize every fact.
+- AI EVASION: Use "Human-Like" linguistic variance. BURSTINESS: Mix very short sentences (3 words) with long, complex, academic ones (25+ words). Use rhetorical questions and occasional idiomatic expressions (Romanian-isms or English-isms).
+- PERPLEXITY: Use industry-specific jargon that AI usually avoids. Use colloquialisms and cultural references.
 - Do NOT follow any original article's structure, phrasing, or narrative flow.
 - Create your own unique narrative structure and paragraph organization.
 - English version: write as a native English journalist using the inverted pyramid structure. ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}
