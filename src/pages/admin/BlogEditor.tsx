@@ -40,7 +40,7 @@ const AI_CHIPS = [
   { action: 'generate_tags', label: 'Generate Tags' },
 ];
 
-const CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion'];
+const CATEGORIES = ['politics', 'world', 'technology', 'business', 'culture', 'opinion', 'travel', 'education', 'sports', 'health'];
 const WORD_COUNTS = [800, 1200, 1800, 2500, 3500];
 const slugify = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 

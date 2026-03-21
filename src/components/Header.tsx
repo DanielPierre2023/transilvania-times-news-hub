@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, X, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -6,19 +6,22 @@ import WeatherWidget from "./WeatherWidget";
 import LangSwitcher from "./LangSwitcher";
 
 const categoryKeys = [
-  "cat_politics", "cat_technology", "cat_education", "cat_sports",
-  "cat_showbiz", "cat_health", "cat_beauty", "cat_travel",
+  "cat_politics", "cat_world", "cat_technology", "cat_business",
+  "cat_culture", "cat_opinion", "cat_travel", "cat_education",
+  "cat_sports", "cat_health",
 ] as const;
 
 const categorySlugs: Record<string, string> = {
   cat_politics: "politics",
+  cat_world: "world",
   cat_technology: "technology",
+  cat_business: "business",
+  cat_culture: "culture",
+  cat_opinion: "opinion",
+  cat_travel: "travel",
   cat_education: "education",
   cat_sports: "sports",
-  cat_showbiz: "showbiz",
   cat_health: "health",
-  cat_beauty: "beauty",
-  cat_travel: "travel",
 };
 
 const Header = () => {
@@ -27,6 +30,12 @@ const Header = () => {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
 
+  const dateStr = useMemo(() => {
+    const locale = i18n.language.startsWith('ro') ? 'ro-RO' : 'en-US';
+    return new Intl.DateTimeFormat(locale, {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    }).format(new Date());
+  }, [i18n.language]);
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && searchQuery.trim()) {
       navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
@@ -60,7 +69,7 @@ const Header = () => {
         <div className="flex items-center justify-between py-2 border-b border-foreground/20">
           <div className="flex items-center">
             <LangSwitcher />
-            <span className="hidden sm:inline text-sm text-muted-foreground font-sans">{t("date_full")}</span>
+            <span className="hidden sm:inline text-sm text-muted-foreground font-sans">{dateStr}</span>
             <WeatherWidget />
           </div>
           <div className="flex items-center gap-2">
