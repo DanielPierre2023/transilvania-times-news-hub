@@ -26,6 +26,12 @@ i18n
           cat_education: "Education",
           cat_sports: "Sports",
           cat_health: "Health",
+          cat_news: "News",
+
+          // Subcategories
+          subcat_regional: "Regional",
+          subcat_national: "National",
+          subcat_international: "International",
 
           // Breaking headlines
           breaking_1: "Opposition Leader Calls for Early Elections Amid Growing Public Discontent",
