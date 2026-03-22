@@ -1,0 +1,186 @@
+/* Loaded by next/font/google in app/[locale]/layout.tsx */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 42 76% 94%;
+    --foreground: 18 52% 21%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 18 52% 21%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 18 52% 21%;
+
+    --primary: 0 72% 46%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 42 76% 94%;
+    --secondary-foreground: 18 52% 21%;
+
+    --muted: 20 12% 44%;
+    --muted-foreground: 20 12% 44%;
+
+    --accent: 28 83% 51%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 18 52% 21%;
+    --input: 20 12% 80%;
+    --ring: 0 72% 46%;
+
+    --radius: 0.25rem;
+
+    --sidebar-background: 42 76% 94%;
+    --sidebar-foreground: 18 52% 21%;
+    --sidebar-primary: 0 72% 46%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 28 83% 51%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 18 52% 21%;
+    --sidebar-ring: 0 72% 46%;
+
+    /* next/font CSS variables — set by layout.tsx */
+    --font-serif: var(--font-lora);
+    --font-sans: var(--font-inter);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* Prevent iOS zoom on input focus */
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* ── Append the remaining custom styles from your src/index.css below this line ── */
+ h1, h2, h3, h4, h5, h6 {
+    @apply font-serif;
+  }
+}
+
+@layer components {
+  .article-thumb-transition {
+    @apply grayscale transition-all duration-700 ease-in-out;
+  }
+
+  .article-thumb-transition:hover,
+  .article-thumb-transition:active {
+    @apply grayscale-0 scale-[1.02];
+  }
+}
+
+@layer utilities {
+  .min-h-dynamic {
+    min-height: 100dvh;
+  }
+
+  .safe-p-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Newspaper grid — vertical separators between columns */
+@media (min-width: 1024px) {
+  .newspaper-grid > * {
+    border-right: 1px solid hsl(var(--foreground) / 0.1);
+  }
+  .newspaper-grid > *:last-child {
+    border-right: 0;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .newspaper-grid > *:nth-child(odd) {
+    border-right: 1px solid hsl(var(--foreground) / 0.1);
+  }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 25s linear infinite;
+}
+
+@keyframes slideUp {
+  0% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out;
+}
+
+/* ═══ Article Body — Broadcast-grade typography ═══ */
+.article-body {
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  font-size: 1.125rem;
+  line-height: 1.8;
+}
+
+.article-body p {
+  margin-bottom: 1.25em;
+}
+
+.article-body ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin-bottom: 1.25em;
+}
+
+.article-body figure {
+  margin: 2em 0;
+}
+
+.article-body figure img {
+  width: 100%;
+  border: 1px solid hsl(var(--foreground) / 0.05);
+}
+
+/* ═══ Lede — Drop-cap ═══ */
+.article-lede {
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+.article-lede::first-letter {
+  float: left;
+  font-size: 3.5em;
+  line-height: 0.8;
+  font-weight: 700;
+  font-family: var(--font-serif, 'Lora', serif);
+  margin-right: 0.08em;
+  margin-top: 0.05em;
+  color: hsl(var(--primary));
+}

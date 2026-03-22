@@ -1,0 +1,63 @@
+{
+  "nav": {
+    "breaking": "Breaking",
+    "support_us": "Support Us",
+    "search_placeholder": "Search articles...",
+    "news": "News",
+    "politics": "Politics",
+    "technology": "Technology",
+    "business": "Business",
+    "culture": "Culture",
+    "travel": "Travel",
+    "education": "Education",
+    "sports": "Sports",
+    "health": "Health",
+    "opinion": "Opinion"
+  },
+  "subcategory": {
+    "regional": "Regional",
+    "national": "National",
+    "international": "International"
+  },
+  "article": {
+    "min_read": "min read",
+    "by": "By",
+    "share": "Share",
+    "ai_image": "AI-generated image by editorial team",
+    "sponsored": "Sponsored Content"
+  },
+  "footer": {
+    "tagline": "A media project by ADD Individual Solutions Ltd.",
+    "popular_categories": "Popular Categories",
+    "contact_us": "Contact Us",
+    "editorial_office": "Editorial Office",
+    "registered_office": "Registered Office",
+    "accessibility": "Accessibility",
+    "privacy_policy": "Privacy Policy",
+    "terms": "Terms & Conditions",
+    "newsletter_cta": "Newsletter",
+    "newsletter_sub": "Don't miss our exclusive stories. No spam.",
+    "email_placeholder": "Your email address",
+    "subscribe": "Subscribe Now",
+    "copyright": "© {year} Transilvania Times. All rights reserved."
+  },
+  "gdpr": {
+    "title": "We use cookies",
+    "body": "We use cookies to improve your experience and serve relevant ads. You can manage your preferences below.",
+    "accept_all": "Accept All",
+    "accept_essential": "Essential Only",
+    "reject": "Reject All"
+  },
+  "search": {
+    "results_for": "Results for",
+    "no_results": "No results found",
+    "articles": "articles"
+  },
+  "most_read": "Most Read",
+  "latest": "Latest News",
+  "load_more": "Load More",
+  "back_to_home": "Back to Homepage",
+  "not_found": "Page not found",
+  "not_found_sub": "The page you are looking for does not exist or has been moved.",
+  "weather": "Weather"
+}

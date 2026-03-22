@@ -1,0 +1,63 @@
+{
+  "nav": {
+    "breaking": "ULTIMA ORĂ",
+    "support_us": "Susține-ne",
+    "search_placeholder": "Caută articole...",
+    "news": "Știri",
+    "politics": "Politică",
+    "technology": "Tehnologie",
+    "business": "Afaceri",
+    "culture": "Cultură",
+    "travel": "Călătorii",
+    "education": "Educație",
+    "sports": "Sport",
+    "health": "Sănătate",
+    "opinion": "Opinie"
+  },
+  "subcategory": {
+    "regional": "Regional",
+    "national": "Național",
+    "international": "Internațional"
+  },
+  "article": {
+    "min_read": "min citit",
+    "by": "De",
+    "share": "Distribuie",
+    "ai_image": "Imagine generată cu AI de redacție",
+    "sponsored": "Conținut Sponsorizat"
+  },
+  "footer": {
+    "tagline": "Un proiect media al ADD Individual Solutions Ltd.",
+    "popular_categories": "Categorii Populare",
+    "contact_us": "Contactează-ne",
+    "editorial_office": "Redacția Editorială",
+    "registered_office": "Sediul Social",
+    "accessibility": "Accesibilitate",
+    "privacy_policy": "Politica de Confidențialitate",
+    "terms": "Termeni și Condiții",
+    "newsletter_cta": "Buletin Informativ",
+    "newsletter_sub": "Nu rata știrile noastre exclusive. Nu trimitem spam.",
+    "email_placeholder": "Adresa ta de email",
+    "subscribe": "Abonează-te Acum",
+    "copyright": "© {year} Transilvania Times. Toate drepturile rezervate."
+  },
+  "gdpr": {
+    "title": "Folosim cookie-uri",
+    "body": "Folosim cookie-uri pentru a îmbunătăți experiența ta și a afișa reclame relevante. Îți poți gestiona preferințele mai jos.",
+    "accept_all": "Accept Toate",
+    "accept_essential": "Doar Esențiale",
+    "reject": "Refuz Toate"
+  },
+  "search": {
+    "results_for": "Rezultate pentru",
+    "no_results": "Nu s-au găsit rezultate",
+    "articles": "articole"
+  },
+  "most_read": "Cele Mai Citite",
+  "latest": "Ultimele Știri",
+  "load_more": "Încarcă Mai Mult",
+  "back_to_home": "Înapoi la Pagina Principală",
+  "not_found": "Pagina nu a fost găsită",
+  "not_found_sub": "Pagina pe care o cauți nu există sau a fost mutată.",
+  "weather": "Vreme"
+}
