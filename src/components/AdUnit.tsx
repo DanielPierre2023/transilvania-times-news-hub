@@ -51,10 +51,4 @@ const AdUnit = ({ type, slot, className = "" }: AdUnitProps) => {
 };
 
 export default AdUnit;
-```
-
----
-
-**Commit message to use:**
-```
 fix: AdUnit renders null when slot unconfigured or GDPR consent absent
