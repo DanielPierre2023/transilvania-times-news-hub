@@ -32,7 +32,7 @@ export default async function HomePage() {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, category, subcategory, image, excerpt_ro, summary_ro, author, published_at')
+    .select('*')
     .eq('status', 'published')
     .order('published_at', { ascending: false })
     .limit(50)
