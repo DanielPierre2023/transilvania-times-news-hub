@@ -102,9 +102,9 @@ export default function SiteHeader({ breakingNews = [] }: SiteHeaderProps) {
       {/* Masthead */}
       <div className="container mx-auto max-w-7xl px-4 py-3 text-center">
         <Link href="/" className="inline-block">
-          <h1 className="font-serif text-4xl md:text-5xl font-bold text-foreground tracking-tight">
-            Transilvania Times
-          </h1>
+          <span className="font-serif text-4xl md:text-5xl font-bold text-foreground tracking-tight block">
+  Transilvania Times
+</span>
         </Link>
       </div>
 
