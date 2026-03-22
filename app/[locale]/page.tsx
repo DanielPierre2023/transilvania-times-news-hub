@@ -3,15 +3,27 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 // Homepage: always server-rendered fresh (no cache)
 export const revalidate = 0
 
+// Explicit type — matches blog_posts table columns we select
+interface ArticleRow {
+  id: string
+  title_ro: string | null
+  title_en: string | null
+  slug: string
+  category: string | null
+  published_at: string | null
+}
+
 export default async function HomePage() {
   const supabase = await createSupabaseServerClient()
 
-  const { data: articles, error } = await supabase
+  const { data, error } = await supabase
     .from('blog_posts')
     .select('id, title_ro, title_en, slug, category, published_at')
     .eq('status', 'published')
     .order('published_at', { ascending: false })
     .limit(12)
+
+  const articles = (data ?? []) as ArticleRow[]
 
   if (error) {
     console.error('[Homepage] Supabase fetch error:', error.message)
@@ -20,11 +32,8 @@ export default async function HomePage() {
   return (
     <main className="max-w-5xl mx-auto px-4 py-12">
       {/*
-        ── Step 1 scaffold — SSR proof of concept ──────────────────────────────
-        This minimal render proves:
-          1. Next.js 15 builds and deploys on Netlify
-          2. Server-side Supabase data fetching works
-          3. Both locale routes respond (/ = RO, /en = EN)
+        ── Step 1 scaffold — SSR proof of concept ────────────────────────────
+        Proves: Next.js 15 builds, Supabase SSR works, both locale routes work.
         Full UI (Header, Footer, article grid) is ported in Step 2.
       */}
       <h1 className="font-serif text-5xl font-bold text-foreground mb-2 tracking-tight">
@@ -34,7 +43,7 @@ export default async function HomePage() {
         Phase 2 · Step 1 · SSR Scaffold — Next.js 15
       </p>
 
-      {articles && articles.length > 0 ? (
+      {articles.length > 0 ? (
         <div className="divide-y divide-border">
           {articles.map((article) => (
             <article key={article.id} className="py-5 group">
@@ -51,7 +60,7 @@ export default async function HomePage() {
         </div>
       ) : (
         <p className="text-muted-foreground font-sans">
-          {error ? `Error: ${error.message}` : 'No articles found.'}
+          {error ? `DB error: ${error.message}` : 'No published articles found.'}
         </p>
       )}
     </main>
