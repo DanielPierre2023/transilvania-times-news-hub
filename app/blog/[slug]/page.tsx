@@ -64,7 +64,7 @@ async function getPost(slug: string): Promise<Post | null> {
     .eq('slug', slug)
     .eq('status', 'published')
     .single()
-  return (data as Post) ?? null
+  return (data as unknown as Post) ?? null
 }
 
 async function getRelated(category: string | null, excludeId: string): Promise<RelatedPost[]> {
