@@ -95,15 +95,14 @@ export default async function HomePage() {
           {/* Hero right — 1/3 */}
           {heroRight && (
             <div className="p-5">
-              <ArticleCard
-                slug={heroRight.slug}
-                category={heroRight.category}
-                subcategory={heroRight.subcategory}
-                title={getTitle(heroRight)}
-                image={heroRight.image}
-                variant="grid"
-                image={null}
-                className="mb-4"
+             <ArticleCard
+  slug={heroRight.slug}
+  category={heroRight.category}
+  subcategory={heroRight.subcategory}
+  title={getTitle(heroRight)}
+  image={null}
+  variant="grid"
+  className="mb-4"
               />
               {heroBullets.length > 0 && (
                 <ul className="space-y-2 mt-3">
