@@ -1,7 +1,9 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  pageExtensions: ['page.tsx', 'page.ts', 'page.jsx', 'page.js'],
+  // pageExtensions deliberately omitted — default ['tsx','ts','jsx','js']
+  // src/pages/ was renamed to src/views/ so Next.js never scans it.
+  // App Router in app/ works with standard file names.
   images: {
     remotePatterns: [
       {
