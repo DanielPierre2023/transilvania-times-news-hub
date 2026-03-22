@@ -33,6 +33,8 @@ export default async function RootLayout({
 }) {
   // Fetch breaking news server-side for the ticker
   const supabase = await createSupabaseServerClient()
+  interface BreakingPost { title_ro: string | null }
+
   const { data: breaking } = await supabase
     .from('blog_posts')
     .select('title_ro')
@@ -40,6 +42,10 @@ export default async function RootLayout({
     .eq('is_breaking', true)
     .order('published_at', { ascending: false })
     .limit(6)
+
+  const breakingTitles = ((breaking ?? []) as BreakingPost[])
+    .map(p => p.title_ro)
+    .filter(Boolean) as string[]
 
   const breakingTitles = (breaking ?? [])
     .map(p => p.title_ro)
