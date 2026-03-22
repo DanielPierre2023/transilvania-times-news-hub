@@ -8,3 +8,16 @@
 [[edge_functions]]
   function = "og-rewrite"
   path = "/blog/*"
+# Force HTTPS
+[[redirects]]
+  from = "http://*"
+  to = "https://:splat"
+  status = 301
+  force = true
+
+# Redirect www to non-www (or vice versa)
+[[redirects]]
+  from = "https://www.transilvaniatimes.com/*"
+  to = "https://transilvaniatimes.com/:splat"
+  status = 301
+  force = true
