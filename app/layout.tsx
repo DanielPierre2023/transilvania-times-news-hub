@@ -47,11 +47,7 @@ export default async function RootLayout({
     .map(p => p.title_ro)
     .filter(Boolean) as string[]
 
-  const breakingTitles = (breaking ?? [])
-    .map(p => p.title_ro)
-    .filter(Boolean) as string[]
-
-  return (
+    return (
     <html lang="ro" className={`${lora.variable} ${inter.variable}`}>
       <body className="bg-background text-foreground font-sans antialiased min-h-screen flex flex-col">
         <SiteHeader breakingNews={breakingTitles} />
