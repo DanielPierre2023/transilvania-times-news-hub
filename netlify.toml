@@ -1,27 +1,22 @@
-# ─── Build ───────────────────────────────────────────────────────────────────
 [build]
   command = "npm run build"
   publish = ".next"
 
-# ─── Next.js Runtime Plugin ──────────────────────────────────────────────────
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# ─── Force HTTPS ─────────────────────────────────────────────────────────────
 [[redirects]]
   from   = "http://*"
   to     = "https://:splat"
   status = 301
   force  = true
 
-# ─── Canonical: www → non-www ────────────────────────────────────────────────
 [[redirects]]
   from   = "https://www.transilvaniatimes.com/*"
   to     = "https://transilvaniatimes.com/:splat"
   status = 301
   force  = true
 
-# ─── Security Headers ────────────────────────────────────────────────────────
 [[headers]]
   for = "/*"
   [headers.values]
