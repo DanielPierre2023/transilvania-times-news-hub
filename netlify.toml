@@ -1,33 +1,31 @@
-# ─── Build ───────────────────────────────────────────────────────────────────
-[build]
-  command = "npm run build"
-  publish = ".next"
-
-# ─── Next.js Runtime Plugin ──────────────────────────────────────────────────
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
-
-# ─── Force HTTPS ─────────────────────────────────────────────────────────────
+# SPA routing — serve index.html for all paths
 [[redirects]]
-  from   = "http://*"
-  to     = "https://:splat"
-  status = 301
-  force  = true
+  from = "/*"
+  to = "/index.html"
+  status = 200
 
-# ─── Canonical: www → non-www ────────────────────────────────────────────────
+[[edge_functions]]
+  function = "og-rewrite"
+  path = "/blog/*"
+
 [[redirects]]
-  from   = "https://www.transilvaniatimes.com/*"
-  to     = "https://transilvaniatimes.com/:splat"
+  from = "http://*"
+  to = "https://:splat"
   status = 301
-  force  = true
+  force = true
 
-# ─── Security Headers ────────────────────────────────────────────────────────
+[[redirects]]
+  from = "https://www.transilvaniatimes.com/*"
+  to = "https://transilvaniatimes.com/:splat"
+  status = 301
+  force = true
+
 [[headers]]
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
-    X-Frame-Options        = "DENY"
-    X-XSS-Protection       = "1; mode=block"
-    Referrer-Policy        = "strict-origin-when-cross-origin"
-    Permissions-Policy     = "geolocation=(), microphone=(), camera=()"
-    Content-Security-Policy = "default-src 'self' https://zimpimoierpsocnmnizm.supabase.co; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co"
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Content-Security-Policy = "default-src 'self' https://zimpimoierpsocnmnizm.supabase.co; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
