@@ -11,14 +11,24 @@ export const metadata: Metadata = {
   description: 'Latest news from Cluj, Transylvania and Romania — in English.',
   alternates: {
     canonical: 'https://transilvaniatimes.com/en',
-    languages: { ro: 'https://transilvaniatimes.com', en: 'https://transilvaniatimes.com/en' },
+    languages: {
+      ro: 'https://transilvaniatimes.com',
+      en: 'https://transilvaniatimes.com/en',
+    },
   },
 }
 
 const CAT_LABELS_EN: Record<string, string> = {
-  news: 'News', politics: 'Politics', technology: 'Technology',
-  business: 'Business', culture: 'Culture', travel: 'Travel',
-  education: 'Education', sports: 'Sports', health: 'Health', opinion: 'Opinion',
+  news:        'News',
+  politics:    'Politics',
+  technology:  'Technology',
+  business:    'Business',
+  culture:     'Culture',
+  travel:      'Travel',
+  education:   'Education',
+  sports:      'Sports',
+  health:      'Health',
+  opinion:     'Opinion',
 }
 
 interface Post {
@@ -68,30 +78,31 @@ export default async function HomePageEN() {
   const rightColPosts  = posts.slice(19, 22)
   const restPosts      = posts.slice(22)
 
-  // English prefers title_en, falls back to title_ro
-  function getTitle(p: Post) { return p.title_en || p.title_ro || '' }
-  function getExcerpt(p: Post) { return p.excerpt_en || p.excerpt_ro || '' }
+  function getTitle(p: Post)   { return p.title_en   || p.title_ro   || '' }
+  function getExcerpt(p: Post) { return p.excerpt_en  || p.excerpt_ro  || '' }
 
   const heroBullets = heroRight
-    ? (heroRight.summary_en || heroRight.summary_ro || '')
-        .split('\n').filter(Boolean).slice(0, 3)
+    ? (heroRight.summary_en || heroRight.summary_ro || '').split('\n').filter(Boolean).slice(0, 3)
     : []
 
   return (
     <div className="container mx-auto max-w-7xl px-4 py-8 space-y-10">
 
-      {/* Language notice */}
+      {/* Language bar */}
       <div className="flex items-center gap-2 text-[11px] font-sans text-muted-foreground border-b border-foreground/10 pb-4">
         <span>Reading in</span>
         <span className="font-bold text-foreground">English</span>
         <span>·</span>
-        <a href="/" className="text-brand-red hover:underline">Switch to Romanian →</a>
+        <a href="/" className="text-brand-red hover:underline">
+          Switch to Romanian →
+        </a>
       </div>
 
       {/* ── HERO ROW ── */}
       {(heroMain || heroRight) && (
         <section className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-foreground/10">
 
+          {/* Hero main — left 2/3 */}
           {heroMain && (
             <div className="md:col-span-2 border-r border-foreground/10">
               {heroMain.cover_image && (
@@ -104,7 +115,7 @@ export default async function HomePageEN() {
               <div className="p-5 md:p-7">
                 {heroMain.category && (
                   
-                    href={`/en/categorie/${heroMain.category}`}
+                    href={`/categorie/${heroMain.category}`}
                     className="text-[11px] font-sans font-bold text-brand-red uppercase tracking-widest hover:underline"
                   >
                     {CAT_LABELS_EN[heroMain.category] || heroMain.category}
@@ -127,6 +138,7 @@ export default async function HomePageEN() {
             </div>
           )}
 
+          {/* Hero right — 1/3 */}
           {heroRight && (
             <div className="p-5">
               <ArticleCard
