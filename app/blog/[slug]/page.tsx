@@ -289,7 +289,14 @@ export default async function ArticlePage({
               __html: `<p class="mb-4 leading-relaxed">${content}</p>`,
             }}
           />
-
+         
+          {/* Social sharing */}
+          <ShareButtons
+            url={`${process.env.NEXT_PUBLIC_SITE_URL || 'https://transilvaniatimes.com'}/blog/${slug}`}
+            title={title}
+            summary={post.excerpt_ro || post.summary_ro || ''}
+          />
+          
           {/* Tags */}
           {(post.tags_ro || post.tags_en) && ((post.tags_ro || post.tags_en) ?? []).length > 0 && (
             <div className="flex flex-wrap gap-2 mt-10 pt-6 border-t border-foreground/10">
