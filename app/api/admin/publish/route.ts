@@ -7,15 +7,14 @@ export async function POST(req: Request) {
   if (!id || !slug) return NextResponse.json({ error: 'Missing id or slug' }, { status: 400 })
 
   const supabase = await createSupabaseServerClient()
-
   const { error } = await supabase
     .from('blog_posts')
-   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-.update({ status: 'published', published_at: new Date().toISOString() } as any)
+    .update({ status: 'published', published_at: new Date().toISOString() })
     .eq('id', id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Revalidate the specific article page and homepage
   revalidatePath(`/blog/${slug}`)
   revalidatePath('/')
   revalidatePath('/en')
