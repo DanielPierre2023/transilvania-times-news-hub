@@ -1,14 +1,8 @@
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import type { Database } from '@/src/integrations/supabase/types'
 
-/**
- * Server-side Supabase client for Next.js Server Components and Route Handlers.
- * Uses cookie-based session management compatible with Next.js 15.
- * Must be awaited: const supabase = await createSupabaseServerClient()
- */
 export async function createSupabaseServerClient() {
-  // Next.js 15: cookies() is async
   const cookieStore = await cookies()
 
   return createServerClient<Database>(
@@ -19,14 +13,13 @@ export async function createSupabaseServerClient() {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options)
             })
           } catch {
-            // setAll called from a Server Component.
-            // Safe to ignore — middleware keeps the session fresh.
+            // Called from a Server Component — safe to ignore.
           }
         },
       },

@@ -1,13 +1,12 @@
 import type { NextConfig } from 'next'
-import createNextIntlPlugin from 'next-intl/plugin'
-
-const withNextIntl = createNextIntlPlugin('./i18n/request.ts')
 
 const nextConfig: NextConfig = {
+  // pageExtensions deliberately omitted — default ['tsx','ts','jsx','js']
+  // src/pages/ was renamed to src/views/ so Next.js never scans it.
+  // App Router in app/ works with standard file names.
   images: {
     remotePatterns: [
       {
-        // Supabase Storage — article images and AI-generated images
         protocol: 'https',
         hostname: 'zimpimoierpsocnmnizm.supabase.co',
         pathname: '/storage/v1/object/public/**',
@@ -16,4 +15,4 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default withNextIntl(nextConfig)
+export default nextConfig

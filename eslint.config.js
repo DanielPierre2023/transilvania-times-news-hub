@@ -1,26 +1,28 @@
-import js from "@eslint/js";
-import globals from "globals";
-import reactHooks from "eslint-plugin-react-hooks";
-import reactRefresh from "eslint-plugin-react-refresh";
-import tseslint from "typescript-eslint";
+import { dirname } from 'path'
+import { fileURLToPath } from 'url'
+import { FlatCompat } from '@eslint/eslintrc'
 
-export default tseslint.config(
-  { ignores: ["dist"] },
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+const compat = new FlatCompat({
+  baseDirectory: __dirname,
+})
+
+const eslintConfig = [
+  // Only lint the new Next.js App Router code in app/.
+  // src/ contains the legacy Vite components being migrated in later steps.
+  // They will be brought into compliance as each is ported to app/.
   {
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    files: ["**/*.{ts,tsx}"],
-    languageOptions: {
-      ecmaVersion: 2020,
-      globals: globals.browser,
-    },
-    plugins: {
-      "react-hooks": reactHooks,
-      "react-refresh": reactRefresh,
-    },
-    rules: {
-      ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
-      "@typescript-eslint/no-unused-vars": "off",
-    },
+    ignores: [
+      'src/**',
+      'netlify/**',
+      'supabase/**',
+      '.next/**',
+      'node_modules/**',
+    ],
   },
-);
+  ...compat.extends('next/core-web-vitals', 'next/typescript'),
+]
+
+export default eslintConfig

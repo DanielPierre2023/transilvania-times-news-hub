@@ -77,8 +77,9 @@
   }
 }
 
-/* ── Append the remaining custom styles from your src/index.css below this line ── */
- h1, h2, h3, h4, h5, h6 {
+/* ── Typography ── */
+@layer base {
+  h1, h2, h3, h4, h5, h6 {
     @apply font-serif;
   }
 }
