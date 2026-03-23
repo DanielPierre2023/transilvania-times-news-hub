@@ -10,7 +10,8 @@ export async function POST(req: Request) {
 
   const { error } = await supabase
     .from('blog_posts')
-    .update({ status: 'published', published_at: new Date().toISOString() } as Record<string, unknown>)
+   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+.update({ status: 'published', published_at: new Date().toISOString() } as any)
     .eq('id', id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
