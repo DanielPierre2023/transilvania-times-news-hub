@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { Search, X, Menu } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -103,8 +103,8 @@ export default function SiteHeader({ breakingNews = [] }: SiteHeaderProps) {
       <div className="container mx-auto max-w-7xl px-4 py-3 text-center">
         <Link href="/" className="inline-block">
           <span className="font-serif text-4xl md:text-5xl font-bold text-foreground tracking-tight block">
-  Transilvania Times
-</span>
+            Transilvania Times
+          </span>
         </Link>
       </div>
 
