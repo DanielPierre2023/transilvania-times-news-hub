@@ -5,8 +5,8 @@ import { useState } from 'react'
 interface ArticleContentProps {
   titleRo: string | null
   titleEn: string | null
-  excerptRo: string | null
-  excerptEn: string | null
+  summaryRo: string | null
+  summaryEn: string | null
   contentRo: string | null
   contentEn: string | null
   coverImage: string | null
@@ -40,7 +40,7 @@ function renderContent(raw: string | null): string {
 }
 
 export default function ArticleContent({
-  titleRo, titleEn, excerptRo, excerptEn,
+  titleRo, titleEn, summaryRo, summaryEn,
   contentRo, contentEn, coverImage,
   authorName, publishedAt, timeAgoStr, defaultLang,
 }: ArticleContentProps) {
@@ -49,7 +49,7 @@ export default function ArticleContent({
   const hasEn = !!(titleEn && contentEn)
 
   const title   = lang === 'en' && titleEn   ? titleEn   : (titleRo   || titleEn   || '')
-  const excerpt = lang === 'en' && excerptEn ? excerptEn : (excerptRo || excerptEn || '')
+  const summary = lang === 'en' && summaryEn ? summaryEn : (summaryRo || summaryEn || '')
   const body    = lang === 'en' && contentEn ? contentEn : (contentRo || contentEn || '')
 
   return (
@@ -88,7 +88,7 @@ export default function ArticleContent({
       </h1>
 
       {/* Meta row */}
-      <div className="flex flex-wrap items-center gap-4 text-[11px] font-sans text-muted-foreground mb-4">
+      <div className="flex flex-wrap items-center gap-4 text-[11px] font-sans text-muted-foreground mb-6">
         {authorName && (
           <span className="font-bold text-foreground">{authorName}</span>
         )}
@@ -100,14 +100,14 @@ export default function ArticleContent({
         )}
       </div>
 
-      {/* Excerpt / summary */}
-      {excerpt && (
+      {/* Summary / excerpt — shown prominently before cover image */}
+      {summary && (
         <p className="font-sans text-base text-muted-foreground leading-relaxed mb-6 border-l-4 border-brand-red pl-4 italic">
-          {excerpt}
+          {summary}
         </p>
       )}
 
-      {/* Cover image — in correct position: after title/meta, before body */}
+      {/* Cover image — correct position: after title/meta/summary, before body */}
       {coverImage && (
         <div className="mb-8 -mx-6">
           <img
@@ -118,13 +118,13 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Article body */}
+      {/* Article body — justified text matching original */}
       {body && (
         <div
           className={[
             'prose prose-lg prose-neutral max-w-none font-sans',
             'prose-headings:font-serif prose-headings:font-bold prose-headings:text-foreground',
-            'prose-p:text-foreground/85 prose-p:leading-relaxed prose-p:mb-4',
+            'prose-p:text-foreground/85 prose-p:leading-relaxed prose-p:mb-4 [&_p]:text-justify',
             'prose-a:text-brand-red prose-a:no-underline hover:prose-a:underline',
             'prose-strong:text-foreground prose-strong:font-bold',
             'prose-blockquote:border-l-brand-red prose-blockquote:font-serif prose-blockquote:text-muted-foreground',
