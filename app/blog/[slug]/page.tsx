@@ -17,6 +17,15 @@ const CAT_LABELS: Record<string, string> = {
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
 }
 
+interface MetaPost {
+  title_ro: string | null
+  title_en: string | null
+  excerpt_ro: string | null
+  excerpt_en: string | null
+  cover_image: string | null
+  slug: string
+}
+
 interface Post {
   id: string
   slug: string
@@ -37,6 +46,16 @@ interface Post {
   source_url: string | null
 }
 
+interface RelatedPost {
+  id: string
+  slug: string
+  title_ro: string | null
+  title_en: string | null
+  cover_image: string | null
+  category: string | null
+  published_at: string | null
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
@@ -50,20 +69,18 @@ export async function generateMetadata(
 
   if (!data) return { title: 'Article Not Found' }
 
-  const title = data.title_ro || data.title_en || ''
-  const description = data.excerpt_ro || data.excerpt_en || ''
-  const image = data.cover_image || ''
-  const url = `${SITE_URL}/blog/${data.slug}`
+  const post = data as unknown as MetaPost
+  const title = post.title_ro || post.title_en || ''
+  const description = post.excerpt_ro || post.excerpt_en || ''
+  const image = post.cover_image || ''
+  const url = `${SITE_URL}/blog/${post.slug}`
 
   return {
     title,
     description,
     alternates: {
       canonical: url,
-      languages: {
-        ro: url,
-        en: url,
-      },
+      languages: { ro: url, en: url },
     },
     openGraph: {
       title,
@@ -109,7 +126,7 @@ export default async function ArticlePage(
   const post = data as unknown as Post
   const articleUrl = `${SITE_URL}/blog/${post.slug}`
   const catLabel = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
-  const tags = post.tags_ro || post.tags_en || []
+  const tags = (post.tags_ro || post.tags_en || []) as string[]
 
   let timeAgoStr = ''
   if (post.published_at) {
@@ -118,7 +135,6 @@ export default async function ArticlePage(
     } catch { /* noop */ }
   }
 
-  // Fetch 4 related articles from same category
   const { data: related } = await supabase
     .from('blog_posts')
     .select('id, slug, title_ro, title_en, cover_image, category, published_at')
@@ -153,7 +169,6 @@ export default async function ArticlePage(
 
       <article className="max-w-7xl mx-auto border-x border-foreground/10">
 
-        {/* Article header */}
         <header className="max-w-3xl mx-auto px-6 pt-10 pb-6">
           {post.is_breaking && (
             <div className="inline-flex items-center gap-2 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-widest px-3 py-1 mb-4">
@@ -170,13 +185,10 @@ export default async function ArticlePage(
               </Link>
             )}
             {post.subcategory && (
-              <span className="text-[10px] font-sans text-muted-foreground">
-                · {post.subcategory}
-              </span>
+              <span className="text-[10px] font-sans text-muted-foreground">· {post.subcategory}</span>
             )}
           </div>
 
-          {/* Language toggle — shows title in RO or EN based on user selection */}
           <ArticleLangToggle
             titleRo={post.title_ro}
             titleEn={post.title_en}
@@ -191,7 +203,6 @@ export default async function ArticlePage(
           />
         </header>
 
-        {/* Cover image */}
         {post.cover_image && (
           <div className="max-w-5xl mx-auto px-6 mb-8">
             <img
@@ -202,7 +213,6 @@ export default async function ArticlePage(
           </div>
         )}
 
-        {/* Share buttons */}
         <div className="max-w-3xl mx-auto px-6">
           <ShareButtons
             url={articleUrl}
@@ -211,13 +221,12 @@ export default async function ArticlePage(
           />
         </div>
 
-        {/* Tags */}
         {tags.length > 0 && (
           <div className="max-w-3xl mx-auto px-6 mt-6 flex flex-wrap gap-2">
             {tags.map((tag: string) => (
               <span
                 key={tag}
-                className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1 hover:border-brand-red hover:text-brand-red transition-colors cursor-default"
+                className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1"
               >
                 {tag}
               </span>
@@ -225,7 +234,6 @@ export default async function ArticlePage(
           </div>
         )}
 
-        {/* Source */}
         {post.source_url && (
           <div className="max-w-3xl mx-auto px-6 mt-4">
             <p className="font-sans text-[11px] text-muted-foreground">
@@ -236,18 +244,16 @@ export default async function ArticlePage(
                 rel="noopener noreferrer nofollow"
                 className="hover:text-brand-red transition-colors underline"
               >
-                {(() => { try { return new URL(post.source_url).hostname } catch { return post.source_url } })()}
+                {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
               </a>
             </p>
           </div>
         )}
 
-        {/* Comments */}
         <div className="max-w-3xl mx-auto px-6">
           <CommentSection articleId={post.id} />
         </div>
 
-        {/* Related articles */}
         {related && related.length > 0 && (
           <div className="max-w-7xl mx-auto px-6 mt-16 pt-8 border-t border-foreground/10 pb-12">
             <div className="flex items-center gap-3 mb-6">
@@ -258,7 +264,7 @@ export default async function ArticlePage(
               <div className="flex-1 h-px bg-foreground/10" />
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              {(related as { id: string; slug: string; title_ro: string | null; title_en: string | null; cover_image: string | null; category: string | null; published_at: string | null }[]).map(rel => (
+              {(related as unknown as RelatedPost[]).map(rel => (
                 <Link key={rel.id} href={'/blog/' + rel.slug} className="group">
                   {rel.cover_image && (
                     <div className="overflow-hidden mb-3 aspect-[4/3]">
