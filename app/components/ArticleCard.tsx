@@ -8,12 +8,10 @@ interface ArticleCardProps {
   timeAgo?: string
   image?: string | null
   excerpt?: string | null
-  author?: string | null
   variant?: 'hero' | 'grid' | 'simple' | 'compact'
   className?: string
 }
 
-// Map category slugs to Romanian display labels
 const CAT_LABELS: Record<string, string> = {
   news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
   business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
@@ -25,7 +23,7 @@ const SUBCAT_LABELS: Record<string, string> = {
 }
 
 export default function ArticleCard({
-  slug, category, subcategory, title, timeAgo, image, excerpt, author, variant = 'grid', className = '',
+  slug, category, subcategory, title, timeAgo, image, excerpt, variant = 'grid', className = '',
 }: ArticleCardProps) {
   const catLabel = (category ? CAT_LABELS[category] || category : '').toUpperCase()
   const subcatLabel = subcategory ? SUBCAT_LABELS[subcategory] || subcategory : null
@@ -121,9 +119,9 @@ export default function ArticleCard({
 
   // Default: grid variant
   return (
-    <div className={`group ${className}`}>
+    <div className={`group relative ${className}`}>
       {image && (
-        <Link href={href} className="block overflow-hidden mb-3">
+        <Link href={href} className="block overflow-hidden mb-3 relative">
           <img
             src={image}
             alt={title}
