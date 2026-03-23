@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { formatDistanceToNow, parseISO, format } from 'date-fns'
 import { ro } from 'date-fns/locale'
 import ArticleCard from '@/app/components/ArticleCard'
+import ShareButtons from '@/app/components/ShareButtons'
 
 // ISR: revalidate each article page at most every 60 seconds
 export const revalidate = 60
