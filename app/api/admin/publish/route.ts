@@ -9,7 +9,7 @@ export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient()
   const { error } = await supabase
     .from('blog_posts')
-    .update({ status: 'published', published_at: new Date().toISOString() })
+    .update({ status: 'published', published_at: new Date().toISOString() } as never)
     .eq('id', id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
