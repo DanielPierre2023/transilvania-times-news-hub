@@ -35,6 +35,8 @@ interface Post {
   content_en: string | null
   excerpt_ro: string | null
   excerpt_en: string | null
+  summary_ro: string | null
+  summary_en: string | null
   category: string | null
   subcategory: string | null
   cover_image: string | null
@@ -77,10 +79,7 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: {
-      canonical: url,
-      languages: { ro: url, en: url },
-    },
+    alternates: { canonical: url, languages: { ro: url, en: url } },
     openGraph: {
       title, description, url, type: 'article',
       images: image ? [{ url: image, width: 1200, height: 630 }] : [],
@@ -107,7 +106,7 @@ export default async function ArticlePage({
 
   const { data, error } = await supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, content_ro, content_en, excerpt_ro, excerpt_en, category, subcategory, cover_image, author_name, published_at, tags_ro, tags_en, is_breaking, source_url')
+    .select('id, slug, title_ro, title_en, content_ro, content_en, excerpt_ro, excerpt_en, summary_ro, summary_en, category, subcategory, cover_image, author_name, published_at, tags_ro, tags_en, is_breaking, source_url')
     .eq('slug', slug)
     .eq('status', 'published')
     .single()
@@ -166,11 +165,9 @@ export default async function ArticlePage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
       <article className="max-w-7xl mx-auto border-x border-foreground/10">
         <div className="max-w-3xl mx-auto px-6 pt-10 pb-4">
 
-          {/* Category + breaking badge */}
           <div className="flex items-center gap-2 mb-4">
             {post.is_breaking && (
               <span className="inline-flex items-center gap-1 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-widest px-3 py-1">
@@ -186,26 +183,15 @@ export default async function ArticlePage({
               </Link>
             )}
             {post.subcategory && (
-              <span className="text-[10px] font-sans text-muted-foreground">
-                · {post.subcategory}
-              </span>
+              <span className="text-[10px] font-sans text-muted-foreground">· {post.subcategory}</span>
             )}
           </div>
 
-          {/*
-            ArticleContent manages:
-            - lang toggle buttons (RO / EN)
-            - title (switches language)
-            - meta row (author, date, timeAgo)
-            - excerpt / summary (switches language)
-            - cover image (CORRECT POSITION — between meta and body)
-            - article body (switches language, plain text → paragraphs)
-          */}
           <ArticleContent
             titleRo={post.title_ro}
             titleEn={post.title_en}
-            excerptRo={post.excerpt_ro}
-            excerptEn={post.excerpt_en}
+            summaryRo={post.summary_ro}
+            summaryEn={post.summary_en}
             contentRo={post.content_ro}
             contentEn={post.content_en}
             coverImage={post.cover_image}
@@ -215,78 +201,53 @@ export default async function ArticlePage({
             defaultLang={defaultLang}
           />
 
-          {/* Share buttons */}
           <ShareButtons
             url={articleUrl}
             title={post.title_ro || post.title_en || ''}
             summary={post.excerpt_ro || post.excerpt_en || ''}
           />
 
-          {/* Tags */}
           {tags.length > 0 && (
             <div className="mt-6 flex flex-wrap gap-2">
               {tags.map((tag: string) => (
-                <span
-                  key={tag}
-                  className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1"
-                >
+                <span key={tag} className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1">
                   {tag}
                 </span>
               ))}
             </div>
           )}
 
-          {/* Source */}
           {post.source_url && (
             <div className="mt-4">
               <p className="font-sans text-[11px] text-muted-foreground">
                 Sursă:{' '}
-                <a
-                  href={post.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer nofollow"
-                  className="hover:text-brand-red transition-colors underline"
-                >
+                <a href={post.source_url} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
                   {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
                 </a>
               </p>
             </div>
           )}
 
-          {/* Comments */}
           <CommentSection articleId={post.id} />
         </div>
 
-        {/* Related articles */}
         {related && related.length > 0 && (
           <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-foreground/10 pb-12">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-2 h-2 bg-brand-red" />
-              <h3 className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">
-                Articole similare
-              </h3>
+              <h3 className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">Articole similare</h3>
               <div className="flex-1 h-px bg-foreground/10" />
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               {(related as unknown as RelatedPost[]).map(rel => (
-                <Link
-                  key={rel.id}
-                  href={'/blog/' + rel.slug + (defaultLang === 'en' ? '?lang=en' : '')}
-                  className="group"
-                >
+                <Link key={rel.id} href={'/blog/' + rel.slug + (defaultLang === 'en' ? '?lang=en' : '')} className="group">
                   {rel.cover_image && (
                     <div className="overflow-hidden mb-3 aspect-[4/3]">
-                      <img
-                        src={rel.cover_image}
-                        alt={rel.title_ro || rel.title_en || ''}
-                        className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
-                      />
+                      <img src={rel.cover_image} alt={rel.title_ro || rel.title_en || ''} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
                     </div>
                   )}
                   <h4 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-3">
-                    {defaultLang === 'en'
-                      ? (rel.title_en || rel.title_ro)
-                      : (rel.title_ro || rel.title_en)}
+                    {defaultLang === 'en' ? (rel.title_en || rel.title_ro) : (rel.title_ro || rel.title_en)}
                   </h4>
                 </Link>
               ))}
