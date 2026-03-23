@@ -164,10 +164,7 @@ export default async function ArticlePage({
   const publishDate = post.published_at
     ? format(parseISO(post.published_at), "d MMMM yyyy", { locale: ro })
     : ''
-  const timeAgoStr = post.published_at
-    ? formatDistanceToNow(parseISO(post.published_at), { addSuffix: true, locale: ro })
-    : ''
-
+  
   // Reading time estimate
   const wordCount = rawContent.split(/\s+/).length
   const readingMinutes = Math.max(1, Math.round(wordCount / 200))
