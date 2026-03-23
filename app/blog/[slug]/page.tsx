@@ -1,26 +1,20 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
-import type { Metadata } from 'next'
-import Link from 'next/link'
-import { formatDistanceToNow, parseISO, format } from 'date-fns'
+import { formatDistanceToNow, parseISO } from 'date-fns'
 import { ro } from 'date-fns/locale'
-import ArticleCard from '@/app/components/ArticleCard'
+import Link from 'next/link'
+import type { Metadata } from 'next'
 import ShareButtons from '@/app/components/ShareButtons'
+import CommentSection from '@/app/components/CommentSection'
+import ArticleLangToggle from '@/app/components/ArticleLangToggle'
 
-// ISR: revalidate each article page at most every 60 seconds
 export const revalidate = 60
 
-const SITE_NAME = 'Transilvania Times'
-const CANONICAL_DOMAIN = 'https://transilvaniatimes.com'
+const SITE_URL = 'https://transilvaniatimes.com'
 
 const CAT_LABELS: Record<string, string> = {
   news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
   business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
-}
-
-const SUBCAT_LABELS: Record<string, string> = {
-  regional: 'Regional', national: 'Național', international: 'Internațional',
 }
 
 interface Post {
@@ -30,328 +24,258 @@ interface Post {
   title_en: string | null
   content_ro: string | null
   content_en: string | null
-  summary_ro: string | null
-  summary_en: string | null
   excerpt_ro: string | null
   excerpt_en: string | null
-  cover_image: string | null
   category: string | null
   subcategory: string | null
+  cover_image: string | null
   author_name: string | null
   published_at: string | null
-  seo_title_ro: string | null
-  seo_title_en: string | null
-  seo_description_ro: string | null
-  seo_description_en: string | null
   tags_ro: string[] | null
   tags_en: string[] | null
+  is_breaking: boolean | null
+  source_url: string | null
 }
 
-interface RelatedPost {
-  id: string
-  slug: string
-  title_ro: string | null
-  title_en: string | null
-  cover_image: string | null
-  category: string | null
-  published_at: string | null
-}
-
-async function getPost(slug: string): Promise<Post | null> {
-  const supabase = await createSupabaseServerClient()
-  const { data } = await supabase
-    .from('blog_posts')
-    .select('*')
-    .eq('slug', slug)
-    .eq('status', 'published')
-    .single()
-  return (data as unknown as Post) ?? null
-}
-
-async function getRelated(category: string | null, excludeId: string): Promise<RelatedPost[]> {
-  if (!category) return []
-  const supabase = await createSupabaseServerClient()
-  const { data } = await supabase
-    .from('blog_posts')
-    .select('id, slug, title_ro, title_en, cover_image, category, published_at')
-    .eq('status', 'published')
-    .eq('category', category)
-    .neq('id', excludeId)
-    .order('published_at', { ascending: false })
-    .limit(3)
-  return ((data ?? []) as RelatedPost[])
-}
-
-// Generate metadata for SEO + OG + Twitter cards
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}): Promise<Metadata> {
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Metadata> {
   const { slug } = await params
-  const post = await getPost(slug)
-  if (!post) return { title: 'Articol negăsit' }
+  const supabase = await createSupabaseServerClient()
+  const { data } = await supabase
+    .from('blog_posts')
+    .select('title_ro, title_en, excerpt_ro, excerpt_en, cover_image, slug')
+    .eq('slug', slug)
+    .single()
 
-  const title = post.seo_title_ro || post.title_ro || post.title_en || SITE_NAME
-  const description = post.seo_description_ro || post.summary_ro || post.excerpt_ro || ''
-  const imageUrl = post.cover_image ?? undefined
-  const articleUrl = `${CANONICAL_DOMAIN}/blog/${slug}`
+  if (!data) return { title: 'Article Not Found' }
+
+  const title = data.title_ro || data.title_en || ''
+  const description = data.excerpt_ro || data.excerpt_en || ''
+  const image = data.cover_image || ''
+  const url = `${SITE_URL}/blog/${data.slug}`
 
   return {
     title,
     description,
     alternates: {
-      canonical: articleUrl,
+      canonical: url,
       languages: {
-        ro: articleUrl,
-        en: articleUrl,
-        'x-default': articleUrl,
+        ro: url,
+        en: url,
       },
     },
     openGraph: {
       title,
       description,
-      url: articleUrl,
-      siteName: SITE_NAME,
+      url,
       type: 'article',
-      locale: 'ro_RO',
-      alternateLocale: 'en_US',
-      images: imageUrl ? [{ url: imageUrl }] : [],
-      publishedTime: post.published_at ?? undefined,
+      images: image ? [{ url: image, width: 1200, height: 630 }] : [],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      images: imageUrl ? [imageUrl] : [],
+      images: image ? [image] : [],
     },
   }
 }
 
-// Convert basic markdown to HTML — inline, no external dependency
-function mdToHtml(md: string): string {
-  if (!md) return ''
-  return md
-    .replace(/^### (.+)$/gm, '<h3 class="font-serif text-xl font-bold mt-8 mb-3">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="font-serif text-2xl font-bold mt-10 mb-4">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="font-serif text-3xl font-bold mt-10 mb-4">$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" class="text-brand-red underline hover:no-underline" target="_blank" rel="noopener">$1</a>')
-    .replace(/^> (.+)$/gm, '<blockquote class="border-l-4 border-brand-red pl-4 my-4 italic text-muted-foreground">$1</blockquote>')
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-    .replace(/\n\n/g, '</p><p class="mb-4 leading-relaxed">')
-    .replace(/^(?!<[hblp])(.+)$/gm, (m) => m.trim() ? m : '')
-}
-
-export default async function ArticlePage({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}) {
+export default async function ArticlePage(
+  { params }: { params: Promise<{ slug: string }> }
+) {
   const { slug } = await params
-  const post = await getPost(slug)
+  const supabase = await createSupabaseServerClient()
 
-  if (!post) notFound()
+  const { data, error } = await supabase
+    .from('blog_posts')
+    .select('id, slug, title_ro, title_en, content_ro, content_en, excerpt_ro, excerpt_en, category, subcategory, cover_image, author_name, published_at, tags_ro, tags_en, is_breaking, source_url')
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .single()
 
-  const title = post.title_ro || post.title_en || ''
-  const rawContent = post.content_ro || post.content_en || ''
-  const content = mdToHtml(rawContent)
-  const summary = post.summary_ro || post.summary_en || ''
-  const catLabel = post.category ? CAT_LABELS[post.category] || post.category : ''
-  const subcatLabel = post.subcategory ? SUBCAT_LABELS[post.subcategory] || post.subcategory : null
-  const related = await getRelated(post.category, post.id)
+  if (error || !data) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-20 text-center">
+        <h1 className="font-serif text-3xl font-bold text-foreground mb-4">Articol negăsit</h1>
+        <p className="font-sans text-muted-foreground mb-8">Articolul nu există sau a fost eliminat.</p>
+        <Link href="/" className="text-brand-red hover:underline font-sans text-sm">
+          ← Înapoi la pagina principală
+        </Link>
+      </div>
+    )
+  }
 
-  const publishDate = post.published_at
-    ? format(parseISO(post.published_at), "d MMMM yyyy", { locale: ro })
-    : ''
-  
-  // Reading time estimate
-  const wordCount = rawContent.split(/\s+/).length
-  const readingMinutes = Math.max(1, Math.round(wordCount / 200))
+  const post = data as unknown as Post
+  const articleUrl = `${SITE_URL}/blog/${post.slug}`
+  const catLabel = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
+  const tags = post.tags_ro || post.tags_en || []
 
-  // JSON-LD NewsArticle schema
+  let timeAgoStr = ''
+  if (post.published_at) {
+    try {
+      timeAgoStr = formatDistanceToNow(parseISO(post.published_at), { addSuffix: true, locale: ro })
+    } catch { /* noop */ }
+  }
+
+  // Fetch 4 related articles from same category
+  const { data: related } = await supabase
+    .from('blog_posts')
+    .select('id, slug, title_ro, title_en, cover_image, category, published_at')
+    .eq('status', 'published')
+    .eq('category', post.category || 'news')
+    .neq('slug', slug)
+    .order('published_at', { ascending: false })
+    .limit(4)
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
-    headline: title,
-    description: post.seo_description_ro || post.excerpt_ro || summary,
-    image: post.cover_image ? [post.cover_image] : [],
-    datePublished: post.published_at,
-    dateModified: post.published_at,
-    author: { '@type': 'Person', name: post.author_name || SITE_NAME },
+    headline: post.title_ro || post.title_en || '',
+    description: post.excerpt_ro || post.excerpt_en || '',
+    image: post.cover_image || '',
+    datePublished: post.published_at || '',
+    author: { '@type': 'Person', name: post.author_name || 'Transilvania Times' },
     publisher: {
       '@type': 'Organization',
-      name: SITE_NAME,
-      url: CANONICAL_DOMAIN,
+      name: 'Transilvania Times',
+      logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.png` },
     },
-    mainEntityOfPage: {
-      '@type': 'WebPage',
-      '@id': `${CANONICAL_DOMAIN}/blog/${slug}`,
-    },
-    inLanguage: 'ro',
-    keywords: (post.tags_ro || post.tags_en || []).join(', '),
+    url: articleUrl,
   }
 
   return (
     <>
-      {/* JSON-LD */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
-      <article className="min-h-screen bg-background">
-        <div className="max-w-3xl mx-auto px-4 py-12">
+      <article className="max-w-7xl mx-auto border-x border-foreground/10">
 
-          {/* Category breadcrumb */}
-          {post.category && (
-            <div className="flex items-center gap-2 mb-6">
-              <span className="w-2 h-2 bg-brand-red inline-block" />
+        {/* Article header */}
+        <header className="max-w-3xl mx-auto px-6 pt-10 pb-6">
+          {post.is_breaking && (
+            <div className="inline-flex items-center gap-2 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-widest px-3 py-1 mb-4">
+              <span className="text-yellow-300">⚡</span> ULTIMA ORĂ
+            </div>
+          )}
+          <div className="flex items-center gap-2 mb-4">
+            {post.category && (
               <Link
-                href={`/categorie/${post.category}`}
-                className="text-[11px] font-sans font-bold text-brand-red uppercase tracking-widest hover:underline"
+                href={'/categorie/' + post.category}
+                className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red hover:underline"
               >
                 {catLabel}
               </Link>
-              {subcatLabel && (
-                <span className="text-[11px] font-sans text-muted-foreground uppercase tracking-widest">
-                  · {subcatLabel}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Headline */}
-          <h1 className="font-serif text-3xl md:text-5xl font-bold text-foreground leading-tight mb-6">
-            {title}
-          </h1>
-
-          {/* Byline */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-8 pb-6 border-b border-foreground/10">
-            <span className="text-[13px] font-sans text-muted-foreground">
-              De{' '}
-              <span className="font-semibold text-foreground">
-                {post.author_name || SITE_NAME}
+            )}
+            {post.subcategory && (
+              <span className="text-[10px] font-sans text-muted-foreground">
+                · {post.subcategory}
               </span>
-            </span>
-            <span className="text-muted-foreground/40">·</span>
-            <time
-              dateTime={post.published_at ?? ''}
-              className="text-[13px] font-sans text-muted-foreground"
-            >
-              {publishDate}
-            </time>
-            <span className="text-muted-foreground/40">·</span>
-            <span className="text-[13px] font-sans text-muted-foreground">
-              {readingMinutes} min citit
-            </span>
+            )}
           </div>
 
-          {/* Cover image */}
-          {post.cover_image && (
-            <figure className="mb-8 -mx-4 md:mx-0">
-              <img
-                src={post.cover_image}
-                alt={title}
-                className="w-full max-h-[480px] object-cover"
-              />
-              <figcaption className="text-[10px] font-sans uppercase tracking-widest text-muted-foreground text-center mt-2">
-                Imagine generată cu AI de redacție
-              </figcaption>
-            </figure>
-          )}
-
-          {/* Summary bullets */}
-          {summary && (
-            <div className="bg-foreground/[0.03] border border-foreground/10 p-5 mb-8">
-              <p className="text-[11px] font-sans font-bold uppercase tracking-widest text-muted-foreground mb-3">
-                Rezumat
-              </p>
-              <ul className="space-y-2">
-                {summary.split('\n').filter(Boolean).map((line, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[14px] font-sans text-foreground/80">
-                    <span className="w-1.5 h-1.5 bg-brand-red rounded-full mt-2 shrink-0" />
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Article body */}
-          <div
-            className="prose prose-lg max-w-none font-sans text-foreground/90 leading-relaxed
-              prose-headings:font-serif prose-headings:text-foreground
-              prose-a:text-brand-red prose-a:no-underline hover:prose-a:underline
-              prose-blockquote:border-l-4 prose-blockquote:border-brand-red prose-blockquote:italic
-              prose-strong:text-foreground prose-img:rounded-none"
-            dangerouslySetInnerHTML={{
-              __html: `<p class="mb-4 leading-relaxed">${content}</p>`,
-            }}
+          {/* Language toggle — shows title in RO or EN based on user selection */}
+          <ArticleLangToggle
+            titleRo={post.title_ro}
+            titleEn={post.title_en}
+            contentRo={post.content_ro}
+            contentEn={post.content_en}
+            articleUrl={articleUrl}
+            articleTitle={post.title_ro || post.title_en || ''}
+            articleExcerpt={post.excerpt_ro || post.excerpt_en || ''}
+            authorName={post.author_name}
+            publishedAt={post.published_at}
+            timeAgoStr={timeAgoStr}
           />
-         
-          {/* Social sharing */}
+        </header>
+
+        {/* Cover image */}
+        {post.cover_image && (
+          <div className="max-w-5xl mx-auto px-6 mb-8">
+            <img
+              src={post.cover_image}
+              alt={post.title_ro || post.title_en || ''}
+              className="w-full max-h-[520px] object-cover"
+            />
+          </div>
+        )}
+
+        {/* Share buttons */}
+        <div className="max-w-3xl mx-auto px-6">
           <ShareButtons
-            url={`${process.env.NEXT_PUBLIC_SITE_URL || 'https://transilvaniatimes.com'}/blog/${slug}`}
-            title={title}
-            summary={post.excerpt_ro || post.summary_ro || ''}
+            url={articleUrl}
+            title={post.title_ro || post.title_en || ''}
+            summary={post.excerpt_ro || post.excerpt_en || ''}
           />
-          
-          {/* Tags */}
-          {(post.tags_ro || post.tags_en) && ((post.tags_ro || post.tags_en) ?? []).length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-10 pt-6 border-t border-foreground/10">
-              {(post.tags_ro || post.tags_en || []).map((tag, i) => (
-                <span
-                  key={i}
-                  className="text-[11px] font-sans uppercase tracking-widest text-muted-foreground border border-foreground/15 px-2.5 py-1 hover:border-brand-red hover:text-brand-red transition-colors cursor-default"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
+        </div>
 
-          {/* Back link */}
-          <div className="mt-10 pt-6 border-t border-foreground/10">
-            <Link
-              href="/"
-              className="text-[12px] font-sans font-bold uppercase tracking-widest text-brand-red hover:underline flex items-center gap-2"
-            >
-              ← Înapoi la pagina principală
-            </Link>
+        {/* Tags */}
+        {tags.length > 0 && (
+          <div className="max-w-3xl mx-auto px-6 mt-6 flex flex-wrap gap-2">
+            {tags.map((tag: string) => (
+              <span
+                key={tag}
+                className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1 hover:border-brand-red hover:text-brand-red transition-colors cursor-default"
+              >
+                {tag}
+              </span>
+            ))}
           </div>
+        )}
+
+        {/* Source */}
+        {post.source_url && (
+          <div className="max-w-3xl mx-auto px-6 mt-4">
+            <p className="font-sans text-[11px] text-muted-foreground">
+              Sursă:{' '}
+              <a
+                href={post.source_url}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                className="hover:text-brand-red transition-colors underline"
+              >
+                {(() => { try { return new URL(post.source_url).hostname } catch { return post.source_url } })()}
+              </a>
+            </p>
+          </div>
+        )}
+
+        {/* Comments */}
+        <div className="max-w-3xl mx-auto px-6">
+          <CommentSection articleId={post.id} />
         </div>
 
         {/* Related articles */}
-        {related.length > 0 && (
-          <section className="border-t border-foreground/10 bg-foreground/[0.02] py-10">
-            <div className="max-w-7xl mx-auto px-4">
-              <h2 className="font-serif text-2xl font-bold text-foreground mb-6">
+        {related && related.length > 0 && (
+          <div className="max-w-7xl mx-auto px-6 mt-16 pt-8 border-t border-foreground/10 pb-12">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-2 h-2 bg-brand-red" />
+              <h3 className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">
                 Articole similare
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {related.map((rel) => (
-                  <ArticleCard
-                    key={rel.id}
-                    slug={rel.slug}
-                    category={rel.category}
-                    title={rel.title_ro || rel.title_en || ''}
-                    image={rel.cover_image}
-                    timeAgo={
-                      rel.published_at
-                        ? formatDistanceToNow(parseISO(rel.published_at), {
-                            addSuffix: true,
-                            locale: ro,
-                          })
-                        : ''
-                    }
-                    variant="grid"
-                  />
-                ))}
-              </div>
+              </h3>
+              <div className="flex-1 h-px bg-foreground/10" />
             </div>
-          </section>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {(related as { id: string; slug: string; title_ro: string | null; title_en: string | null; cover_image: string | null; category: string | null; published_at: string | null }[]).map(rel => (
+                <Link key={rel.id} href={'/blog/' + rel.slug} className="group">
+                  {rel.cover_image && (
+                    <div className="overflow-hidden mb-3 aspect-[4/3]">
+                      <img
+                        src={rel.cover_image}
+                        alt={rel.title_ro || rel.title_en || ''}
+                        className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      />
+                    </div>
+                  )}
+                  <h4 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-3">
+                    {rel.title_ro || rel.title_en}
+                  </h4>
+                </Link>
+              ))}
+            </div>
+          </div>
         )}
       </article>
     </>
