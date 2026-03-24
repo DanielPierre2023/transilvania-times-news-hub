@@ -1,36 +1,36 @@
 
 
-## Project Health Check
+## Restore Vite Preview Layer
 
-### Current State
-The project is a **dual-stack** setup:
-- **Vite + React SPA** (`src/`) — powers the Lovable preview, currently running without errors
-- **Next.js App Router** (`app/`) — production site, likely deployed to Netlify
+### What's wrong
+The Lovable preview requires a `build:dev` script and Vite dependencies, but the Next.js migration removed them. Additionally, `src/App.tsx` imports from `src/pages/` which no longer exists (files moved to `src/views/`).
 
-### Build Error
-There is one TypeScript build error:
+### Changes
 
-```
-app/layout.tsx(5,8): error TS2882: Cannot find module or type declarations for side-effect import of './globals.css'.
-```
+**1. Update `package.json`** -- add missing scripts and dependencies
 
-**Cause**: TypeScript cannot resolve the CSS file import. Although `next-env.d.ts` exists and references Next.js types, the CSS module declaration is not being picked up — likely due to a stricter TS version or the `next` type definitions not including a `*.css` global declaration.
+- Add scripts: `"build:dev": "vite build --mode development"` and `"dev:vite": "vite"`
+- Add dependencies: `react-router-dom`, `react-i18next`, `i18next`, `i18next-browser-languagedetector`
+- Add devDependencies: `vite`, `@vitejs/plugin-react-swc`, `lovable-tagger`
 
-**Fix**: Create a `types/global.d.ts` file with a `declare module '*.css'` statement, and ensure it's included in `tsconfig.json`. This is a one-line fix.
+**2. Create 24 barrel files in `src/pages/`** that re-export from `src/views/`
 
-### No Other Issues Detected
-- No console errors in the running preview
-- No network request failures observed
-- Project dependencies appear intact
+Each file is a single line, e.g. `export { default } from "@/views/Index";`
 
-### Recommended Fix
+Files to create:
+- `src/pages/Index.tsx` -- `src/pages/Article.tsx` -- `src/pages/Category.tsx`
+- `src/pages/SearchResults.tsx` -- `src/pages/Blog.tsx` -- `src/pages/BlogPost.tsx`
+- `src/pages/TermsConditions.tsx` -- `src/pages/PrivacyPolicy.tsx` -- `src/pages/Contact.tsx`
+- `src/pages/NotFound.tsx`
+- `src/pages/admin/AdminLogin.tsx` -- `src/pages/admin/AdminLayout.tsx`
+- `src/pages/admin/Dashboard.tsx` -- `src/pages/admin/BlogManager.tsx`
+- `src/pages/admin/BlogEditor.tsx` -- `src/pages/admin/Analytics.tsx`
+- `src/pages/admin/CommentsManager.tsx` -- `src/pages/admin/ContactsPage.tsx`
+- `src/pages/admin/GeoToolsPage.tsx` -- `src/pages/admin/InboxPage.tsx`
+- `src/pages/admin/Newsletter.tsx` -- `src/pages/admin/RssScraper.tsx`
+- `src/pages/admin/Subscribers.tsx` -- `src/pages/admin/SettingsPage.tsx`
 
-1. **Create `types/global.d.ts`** with a CSS module declaration:
-   ```ts
-   declare module '*.css' {}
-   ```
-
-2. **Update `tsconfig.json`** `include` array to add `"types/**/*.ts"`.
-
-This is a minimal, non-breaking change that resolves the only build error.
+### Impact
+- Zero changes to production Next.js app, Supabase, or Netlify deployment
+- Only restores the Vite-based preview that Lovable needs
 
