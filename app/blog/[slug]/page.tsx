@@ -40,6 +40,7 @@ interface Post {
   category: string | null
   subcategory: string | null
   cover_image: string | null
+  cover_image_credit: string | null  // ← added
   author_name: string | null
   published_at: string | null
   tags_ro: string[] | null
@@ -106,7 +107,7 @@ export default async function ArticlePage({
 
   const { data, error } = await supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, content_ro, content_en, excerpt_ro, excerpt_en, summary_ro, summary_en, category, subcategory, cover_image, author_name, published_at, tags_ro, tags_en, is_breaking, source_url')
+    .select('id, slug, title_ro, title_en, content_ro, content_en, excerpt_ro, excerpt_en, summary_ro, summary_en, category, subcategory, cover_image, cover_image_credit, author_name, published_at, tags_ro, tags_en, is_breaking, source_url')
     .eq('slug', slug)
     .eq('status', 'published')
     .single()
@@ -195,6 +196,7 @@ export default async function ArticlePage({
             contentRo={post.content_ro}
             contentEn={post.content_en}
             coverImage={post.cover_image}
+            coverImageCredit={post.cover_image_credit}
             authorName={post.author_name}
             publishedAt={post.published_at}
             timeAgoStr={timeAgoStr}
