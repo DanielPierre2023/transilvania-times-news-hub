@@ -11,7 +11,7 @@ interface ScrapedArticle {
   original_url: string | null
   category: string | null
   status: string
-  scraped_at: string
+  created_at: string
 }
 
 interface RssSource {
@@ -57,9 +57,9 @@ export default function ScraperPage() {
         .order('name'),
       supabase
         .from('scraped_articles')
-        .select('id, original_title, original_url, category, status, scraped_at')
+        .select('id, original_title, original_url, category, status, created_at')
         .eq('status', queueFilter)
-        .order('scraped_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(60),
     ])
     setSources((sourcesData ?? []) as RssSource[])
@@ -354,7 +354,7 @@ export default function ScraperPage() {
                   {article.original_title || article.original_url || article.id}
                 </p>
                 <p className="font-sans text-[11px] text-white/30">
-                  {article.category?.toUpperCase()} · {new Date(article.scraped_at).toLocaleString('ro-RO')}
+                  {article.category?.toUpperCase()} · {new Date(article.created_at).toLocaleString('ro-RO')}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
