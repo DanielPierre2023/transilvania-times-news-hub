@@ -23,6 +23,13 @@ export const metadata: Metadata = {
   },
   description: 'Jurnalism independent din inima Transilvaniei.',
   metadataBase: new URL('https://transilvaniatimes.com'),
+  icons: {
+    icon: [
+      { url: '/assets/favicons/favicon-32x32.svg', type: 'image/svg+xml' },
+    ],
+    shortcut: '/assets/favicons/favicon-32x32.svg',
+    apple: '/assets/logos/transilvania-times-favicon-symbol.svg',
+  },
 }
 
 export default async function RootLayout({
