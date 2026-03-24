@@ -58,6 +58,8 @@ export type Database = {
       blog_posts: {
         Row: {
           ai_editor: string | null
+          ai_quality_score: number | null
+          ai_review_reason: string | null
           author_name: string | null
           category: string | null
           content_en: string | null
@@ -70,11 +72,14 @@ export type Database = {
           is_breaking: boolean | null
           published_at: string | null
           reading_time_min: number | null
+          scraped_article_id: string | null
           seo_description_en: string | null
           seo_description_ro: string | null
           seo_title_en: string | null
           seo_title_ro: string | null
           slug: string
+          social_shares: Json | null
+          source_url: string | null
           status: string
           subcategory: string | null
           summary_en: string | null
@@ -88,6 +93,8 @@ export type Database = {
         }
         Insert: {
           ai_editor?: string | null
+          ai_quality_score?: number | null
+          ai_review_reason?: string | null
           author_name?: string | null
           category?: string | null
           content_en?: string | null
@@ -100,11 +107,14 @@ export type Database = {
           is_breaking?: boolean | null
           published_at?: string | null
           reading_time_min?: number | null
+          scraped_article_id?: string | null
           seo_description_en?: string | null
           seo_description_ro?: string | null
           seo_title_en?: string | null
           seo_title_ro?: string | null
           slug: string
+          social_shares?: Json | null
+          source_url?: string | null
           status?: string
           subcategory?: string | null
           summary_en?: string | null
@@ -118,6 +128,8 @@ export type Database = {
         }
         Update: {
           ai_editor?: string | null
+          ai_quality_score?: number | null
+          ai_review_reason?: string | null
           author_name?: string | null
           category?: string | null
           content_en?: string | null
@@ -130,11 +142,14 @@ export type Database = {
           is_breaking?: boolean | null
           published_at?: string | null
           reading_time_min?: number | null
+          scraped_article_id?: string | null
           seo_description_en?: string | null
           seo_description_ro?: string | null
           seo_title_en?: string | null
           seo_title_ro?: string | null
           slug?: string
+          social_shares?: Json | null
+          source_url?: string | null
           status?: string
           subcategory?: string | null
           summary_en?: string | null
@@ -146,7 +161,15 @@ export type Database = {
           title_ro?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "blog_posts_scraped_article_id_fkey"
+            columns: ["scraped_article_id"]
+            isOneToOne: false
+            referencedRelation: "scraped_articles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       contact_messages: {
         Row: {
@@ -220,6 +243,30 @@ export type Database = {
           source?: string | null
           tags?: string[] | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      county_quotas: {
+        Row: {
+          active: boolean
+          county: string
+          created_at: string | null
+          daily_limit: number
+          priority: number
+        }
+        Insert: {
+          active?: boolean
+          county: string
+          created_at?: string | null
+          daily_limit?: number
+          priority?: number
+        }
+        Update: {
+          active?: boolean
+          county?: string
+          created_at?: string | null
+          daily_limit?: number
+          priority?: number
         }
         Relationships: []
       }
@@ -379,32 +426,56 @@ export type Database = {
       rss_sources: {
         Row: {
           category: string | null
+          city_focus: string[] | null
+          county: string | null
           created_at: string
+          error_count: number | null
+          error_message: string | null
           id: string
           is_active: boolean
           last_scraped_at: string | null
           name: string
+          output_limit: number | null
+          scope: string | null
           source_language: string | null
+          source_type: string | null
+          target_category: string | null
           url: string
         }
         Insert: {
           category?: string | null
+          city_focus?: string[] | null
+          county?: string | null
           created_at?: string
+          error_count?: number | null
+          error_message?: string | null
           id?: string
           is_active?: boolean
           last_scraped_at?: string | null
           name: string
+          output_limit?: number | null
+          scope?: string | null
           source_language?: string | null
+          source_type?: string | null
+          target_category?: string | null
           url: string
         }
         Update: {
           category?: string | null
+          city_focus?: string[] | null
+          county?: string | null
           created_at?: string
+          error_count?: number | null
+          error_message?: string | null
           id?: string
           is_active?: boolean
           last_scraped_at?: string | null
           name?: string
+          output_limit?: number | null
+          scope?: string | null
           source_language?: string | null
+          source_type?: string | null
+          target_category?: string | null
           url?: string
         }
         Relationships: []
@@ -414,12 +485,16 @@ export type Database = {
           ai_score: number | null
           assigned_editor: string | null
           category: string | null
+          county: string | null
           cover_image: string | null
           created_at: string
+          error_message: string | null
           excerpt_en: string | null
           excerpt_ro: string | null
           id: string
+          is_used: boolean | null
           last_rewrite_job_id: string | null
+          marked_for_deletion: boolean | null
           original_content: string | null
           original_content_full: string | null
           original_title: string
@@ -435,16 +510,19 @@ export type Database = {
           rewritten_content: string | null
           rewritten_en: string | null
           rewritten_ro: string | null
+          scope: string | null
           seo_description_en: string | null
           seo_description_ro: string | null
           seo_title_en: string | null
           seo_title_ro: string | null
           source_id: string | null
+          source_type: string | null
           source_word_count: number | null
           status: string
           subcategory: string | null
           summary_en: string | null
           summary_ro: string | null
+          target_category: string | null
           title_en: string | null
           title_ro: string | null
         }
@@ -452,12 +530,16 @@ export type Database = {
           ai_score?: number | null
           assigned_editor?: string | null
           category?: string | null
+          county?: string | null
           cover_image?: string | null
           created_at?: string
+          error_message?: string | null
           excerpt_en?: string | null
           excerpt_ro?: string | null
           id?: string
+          is_used?: boolean | null
           last_rewrite_job_id?: string | null
+          marked_for_deletion?: boolean | null
           original_content?: string | null
           original_content_full?: string | null
           original_title: string
@@ -473,16 +555,19 @@ export type Database = {
           rewritten_content?: string | null
           rewritten_en?: string | null
           rewritten_ro?: string | null
+          scope?: string | null
           seo_description_en?: string | null
           seo_description_ro?: string | null
           seo_title_en?: string | null
           seo_title_ro?: string | null
           source_id?: string | null
+          source_type?: string | null
           source_word_count?: number | null
           status?: string
           subcategory?: string | null
           summary_en?: string | null
           summary_ro?: string | null
+          target_category?: string | null
           title_en?: string | null
           title_ro?: string | null
         }
@@ -490,12 +575,16 @@ export type Database = {
           ai_score?: number | null
           assigned_editor?: string | null
           category?: string | null
+          county?: string | null
           cover_image?: string | null
           created_at?: string
+          error_message?: string | null
           excerpt_en?: string | null
           excerpt_ro?: string | null
           id?: string
+          is_used?: boolean | null
           last_rewrite_job_id?: string | null
+          marked_for_deletion?: boolean | null
           original_content?: string | null
           original_content_full?: string | null
           original_title?: string
@@ -511,16 +600,19 @@ export type Database = {
           rewritten_content?: string | null
           rewritten_en?: string | null
           rewritten_ro?: string | null
+          scope?: string | null
           seo_description_en?: string | null
           seo_description_ro?: string | null
           seo_title_en?: string | null
           seo_title_ro?: string | null
           source_id?: string | null
+          source_type?: string | null
           source_word_count?: number | null
           status?: string
           subcategory?: string | null
           summary_en?: string | null
           summary_ro?: string | null
+          target_category?: string | null
           title_en?: string | null
           title_ro?: string | null
         }
