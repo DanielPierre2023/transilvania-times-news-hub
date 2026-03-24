@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Camera, Bot } from 'lucide-react'
 
 interface ArticleContentProps {
   titleRo: string | null
@@ -10,127 +11,144 @@ interface ArticleContentProps {
   contentRo: string | null
   contentEn: string | null
   coverImage: string | null
+  coverImageCredit?: string | null
   authorName: string | null
   publishedAt: string | null
   timeAgoStr: string
   defaultLang: 'ro' | 'en'
 }
 
-function fmtDate(dateStr: string | null, lang: 'ro' | 'en'): string {
-  if (!dateStr) return ''
-  try {
-    return new Date(dateStr).toLocaleDateString(lang === 'ro' ? 'ro-RO' : 'en-US', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    })
-  } catch { return '' }
-}
-
-function renderContent(raw: string | null): string {
-  if (!raw) return ''
-  // If already HTML (has tags), use as-is
-  if (raw.includes('<p>') || raw.includes('<br') || raw.includes('<h2') || raw.includes('<h3')) {
-    return raw
-  }
-  // Plain text: split on double newlines → <p> tags
-  return raw
-    .split(/\n\n+/)
-    .filter(p => p.trim().length > 0)
-    .map(p => `<p>${p.trim().replace(/\n/g, ' ')}</p>`)
-    .join('\n')
-}
-
 export default function ArticleContent({
-  titleRo, titleEn, summaryRo, summaryEn,
-  contentRo, contentEn, coverImage,
-  authorName, publishedAt, timeAgoStr, defaultLang,
+  titleRo,
+  titleEn,
+  summaryRo,
+  summaryEn,
+  contentRo,
+  contentEn,
+  coverImage,
+  coverImageCredit,
+  authorName,
+  publishedAt,
+  timeAgoStr,
+  defaultLang,
 }: ArticleContentProps) {
   const [lang, setLang] = useState<'ro' | 'en'>(defaultLang)
 
-  const hasEn = !!(titleEn && contentEn)
+  const title   = lang === 'ro' ? (titleRo   || titleEn)   : (titleEn   || titleRo)
+  const summary = lang === 'ro' ? (summaryRo || summaryEn) : (summaryEn || summaryRo)
+  const content = lang === 'ro' ? (contentRo || contentEn) : (contentEn || contentRo)
 
-  const title   = lang === 'en' && titleEn   ? titleEn   : (titleRo   || titleEn   || '')
-  const summary = lang === 'en' && summaryEn ? summaryEn : (summaryRo || summaryEn || '')
-  const body    = lang === 'en' && contentEn ? contentEn : (contentRo || contentEn || '')
+  const hasBoth = (titleRo && titleEn) || (contentRo && contentEn)
+
+  const isAiGenerated = coverImageCredit
+    ? coverImageCredit.toLowerCase().includes('generat') ||
+      coverImageCredit.toLowerCase().includes('artificial') ||
+      coverImageCredit.toLowerCase().includes('ai')
+    : false
+
+  // Parse summary bullets
+  const summaryLines = summary
+    ? summary.split('\n').map(l => l.trim()).filter(Boolean)
+    : []
 
   return (
     <div>
-      {/* Language toggle — only shown if English version exists */}
-      {hasEn && (
-        <div className="flex items-center gap-1 mb-5">
+      {/* Language switcher */}
+      {hasBoth && (
+        <div className="flex gap-1 mb-6">
           <button
             onClick={() => setLang('ro')}
-            className={
-              'text-[11px] font-sans font-bold uppercase tracking-wider px-3 py-1 transition-colors ' +
-              (lang === 'ro'
-                ? 'bg-brand-red text-white'
-                : 'text-muted-foreground hover:text-brand-red border border-foreground/20')
-            }
+            className={`font-sans text-[10px] uppercase tracking-[0.15em] px-3 py-1.5 border transition-colors ${
+              lang === 'ro'
+                ? 'bg-brand-red border-brand-red text-white'
+                : 'border-foreground/20 text-muted-foreground hover:text-foreground'
+            }`}
           >
-            RO
+            🇷🇴 Română
           </button>
           <button
             onClick={() => setLang('en')}
-            className={
-              'text-[11px] font-sans font-bold uppercase tracking-wider px-3 py-1 transition-colors ' +
-              (lang === 'en'
-                ? 'bg-brand-red text-white'
-                : 'text-muted-foreground hover:text-brand-red border border-foreground/20')
-            }
+            className={`font-sans text-[10px] uppercase tracking-[0.15em] px-3 py-1.5 border transition-colors ${
+              lang === 'en'
+                ? 'bg-brand-red border-brand-red text-white'
+                : 'border-foreground/20 text-muted-foreground hover:text-foreground'
+            }`}
           >
-            EN
+            🇬🇧 English
           </button>
         </div>
       )}
 
       {/* Title */}
-      <h1 className="font-serif text-3xl md:text-4xl lg:text-5xl font-bold leading-tight tracking-tight text-foreground mb-5">
+      <h1 className="font-serif text-3xl md:text-4xl lg:text-5xl font-bold text-foreground leading-tight mb-6">
         {title}
       </h1>
 
-      {/* Meta row */}
-      <div className="flex flex-wrap items-center gap-4 text-[11px] font-sans text-muted-foreground mb-6">
-        {authorName && (
-          <span className="font-bold text-foreground">{authorName}</span>
-        )}
-        {publishedAt && (
-          <span>{fmtDate(publishedAt, lang)}</span>
-        )}
-        {timeAgoStr && (
-          <span className="text-brand-red">{timeAgoStr}</span>
-        )}
-      </div>
-
-      {/* Summary / excerpt — shown prominently before cover image */}
-      {summary && (
-        <p className="font-sans text-base text-muted-foreground leading-relaxed mb-6 border-l-4 border-brand-red pl-4 italic">
-          {summary}
-        </p>
-      )}
-
-      {/* Cover image — correct position: after title/meta/summary, before body */}
-      {coverImage && (
-        <div className="mb-8 -mx-6">
-          <img
-            src={coverImage}
-            alt={title}
-            className="w-full max-h-[520px] object-cover"
-          />
+      {/* Summary bullets */}
+      {summaryLines.length > 0 && (
+        <div className="border-l-2 border-brand-red pl-4 mb-6 space-y-1">
+          {summaryLines.map((line, i) => (
+            <p key={i} className="font-sans text-sm text-muted-foreground leading-relaxed">
+              {line.startsWith('•') || line.startsWith('-') || line.startsWith('·')
+                ? line.substring(1).trim()
+                : line}
+            </p>
+          ))}
         </div>
       )}
 
-      {/* Article body — justified text matching original */}
-      {body && (
+      {/* Author + date */}
+      <div className="flex items-center gap-3 mb-8 pb-6 border-b border-foreground/10">
+        <div className="w-8 h-8 bg-brand-red/10 border border-brand-red/20 flex items-center justify-center">
+          <span className="font-serif text-brand-red text-sm font-bold">
+            {authorName ? authorName.charAt(0).toUpperCase() : 'T'}
+          </span>
+        </div>
+        <div>
+          <p className="font-sans text-[12px] font-bold text-foreground">
+            {authorName || 'Transilvania Times'}
+          </p>
+          {timeAgoStr && (
+            <p className="font-sans text-[11px] text-muted-foreground">{timeAgoStr}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Cover image */}
+      {coverImage && (
+        <div className="mb-8">
+          <div className="overflow-hidden">
+            <img
+              src={coverImage}
+              alt={title || ''}
+              className="w-full aspect-video object-cover"
+            />
+          </div>
+
+          {/* Image credit — shown below image if present */}
+          {coverImageCredit && (
+            <p className="font-sans text-[11px] text-muted-foreground/70 mt-2 flex items-center gap-1.5 italic">
+              {isAiGenerated
+                ? <Bot className="w-3 h-3 shrink-0 text-blue-400" />
+                : <Camera className="w-3 h-3 shrink-0" />
+              }
+              {coverImageCredit}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Article body */}
+      {content && (
         <div
-          className={[
-            'prose prose-lg prose-neutral max-w-none font-sans',
-            'prose-headings:font-serif prose-headings:font-bold prose-headings:text-foreground',
-            'prose-p:text-foreground/85 prose-p:leading-relaxed prose-p:mb-4 [&_p]:text-justify',
-            'prose-a:text-brand-red prose-a:no-underline hover:prose-a:underline',
-            'prose-strong:text-foreground prose-strong:font-bold',
-            'prose-blockquote:border-l-brand-red prose-blockquote:font-serif prose-blockquote:text-muted-foreground',
-            'prose-img:rounded-none prose-img:w-full',
-          ].join(' ')}
-          dangerouslySetInnerHTML={{ __html: renderContent(body) }}
+          className="prose prose-lg max-w-none font-serif text-foreground
+            prose-p:leading-relaxed prose-p:mb-5
+            prose-headings:font-serif prose-headings:font-bold prose-headings:text-foreground
+            prose-a:text-brand-red prose-a:no-underline hover:prose-a:underline
+            prose-strong:font-bold prose-strong:text-foreground
+            prose-blockquote:border-l-brand-red prose-blockquote:text-muted-foreground
+            [&_p]:font-serif [&_p]:text-[17px] [&_p]:leading-[1.8] [&_p]:mb-5"
+          dangerouslySetInnerHTML={{ __html: content }}
         />
       )}
     </div>
