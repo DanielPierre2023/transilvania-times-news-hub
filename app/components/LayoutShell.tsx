@@ -91,37 +91,6 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
         scrolled ? 'shadow-md' : ''
       }`}>
 
-        {/* Top bar: date + weather + admin */}
-        <div className="border-b border-foreground/[0.06] px-6 py-1.5 hidden md:flex items-center justify-between max-w-7xl mx-auto w-full">
-          <div className="flex items-center gap-4">
-            <span className="font-sans text-[11px] text-muted-foreground">
-              {new Date().toLocaleDateString('ro-RO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </span>
-            <WeatherWidget />
-          </div>
-          <div className="flex items-center gap-3">
-            {isAdmin ? (
-              <div className="flex items-center gap-2">
-                <Link href="/admin/dashboard"
-                  className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors">
-                  <Settings size={12} /> Admin
-                </Link>
-                <button
-                  onClick={async () => { await supabase.auth.signOut() }}
-                  className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors"
-                >
-                  <LogOut size={12} /> Ieșire
-                </button>
-              </div>
-            ) : (
-              <Link href="/admin"
-                className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                Login
-              </Link>
-            )}
-          </div>
-        </div>
-
         {/* Logo + main nav */}
         <div className="px-6 py-4 max-w-7xl mx-auto w-full flex items-center justify-between gap-6">
 
@@ -152,6 +121,21 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 {link.label}
               </Link>
             ))}
+            <WeatherWidget />
+            {isAdmin ? (
+              <div className="flex items-center gap-1 ml-2">
+                <Link href="/admin/dashboard"
+                  className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors px-2 py-2">
+                  <Settings size={12} /> Admin
+                </Link>
+                <button
+                  onClick={async () => { await supabase.auth.signOut() }}
+                  className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors px-2 py-2"
+                >
+                  <LogOut size={12} />
+                </button>
+              </div>
+            ) : null}
           </nav>
 
           {/* Mobile menu button */}
