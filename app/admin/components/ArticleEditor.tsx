@@ -431,7 +431,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
             </div>
             {data.cover_image_credit ? (
               <p className="font-sans text-[10px] text-blue-400/60">
-                {data.cover_image_credit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: „{data.cover_image_credit}"
+                {data.cover_image_credit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: &bdquo;{data.cover_image_credit}&rdquo;
               </p>
             ) : null}
 
