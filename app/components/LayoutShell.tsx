@@ -60,13 +60,16 @@ import WeatherWidget from './WeatherWidget'
 import CookieBanner from './CookieBanner'
 
 const NAV_LINKS = [
-  { href: '/',            label: 'Acasă',       labelEn: 'Home' },
-  { href: '/categorie/news',     label: 'Știri',       labelEn: 'News' },
-  { href: '/categorie/politics', label: 'Politică',    labelEn: 'Politics' },
-  { href: '/categorie/business', label: 'Afaceri',     labelEn: 'Business' },
-  { href: '/categorie/culture',  label: 'Cultură',     labelEn: 'Culture' },
-  { href: '/categorie/sports',   label: 'Sport',       labelEn: 'Sport' },
-  { href: '/en',                 label: 'EN',          labelEn: 'EN' },
+  { href: '/categorie/news',       label: 'Știri',       labelEn: 'News' },
+  { href: '/categorie/politics',   label: 'Politică',    labelEn: 'Politics' },
+  { href: '/categorie/technology', label: 'Tehnologie',  labelEn: 'Technology' },
+  { href: '/categorie/business',   label: 'Afaceri',     labelEn: 'Business' },
+  { href: '/categorie/culture',    label: 'Cultură',     labelEn: 'Culture' },
+  { href: '/categorie/travel',     label: 'Călătorii',   labelEn: 'Travel' },
+  { href: '/categorie/education',  label: 'Educație',    labelEn: 'Education' },
+  { href: '/categorie/sports',     label: 'Sport',       labelEn: 'Sport' },
+  { href: '/categorie/health',     label: 'Sănătate',    labelEn: 'Health' },
+  { href: '/categorie/opinion',    label: 'Opinie',      labelEn: 'Opinion' },
 ]
 
 interface LayoutShellProps {
@@ -219,7 +222,7 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
 
             {/* Desktop nav */}
             <nav className="hidden md:flex items-center mx-auto">
-              {NAV_LINKS.filter(l => l.href !== '/en').map(link => (
+              {NAV_LINKS.map(link => (
                 <Link
                   key={link.href}
                   href={link.href}
