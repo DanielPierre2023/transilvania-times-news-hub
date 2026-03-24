@@ -23,20 +23,18 @@ interface ArticleData {
   excerpt_ro: string; excerpt_en: string
   summary_ro: string; summary_en: string
   category: string; subcategory: string
-  cover_image: string; author_name: string
+  cover_image: string; cover_image_credit: string; author_name: string
   status: string; is_breaking: boolean; source_url: string
 }
 
 const EMPTY: ArticleData = {
   slug: '', title_ro: '', title_en: '', content_ro: '', content_en: '',
   excerpt_ro: '', excerpt_en: '', summary_ro: '', summary_en: '',
-  category: 'news', subcategory: '', cover_image: '', author_name: '',
-  status: 'draft', is_breaking: false, source_url: '',
+  category: 'news', subcategory: '', cover_image: '', cover_image_credit: '',
+  author_name: '', status: 'draft', is_breaking: false, source_url: '',
 }
 
-// ─── FIELD WRAPPER — defined at MODULE level, NOT inside component ────────────
-// This is critical: if defined inside the component, React treats it as a new
-// component type on every render, causing inputs to unmount → focus lost.
+// ─── FIELD WRAPPER — module level (critical: must NOT be inside component) ────
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -55,16 +53,15 @@ const ta  = inp + " resize-none leading-relaxed"
 
 export default function ArticleEditor({ articleId }: ArticleEditorProps) {
   const router = useRouter()
-  const [data, setData]         = useState<ArticleData>(EMPTY)
-  const [loading, setLoading]   = useState(!!articleId)
-  const [saving, setSaving]     = useState(false)
-  const [tab, setTab]           = useState<'ro' | 'en'>('ro')
-  const [generating, setGen]    = useState(false)
+  const [data, setData]           = useState<ArticleData>(EMPTY)
+  const [loading, setLoading]     = useState(!!articleId)
+  const [saving, setSaving]       = useState(false)
+  const [tab, setTab]             = useState<'ro' | 'en'>('ro')
+  const [generating, setGen]      = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [msg, setMsg]           = useState('')
-  const uploadRef               = useRef<HTMLInputElement>(null)
+  const [msg, setMsg]             = useState('')
+  const uploadRef                 = useRef<HTMLInputElement>(null)
 
-  // Create Supabase client once — avoids recreation on every render
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -75,22 +72,23 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
     supabase.from('blog_posts').select('*').eq('id', articleId).single()
       .then(({ data: d }) => {
         if (d) setData({
-          slug:       d.slug        ?? '',
-          title_ro:   d.title_ro    ?? '',
-          title_en:   d.title_en    ?? '',
-          content_ro: d.content_ro  ?? '',
-          content_en: d.content_en  ?? '',
-          excerpt_ro: d.excerpt_ro  ?? '',
-          excerpt_en: d.excerpt_en  ?? '',
-          summary_ro: d.summary_ro  ?? '',
-          summary_en: d.summary_en  ?? '',
-          category:   d.category    ?? 'news',
-          subcategory: d.subcategory ?? '',
-          cover_image: d.cover_image ?? '',
-          author_name: d.author_name ?? '',
-          status:      d.status     ?? 'draft',
-          is_breaking: d.is_breaking ?? false,
-          source_url:  d.source_url  ?? '',
+          slug:               d.slug              ?? '',
+          title_ro:           d.title_ro          ?? '',
+          title_en:           d.title_en          ?? '',
+          content_ro:         d.content_ro        ?? '',
+          content_en:         d.content_en        ?? '',
+          excerpt_ro:         d.excerpt_ro        ?? '',
+          excerpt_en:         d.excerpt_en        ?? '',
+          summary_ro:         d.summary_ro        ?? '',
+          summary_en:         d.summary_en        ?? '',
+          category:           d.category          ?? 'news',
+          subcategory:        d.subcategory       ?? '',
+          cover_image:        d.cover_image       ?? '',
+          cover_image_credit: d.cover_image_credit ?? '',
+          author_name:        d.author_name       ?? '',
+          status:             d.status            ?? 'draft',
+          is_breaking:        d.is_breaking       ?? false,
+          source_url:         d.source_url        ?? '',
         })
         setLoading(false)
       })
@@ -133,7 +131,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
     flash(newStatus === 'published' ? '✓ Publicat și live' : '✓ Salvat')
   }
 
-  // ── IMAGE UPLOAD from computer ─────────────────────────────────────────────
+  // ── IMAGE UPLOAD ───────────────────────────────────────────────────────────
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -168,11 +166,18 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
     flash('Generez imaginea...')
     try {
       const { data: res, error } = await supabase.functions.invoke('tt-generate-cover', {
-        body: { title: imgTitle, summary: imgSummary }
+        body: { title: imgTitle, summary: imgSummary, category: data.category }
       })
       if (error) throw new Error(error.message)
-      if (res?.publicUrl) { set('cover_image', res.publicUrl); flash('✓ Imagine generată') }
-      else throw new Error(res?.error || 'Eroare generare')
+      if (res?.publicUrl) {
+        set('cover_image', res.publicUrl)
+        if (res.isAiGenerated !== false) {
+          set('cover_image_credit', 'Imagine generată cu inteligență artificială')
+        }
+        flash('✓ Imagine generată')
+      } else {
+        throw new Error(res?.error || 'Eroare generare')
+      }
     } catch (err) {
       flash(`Eroare: ${(err as Error).message}`)
     }
@@ -251,7 +256,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
         {/* ── Main content ─────────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* Language tabs */}
           <div className="flex gap-1">
             {(['ro', 'en'] as const).map(l => (
               <button key={l} onClick={() => setTab(l)}
@@ -357,7 +361,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
                 {SUBCATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
-            {/* AUTOR — plain input, no wrapper component, direct onChange */}
             <div>
               <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
                 Autor
@@ -378,7 +381,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
               Imagine copertă
             </p>
 
-            {/* Preview */}
             {data.cover_image && (
               <div className="relative">
                 <img src={data.cover_image} alt="Cover" className="w-full aspect-video object-cover" />
@@ -389,12 +391,10 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
               </div>
             )}
 
-            {/* URL input */}
             <input className={inp} value={data.cover_image}
               onChange={e => set('cover_image', e.target.value)}
               placeholder="https://... sau încarcă mai jos" />
 
-            {/* Upload from computer */}
             <input ref={uploadRef} type="file" accept="image/*"
               onChange={handleImageUpload} className="hidden" id="edit-img-upload" />
             <label htmlFor="edit-img-upload"
@@ -409,7 +409,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
               }
             </label>
 
-            {/* AI generate */}
             <button onClick={generateCover} disabled={generating || (!data.title_ro && !data.title_en)}
               className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600/20 border border-blue-500/30 text-blue-300 font-sans text-[11px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-colors disabled:opacity-50">
               {generating
@@ -418,15 +417,33 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
               }
             </button>
 
+            {/* Credit / sursa fotografie */}
+            <div>
+              <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
+                Sursă / creditare fotografie
+              </label>
+              <input
+                className={inp}
+                value={data.cover_image_credit}
+                onChange={e => set('cover_image_credit', e.target.value)}
+                placeholder="Imagine generată cu AI / © Reuters / Arhivă"
+              />
+            </div>
+            {data.cover_image_credit ? (
+              <p className="font-sans text-[10px] text-blue-400/60">
+                {data.cover_image_credit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: „{data.cover_image_credit}"
+              </p>
+            ) : null}
+
             <p className="font-sans text-[10px] text-white/20">
-              Upload: JPG/PNG/WebP max 10MB. AI: FLUX.1 / DALL-E 3 din titlu + rezumat.
+              Upload: JPG/PNG/WebP max 10MB. AI: HuggingFace FLUX / Pollinations / Unsplash.
             </p>
           </div>
 
           {/* Source */}
           <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-3">
             <p className="font-sans text-[11px] uppercase tracking-widest text-white/40 border-b border-white/[0.07] pb-3">
-              Sursă / referință
+              Sursă / referință articol
             </p>
             <input className={inp} value={data.source_url}
               onChange={e => set('source_url', e.target.value)}
