@@ -3,35 +3,36 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Wand2, Save, Globe, RefreshCw, ChevronDown } from 'lucide-react'
+import { Wand2, Save, Globe, RefreshCw, Image as ImageIcon, ChevronDown, ChevronUp } from 'lucide-react'
 
-// ─── Article type definitions with embedded editorial prompts ───────────────
+// ─── ARTICLE TYPES ───────────────────────────────────────────────────────────
 
 const ARTICLE_TYPES = [
-  { value: 'editorial', label: 'Editorial', emoji: '✒️' },
-  { value: 'analiza', label: 'Analiză', emoji: '🔬' },
-  { value: 'pamflet', label: 'Pamflet', emoji: '⚡' },
-  { value: 'blog', label: 'Blog', emoji: '📝' },
-  { value: 'reportaj', label: 'Reportaj', emoji: '📰' },
-  { value: 'cultura', label: 'Cultură', emoji: '🎭' },
+  { value: 'editorial',  label: 'Editorial',  emoji: '✒️' },
+  { value: 'analiza',    label: 'Analiză',    emoji: '🔬' },
+  { value: 'pamflet',    label: 'Pamflet',    emoji: '⚡' },
+  { value: 'blog',       label: 'Blog',       emoji: '📝' },
+  { value: 'reportaj',   label: 'Reportaj',   emoji: '📰' },
+  { value: 'cultura',    label: 'Cultură',    emoji: '🎭' },
   { value: 'tehnologie', label: 'Tehnologie', emoji: '💻' },
 ]
 
 const WORD_COUNTS = [
-  { value: 800, label: '800 cuvinte', desc: 'Scurt · impact rapid' },
-  { value: 1200, label: '1200 cuvinte', desc: 'Standard · echilibrat' },
-  { value: 1800, label: '1800 cuvinte', desc: 'Long-form · aprofundat' },
+  { value: 800,  label: '800',  desc: 'Scurt' },
+  { value: 1200, label: '1200', desc: 'Standard' },
+  { value: 1800, label: '1800', desc: 'Long-form' },
 ]
 
 const CATEGORIES = [
-  'news', 'politics', 'technology', 'business',
-  'culture', 'travel', 'education', 'sports', 'health', 'opinion'
+  'news','politics','technology','business',
+  'culture','travel','education','sports','health','opinion',
 ]
 
-// ─── Strong editorial prompts per article type ──────────────────────────────
+const SUBCATEGORIES = ['', 'regional', 'national', 'international']
+
+// ─── PROMPTS ─────────────────────────────────────────────────────────────────
 
 function buildPrompt(type: string, topic: string, wordCount: number, language: string): string {
-  const lang = language === 'ro' ? 'română' : 'English'
   const langInstruction = language === 'ro'
     ? `Scrie EXCLUSIV în limba română. Generează și o versiune completă în engleză.`
     : `Write EXCLUSIVELY in English. Also generate a complete Romanian version.`
@@ -39,125 +40,112 @@ function buildPrompt(type: string, topic: string, wordCount: number, language: s
   const base = `${langInstruction}
 
 SUBIECT: ${topic}
+LUNGIME ȚINTĂ: aproximativ ${wordCount} cuvinte pentru conținut.
 
-LUNGIME ȚINTĂ: aproximativ ${wordCount} cuvinte pentru conținutul principal.
+CERINȚE TITLU:
+- Psihologic puternic: curiozitate, urgență sau emoție autentică
+- Tehnici avansate: cifre concrete, paradoxuri, întrebări retorice, declarații surprinzătoare
+- Irezistibil de citit, fără clickbait ieftin
+- Generează și un TITLU ALTERNATIV
 
-CERINȚE OBLIGATORII PENTRU TITLU:
-- Titlul trebuie să fie psihologic puternic: să creeze curiozitate, urgență sau emoție
-- Folosește tehnici jurnalistice avansate: cifre concrete, paradoxuri, întrebări retorice, sau declarații surprinzătoare
-- Titlul trebuie să fie irezistibil de dat click, dar fără clickbait ieftin
-- Generează și un titlu alternativ
+CERINȚE REZUMAT (summary_ro / summary_en):
+- 3-4 puncte bullet, fiecare max 15 cuvinte
+- Fiecare bullet adaugă informație nouă, nu repetă titlul
 
-CERINȚE PENTRU REZUMAT (summary):
-- 3-4 puncte bullet, fiecare de maxim 15 cuvinte
-- Captează esența, nu repeta titlul
-- Fiecare bullet trebuie să adauge informație nouă
-
-CERINȚE SEO:
-- 5-8 tag-uri relevante, specifice, în limba articolului
+CERINȚE SEO (tags_ro / tags_en):
+- 6-8 tag-uri relevante și specifice, în limba articolului
 - Include variații long-tail
 
 `
 
-  const typePrompts: Record<string, string> = {
+  const prompts: Record<string, string> = {
     editorial: `${base}
-TIP ARTICOL: EDITORIAL JURNALISTIC DE ÎNALTĂ CLASĂ
+TIP: EDITORIAL JURNALISTIC DE ÎNALTĂ CLASĂ
 
-Scrie un editorial cu autoritate și viziune. Structura obligatorie:
-1. DESCHIDERE PUTERNICĂ (2-3 fraze): O declarație provocatoare, o scenă vie sau o statistică șocantă care ancorează cititorul imediat.
-2. TEZĂ CLARĂ: Poziția publicației față de subiect, enunțată ferm și fără echivoc.
-3. ARGUMENTARE STRATIFICATĂ: 3-4 argumente solide, fiecare susținut cu fapte concrete, precedente istorice sau citate relevante. Argumentele se construiesc progresiv.
-4. CONTRAARGUMENT ȘI RESPINGERE: Recunoaște perspectiva opusă, apoi demontează-o elegant.
-5. CONCLUZIE CU CHEMARE LA ACȚIUNE: Nu încheia cu platitudini — termină cu o propoziție care rămâne în minte și provoacă reflecție sau acțiune.
+1. DESCHIDERE PUTERNICĂ: declarație provocatoare, scenă vie sau statistică șocantă
+2. TEZĂ CLARĂ: poziția publicației, fermă și fără echivoc
+3. ARGUMENTARE STRATIFICATĂ: 3-4 argumente cu fapte concrete, precedente, citate
+4. CONTRAARGUMENT ȘI RESPINGERE: recunoaște perspectiva opusă, apoi demontează-o elegant
+5. CONCLUZIE CU CHEMARE LA ACȚIUNE: o propoziție care rămâne în minte
 
-TON: Autoritar, lucid, angajat. Nu neutru — editorialul are o poziție. Vocabular precis, fraze cu ritm jurnalistic. Evita clișeele.`,
+TON: Autoritar, lucid, angajat. Editorialul are o poziție. Vocabular precis, ritm jurnalistic.`,
 
     analiza: `${base}
-TIP ARTICOL: ANALIZĂ APROFUNDATĂ
+TIP: ANALIZĂ APROFUNDATĂ MULTI-DIMENSIONALĂ
 
-Scrie o analiză multi-dimensională, de referință. Structura:
-1. CONTEXT ȘI MIZĂ: De ce contează acest subiect ACUM. Situează problema în tabloul mai larg.
-2. ANATOMIA PROBLEMEI: Descompune subiectul în componente. Identifică cauzele structurale, nu simptomele superficiale.
-3. PERSPECTIVE MULTIPLE: Prezintă minimum 3 unghiuri de analiză — economic, politic, social, istoric sau geopolitic, după relevanță.
-4. DATE ȘI EVIDENȚE: Ancorează fiecare afirmație importantă în cifre, tendințe sau comparații internaționale.
-5. IMPLICAȚII ȘI SCENARII: Ce urmează? Prezintă 2-3 scenarii probabile cu argumente pro/contra.
-6. CONCLUZIE ANALITICĂ: Nu moralizatoare — sintetica, precisă, cu valoare predictivă.
+1. CONTEXT ȘI MIZĂ: de ce contează ACUM, tabloul mai larg
+2. ANATOMIA PROBLEMEI: cauze structurale, nu simptome superficiale
+3. PERSPECTIVE MULTIPLE: minimum 3 unghiuri — economic, politic, social, istoric sau geopolitic
+4. DATE ȘI EVIDENȚE: fiecare afirmație ancorată în cifre, tendințe sau comparații
+5. SCENARII: 2-3 scenarii probabile cu argumente
+6. CONCLUZIE ANALITICĂ: sintetică, precisă, cu valoare predictivă
 
-TON: Expert, nuanțat, fără simplificări. Cititorului trebuie să îi fie clară complexitatea subiectului după ce termină articolul.`,
+TON: Expert, nuanțat, fără simplificări.`,
 
     pamflet: `${base}
-TIP ARTICOL: PAMFLET — SATIRĂ POLITICĂ / SOCIALĂ DE ÎNALTĂ CLASĂ
+TIP: PAMFLET — SATIRĂ POLITICĂ/SOCIALĂ (tradiția Swift, Voltaire, Caragiale)
 
-ATENȚIE: Acesta este un pamflet în tradiția marilor pampletari europeni — Swift, Voltaire, Caragiale. NU este o simplă ironizare ieftină.
-
-Reguli absolute:
-1. INTELIGENȚA PRIMEAZĂ: Umorul trebuie să fie fin, stratificat. Cititorul inteligent zâmbește cu satisfacție, nu râde zgomotos. Sarcasmul trebuie să taie ca un bisturiu, nu ca un topor.
-2. ȚINTA PRECISĂ: Identifică exact ce/cine este satirizat și de ce. Nu generaliza — pamfletul lovește specific.
-3. STRUCTURA SATIRICĂ:
-   - Deschidere: Un compliment fals și exagerat față de subiect/țintă (laudatio ironică)
-   - Desfășurare: Demontarea progresivă a pretențiilor, cu exemple concrete și comparații devastatoare
-   - Punctul culminant: Revelaţia absurdă — momentul în care masca cade complet
-   - Final: O concluzie aparent serioasă, dar implacabil de tăioasă
-4. TEHNICI OBLIGATORII: hiperbola controlată, ironia socratică, analogii incomode, întrebări retorice ucigătoare, inversiunea valorilor
-5. STIL: Frazare elegantă. Pamfletul prost înjură. Pamfletul bun face subiectul să se simtă ridicol în propriii ochi.
-6. TITLU: Trebuie să fie o capodoperă de ironie comprimată — să pară serios dar să fie ucigător de satiric.
-
-IMPORTANT: Fără vulgaritate, fără atacuri la persoană fizică neverificabilă. Satira se face pe fapte și declarații publice.`,
+REGULI ABSOLUTE:
+1. INTELIGENȚA PRIMEAZĂ: umor fin, stratificat. Sarcasmul taie ca bisturiul, nu ca toporul.
+2. ȚINTA PRECISĂ: identifică exact ce/cine e satirizat și de ce. Nu generaliza.
+3. STRUCTURA:
+   - DESCHIDERE: compliment fals și exagerat față de țintă (laudatio ironică)
+   - DESFĂȘURARE: demontarea progresivă cu exemple concrete și comparații devastatoare
+   - PUNCT CULMINANT: revelația absurdă — masca cade complet
+   - FINAL: concluzie aparent serioasă, dar implacabil de tăioasă
+4. TEHNICI: hiperbolă controlată, ironie socratică, analogii incomode, întrebări retorice ucigătoare
+5. TITLUL: capodoperă de ironie comprimată — pare serios, e ucigător de satiric
+6. Fără vulgaritate, fără atacuri la persoană neverificabilă. Satira pe fapte și declarații publice.`,
 
     blog: `${base}
-TIP ARTICOL: BLOG — VOCE PERSONALĂ, IMPACT REAL
+TIP: BLOG — VOCE PERSONALĂ, IMPACT REAL
 
-Nu o compilație de informații. Un blog adevărat — cu perspectivă unică și voce distinctă.
-Structura:
-1. DESCHIDERE PERSONALĂ: O experiență, o observație sau o întrebare personală care conectează imediat cu cititorul.
-2. PUNCTUL DE VEDERE PROPRIU: Nu "unii spun că... alții spun că". Ia o poziție. Spune ce crezi TU și de ce.
-3. POVESTIRE + INFORMAȚIE: Alternează narațiunea cu insight-uri valoroase. Cititorul trebuie să simtă că a primit ceva ce nu găsea altundeva.
-4. MOMENTE DE UMOR SAU AUTOIRONIE: Blogul bun nu se ia prea în serios.
-5. CONCLUZIE PRACTICĂ: Ce poate face cititorul cu această informație? Ce schimbă în perspectiva lui?
+1. DESCHIDERE PERSONALĂ: experiență sau observație care conectează imediat cu cititorul
+2. PUNCT DE VEDERE PROPRIU: nu "unii spun că". Ia o poziție. Spune ce crezi TU și de ce.
+3. POVESTIRE + INFORMAȚIE: alternează narațiunea cu insight-uri valoroase
+4. UMOR SAU AUTOIRONIE: blogul bun nu se ia prea în serios
+5. CONCLUZIE PRACTICĂ: ce poate face cititorul cu această informație?
 
-TON: Cald, direct, inteligent fără a fi pedant. Scrie ca și cum ai explica unui prieten deștept la o cafea.`,
+TON: Cald, direct, inteligent fără a fi pedant. Ca și cum explici unui prieten deștept la o cafea.`,
 
     reportaj: `${base}
-TIP ARTICOL: REPORTAJ JURNALISTIC
+TIP: REPORTAJ JURNALISTIC NARATIV
 
-Scrie un reportaj viu, cu narațiune de teren. Structura:
-1. SCENĂ DE DESCHIDERE: Plasează cititorul direct în mijlocul acțiunii — detalii senzoriale, personaje concrete.
-2. CONTEXTUL POVEȘTII: Cine, ce, unde, când, de ce — dar nu ca în știre. Ca în narațiune.
-3. VOCILE: Minim 2-3 perspective diferite (chiar imaginate în mod plauzibil, dacă e un subiect general). Citatul direct face reportajul viu.
-4. TENSIUNEA NARATIVĂ: Există un conflict, o problemă nerezolvată, o întrebare la care reportajul trebuie să răspundă.
-5. REZOLUȚIE SAU SUSPENDARE: Fie oferă răspuns, fie lasă o întrebare mai mare.
+1. SCENĂ DE DESCHIDERE: plasează cititorul în mijlocul acțiunii — detalii senzoriale
+2. CONTEXTUL POVEȘTII: cine, ce, unde, când, de ce — ca în narațiune, nu ca în știre
+3. VOCI: minimum 2-3 perspective diferite, citate directe
+4. TENSIUNEA NARATIVĂ: conflict, problemă nerezolvată, întrebare centrală
+5. REZOLUȚIE SAU SUSPENDARE: răspuns sau o întrebare mai mare
 
-TON: Narativ, uman, jurnalism de tip long-form.`,
+TON: Narativ, uman, long-form journalism.`,
 
     cultura: `${base}
-TIP ARTICOL: CULTURĂ — CRITICĂ ȘI REFLECȚIE
+TIP: CRITICĂ CULTURALĂ
 
-Scrie o piesă culturală cu profunzime și eleganță.
-1. OPERA / FENOMENUL: Descrie subiectul cu acuratețe și detaliu relevant.
-2. CONTEXTUL CULTURAL: Situează în curentul artistic, istoric sau social din care face parte.
-3. ANALIZA CRITICĂ: Nu rezumat — interpretare. Ce spune opera despre epoca ei? Ce revelează?
-4. COMPARAȚII RELEVANTE: Pune în dialog cu alte opere, autori sau momente culturale.
-5. VALOAREA ACTUALĂ: De ce contează azi? Ce îi oferă cititorului contemporan?
+1. OPERA/FENOMENUL: descrie cu acuratețe și detaliu relevant
+2. CONTEXTUL CULTURAL: situează în curentul artistic, istoric sau social
+3. ANALIZA CRITICĂ: nu rezumat — interpretare. Ce spune opera despre epoca ei?
+4. COMPARAȚII: pune în dialog cu alte opere, autori sau momente culturale
+5. VALOAREA ACTUALĂ: de ce contează azi?
 
 TON: Cultivat, pasionat, accesibil fără vulgarizare.`,
 
     tehnologie: `${base}
-TIP ARTICOL: TEHNOLOGIE — JURNALISM TECH DE CALITATE
+TIP: JURNALISM TECH DE CALITATE
 
-Nu un comunicat de presă. Jurnalism tech real.
-1. NOUTATEA: Ce s-a schimbat? De ce acum?
-2. FUNCȚIONAREA: Explică tehnologia accesibil, fără jargon inutil. Analogii clare.
-3. IMPLICAȚIILE REALE: Dincolo de hype — ce impact concret are asupra oamenilor, business-urilor, societății?
-4. VOCEA CRITICĂ: Cele mai bune articole tech nu celebrează orbește. Identifică riscuri, limitări, întrebări nerezolvate.
-5. PERSPECTIVE GLOBALE: Cum se încadrează în tendințe mai largi?
+1. NOUTATEA: ce s-a schimbat? de ce acum?
+2. FUNCȚIONAREA: explică accesibil, fără jargon inutil, cu analogii clare
+3. IMPLICAȚIILE REALE: impact concret asupra oamenilor, business, societății
+4. VOCEA CRITICĂ: riscuri, limitări, întrebări nerezolvate
+5. PERSPECTIVE GLOBALE: tendințe mai largi
 
-TON: Informat, sceptic sănătos, accesibil.`,
+TON: Informat, scepticism sănătos, accesibil.`,
   }
 
-  return typePrompts[type] || typePrompts['editorial']
+  return prompts[type] || prompts['editorial']
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
+// ─── TYPES ───────────────────────────────────────────────────────────────────
 
 interface GeneratedResult {
   title_ro: string
@@ -166,153 +154,282 @@ interface GeneratedResult {
   title_alt_en?: string
   summary_ro: string
   summary_en: string
-  content_ro: string
-  content_en: string
   excerpt_ro: string
   excerpt_en: string
+  content_ro: string
+  content_en: string
   tags_ro: string[]
   tags_en: string[]
-  seo_description_ro?: string
-  seo_description_en?: string
 }
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+function toSlug(text: string): string {
+  return text.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '').trim()
+    .replace(/\s+/g, '-').substring(0, 80)
+}
+
+// ─── COMPONENT ───────────────────────────────────────────────────────────────
 
 export default function EditorPage() {
   const router = useRouter()
 
-  // Form state
+  // Generation params
   const [articleType, setArticleType] = useState('editorial')
-  const [topic, setTopic] = useState('')
-  const [wordCount, setWordCount] = useState(1200)
-  const [language, setLanguage] = useState<'ro' | 'en'>('ro')
-  const [category, setCategory] = useState('opinion')
-  const [isBreaking, setIsBreaking] = useState(false)
+  const [wordCount, setWordCount]     = useState(1200)
+  const [language, setLanguage]       = useState<'ro' | 'en'>('ro')
+  const [category, setCategory]       = useState('opinion')
+  const [topic, setTopic]             = useState('')
 
   // Generation state
   const [generating, setGenerating] = useState(false)
-  const [result, setResult] = useState<GeneratedResult | null>(null)
-  const [previewTab, setPreviewTab] = useState<'ro' | 'en'>('ro')
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState('')
+  const [result, setResult]         = useState<GeneratedResult | null>(null)
+  const [genError, setGenError]     = useState('')
 
-  // Editable result fields
-  const [edited, setEdited] = useState<Partial<GeneratedResult>>({})
+  // Editable fields (post-generation)
+  const [titleRo, setTitleRo]       = useState('')
+  const [titleEn, setTitleEn]       = useState('')
+  const [titleAltRo, setTitleAltRo] = useState('')
+  const [titleAltEn, setTitleAltEn] = useState('')
+  const [summaryRo, setSummaryRo]   = useState('')
+  const [summaryEn, setSummaryEn]   = useState('')
+  const [excerptRo, setExcerptRo]   = useState('')
+  const [excerptEn, setExcerptEn]   = useState('')
+  const [contentRo, setContentRo]   = useState('')
+  const [contentEn, setContentEn]   = useState('')
+  const [tagsRo, setTagsRo]         = useState('')
+  const [tagsEn, setTagsEn]         = useState('')
+
+  // Metadata
+  const [slug, setSlug]               = useState('')
+  const [authorName, setAuthorName]   = useState('Transilvania Times Editorial')
+  const [subcategory, setSubcategory] = useState('')
+  const [sourceUrl, setSourceUrl]     = useState('')
+  const [isBreaking, setIsBreaking]   = useState(false)
+  const [status, setStatus]           = useState('draft')
+
+  // Cover image
+  const [coverImage, setCoverImage]         = useState('')
+  const [generatingImg, setGeneratingImg]   = useState(false)
+  const [savedPostId, setSavedPostId]       = useState<string | null>(null)
+
+  // UI state
+  const [contentTab, setContentTab] = useState<'ro' | 'en'>('ro')
+  const [saving, setSaving]         = useState(false)
+  const [msg, setMsg]               = useState('')
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  function flash(text: string, isError = false) {
-    if (isError) setError(text)
-    else setMsg(text)
-    setTimeout(() => { setMsg(''); setError('') }, 4000)
+  function flash(text: string) {
+    setMsg(text)
+    setTimeout(() => setMsg(''), 4000)
   }
 
-  function getField<K extends keyof GeneratedResult>(key: K): GeneratedResult[K] {
-    if (edited[key] !== undefined) return edited[key] as GeneratedResult[K]
-    if (result) return result[key]
-    return '' as GeneratedResult[K]
-  }
-
-  function setField(key: keyof GeneratedResult, value: string | string[]) {
-    setEdited(prev => ({ ...prev, [key]: value }))
-  }
+  // ─── GENERATE ARTICLE ──────────────────────────────────────────────────────
 
   async function generate() {
-    if (!topic.trim()) { flash('Introduceți subiectul articolului.', true); return }
+    if (!topic.trim()) { setGenError('Introduceți subiectul articolului.'); return }
     setGenerating(true)
-    setError('')
+    setGenError('')
     setResult(null)
-    setEdited({})
-
-    const prompt = buildPrompt(articleType, topic, wordCount, language)
+    setSavedPostId(null)
+    setCoverImage('')
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('ai-generate-article', {
+      const { data, error } = await supabase.functions.invoke('ai-generate-article', {
         body: {
-          topic: topic.trim(),
-          article_type: articleType,
-          word_count: wordCount,
+          topic:             topic.trim(),
+          article_type:      articleType,
+          word_count:        wordCount,
           language,
           category,
-          prompt,
+          prompt:            buildPrompt(articleType, topic, wordCount, language),
           generate_bilingual: true,
         }
       })
+      if (error) throw new Error(error.message)
+      if (!data)  throw new Error('Niciun răspuns de la AI.')
 
-      if (fnError) throw new Error(fnError.message)
-      if (!data) throw new Error('Niciun răspuns de la AI.')
+      const d = data as GeneratedResult
+      setResult(d)
 
-      setResult(data as GeneratedResult)
-      setPreviewTab(language)
-      flash('✓ Articol generat cu succes')
+      // Populate all editable fields
+      setTitleRo(d.title_ro    || '')
+      setTitleEn(d.title_en    || '')
+      setTitleAltRo(d.title_alt_ro || '')
+      setTitleAltEn(d.title_alt_en || '')
+      setSummaryRo(d.summary_ro || '')
+      setSummaryEn(d.summary_en || '')
+      setExcerptRo(d.excerpt_ro || '')
+      setExcerptEn(d.excerpt_en || '')
+      setContentRo(d.content_ro || '')
+      setContentEn(d.content_en || '')
+      setTagsRo(Array.isArray(d.tags_ro) ? d.tags_ro.join(', ') : '')
+      setTagsEn(Array.isArray(d.tags_en) ? d.tags_en.join(', ') : '')
+      setSlug(toSlug(d.title_ro || d.title_en || ''))
+      setContentTab(language)
+      flash('✓ Articol generat')
     } catch (e) {
-      flash(`Eroare: ${(e as Error).message}`, true)
+      setGenError(`Eroare: ${(e as Error).message}`)
     }
-
     setGenerating(false)
   }
 
-  async function saveArticle(status: 'draft' | 'published') {
-    if (!result && Object.keys(edited).length === 0) return
-    setSaving(true)
+  // ─── SAVE (draft or publish) ───────────────────────────────────────────────
 
-    const slug = (getField('title_ro') as string)
-      .toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-')
-      .substring(0, 80)
+  async function saveArticle(newStatus: 'draft' | 'published') {
+    setSaving(true)
+    const finalSlug = (slug || toSlug(titleRo || titleEn)) + '-' + Date.now().toString(36)
 
     const payload = {
-      title_ro: getField('title_ro') as string,
-      title_en: getField('title_en') as string,
-      content_ro: getField('content_ro') as string,
-      content_en: getField('content_en') as string,
-      excerpt_ro: getField('excerpt_ro') as string,
-      excerpt_en: getField('excerpt_en') as string,
-      summary_ro: getField('summary_ro') as string,
-      summary_en: getField('summary_en') as string,
-      tags_ro: getField('tags_ro') as string[],
-      tags_en: getField('tags_en') as string[],
+      title_ro:    titleRo,
+      title_en:    titleEn,
+      summary_ro:  summaryRo,
+      summary_en:  summaryEn,
+      excerpt_ro:  excerptRo,
+      excerpt_en:  excerptEn,
+      content_ro:  contentRo,
+      content_en:  contentEn,
+      tags_ro:     tagsRo.split(',').map(t => t.trim()).filter(Boolean),
+      tags_en:     tagsEn.split(',').map(t => t.trim()).filter(Boolean),
+      cover_image: coverImage || null,
       category,
-      slug: slug + '-' + Date.now().toString(36),
-      status,
+      subcategory: subcategory || null,
+      author_name: authorName,
+      source_url:  sourceUrl || null,
       is_breaking: isBreaking,
-      author_name: 'Transilvania Times Editorial',
-      published_at: status === 'published' ? new Date().toISOString() : null,
+      slug:        finalSlug,
+      status:      newStatus,
+      published_at: newStatus === 'published' ? new Date().toISOString() : null,
     }
 
-    const { data: saved, error: saveError } = await supabase
-      .from('blog_posts')
-      .insert(payload as never)
-      .select('id, slug')
-      .single()
-
-    if (saveError) {
-      flash(`Eroare salvare: ${saveError.message}`, true)
-      setSaving(false)
-      return
-    }
-
-    if (status === 'published' && saved) {
-      await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${saved.slug}`, { method: 'POST' })
-      flash('✓ Articol publicat și live pe site')
+    if (savedPostId) {
+      // Update existing draft
+      const { error } = await supabase
+        .from('blog_posts')
+        .update(payload as never)
+        .eq('id', savedPostId)
+      if (error) { flash(`Eroare: ${error.message}`); setSaving(false); return }
     } else {
-      flash('✓ Salvat ca ciornă')
+      // Insert new
+      const { data: saved, error } = await supabase
+        .from('blog_posts')
+        .insert(payload as never)
+        .select('id, slug')
+        .single()
+      if (error || !saved) { flash(`Eroare: ${error?.message}`); setSaving(false); return }
+      setSavedPostId(saved.id)
+      if (newStatus === 'published') {
+        await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${saved.slug}`, { method: 'POST' })
+        flash('✓ Publicat și live pe site')
+        setTimeout(() => router.push(`/admin/articles/${saved.id}/edit`), 1500)
+      } else {
+        flash('✓ Salvat ca ciornă')
+      }
+    }
+
+    if (savedPostId && newStatus === 'published') {
+      await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${finalSlug}`, { method: 'POST' })
+      flash('✓ Publicat și live pe site')
+      setTimeout(() => router.push(`/admin/articles/${savedPostId}/edit`), 1500)
     }
 
     setSaving(false)
-    setTimeout(() => router.push(`/admin/articles/${saved.id}/edit`), 1500)
   }
 
-  const inputCls = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
-  const textareaCls = inputCls + " resize-none"
+  // ─── GENERATE COVER IMAGE ──────────────────────────────────────────────────
 
-  const selectedType = ARTICLE_TYPES.find(t => t.value === articleType)
+  async function generateCoverImage() {
+    setGeneratingImg(true)
+    flash('Generez imaginea copertă...')
+
+    // Need post_id — save draft first if not already saved
+    let postId = savedPostId
+    if (!postId) {
+      const finalSlug = (slug || toSlug(titleRo || titleEn)) + '-' + Date.now().toString(36)
+      const { data: saved, error } = await supabase
+        .from('blog_posts')
+        .insert({
+          title_ro:   titleRo,
+          title_en:   titleEn,
+          summary_ro: summaryRo,
+          summary_en: summaryEn,
+          content_ro: contentRo,
+          content_en: contentEn,
+          excerpt_ro: excerptRo,
+          excerpt_en: excerptEn,
+          category,
+          author_name: authorName,
+          slug:        finalSlug,
+          status:      'draft',
+        } as never)
+        .select('id')
+        .single()
+
+      if (error || !saved) {
+        flash(`Nu am putut salva ciorna: ${error?.message}`)
+        setGeneratingImg(false)
+        return
+      }
+      postId = saved.id
+      setSavedPostId(saved.id)
+    }
+
+    // Call generate-cover-image with post_id
+    const { error: imgError } = await supabase.functions.invoke('generate-cover-image', {
+      body: { post_id: postId }
+    })
+
+    if (imgError) {
+      flash(`Eroare imagine: ${imgError.message}`)
+      setGeneratingImg(false)
+      return
+    }
+
+    // Fetch the updated cover_image from DB
+    const { data: updated } = await supabase
+      .from('blog_posts')
+      .select('cover_image')
+      .eq('id', postId)
+      .single()
+
+    if (updated?.cover_image) {
+      setCoverImage(updated.cover_image)
+      flash('✓ Imagine generată')
+    } else {
+      flash('Imaginea a fost generată — verifică în DB.')
+    }
+
+    setGeneratingImg(false)
+  }
+
+  // ─── STYLES ──────────────────────────────────────────────────────────────
+
+  const inputCls     = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
+  const textareaCls  = inputCls + " resize-none leading-relaxed"
+  const labelCls     = "block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5"
+  const sectionCls   = "bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4"
+  const sectionTitle = "font-sans text-[11px] uppercase tracking-widest text-white/40 border-b border-white/[0.07] pb-3 mb-4"
+
+  function Field({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+      <div>
+        <label className={labelCls}>{label}</label>
+        {children}
+      </div>
+    )
+  }
+
+  // ─── RENDER ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-6xl">
+    <div className="max-w-7xl">
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -321,70 +438,62 @@ export default function EditorPage() {
             Generează articole de înaltă calitate cu AI editorial
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {msg && <span className="font-sans text-[12px] text-green-400 bg-green-400/10 px-3 py-1">{msg}</span>}
-          {error && <span className="font-sans text-[12px] text-red-400 bg-red-400/10 px-3 py-1">{error}</span>}
-        </div>
+        {msg && (
+          <span className={`font-sans text-[12px] px-3 py-1.5 ${
+            msg.startsWith('Eroare') ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+          }`}>
+            {msg}
+          </span>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-6">
 
-        {/* ── LEFT: Generation controls ── */}
-        <div className="lg:col-span-2 space-y-5">
+        {/* ══ LEFT: Generation Controls ══════════════════════════════════════ */}
+        <div className="space-y-4">
 
           {/* Article type */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
-            <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-3">
-              Tip articol
-            </label>
+          <div className={sectionCls}>
+            <p className={sectionTitle}>Tip articol</p>
             <div className="grid grid-cols-2 gap-2">
-              {ARTICLE_TYPES.map(type => (
-                <button
-                  key={type.value}
-                  onClick={() => setArticleType(type.value)}
+              {ARTICLE_TYPES.map(t => (
+                <button key={t.value} onClick={() => setArticleType(t.value)}
                   className={
-                    'flex items-center gap-2 px-3 py-2.5 font-sans text-[12px] transition-colors border ' +
-                    (articleType === type.value
+                    'flex items-center gap-2 px-3 py-2.5 border font-sans text-[12px] transition-colors ' +
+                    (articleType === t.value
                       ? 'bg-brand-red border-brand-red text-white'
-                      : 'bg-transparent border-white/[0.07] text-white/50 hover:text-white hover:border-white/20')
+                      : 'border-white/[0.07] text-white/50 hover:text-white hover:border-white/20')
                   }
                 >
-                  <span>{type.emoji}</span>
-                  {type.label}
+                  <span>{t.emoji}</span>{t.label}
                 </button>
               ))}
             </div>
-            {selectedType && (
-              <p className="font-sans text-[11px] text-white/25 mt-3 italic">
-                {articleType === 'pamflet' && 'Satiră tăioasă în tradiția marilor pampletari europeni'}
-                {articleType === 'editorial' && 'Poziție clară, argumentare solidă, concluzie memorabilă'}
-                {articleType === 'analiza' && 'Aprofundat, multi-perspectival, bazat pe fapte'}
-                {articleType === 'blog' && 'Voce personală, perspectivă unică, ton cald'}
-                {articleType === 'reportaj' && 'Narațiune vie, personaje concrete, tensiune jurnalistică'}
-                {articleType === 'cultura' && 'Critică nuanțată, context bogat, valoare actuală'}
-                {articleType === 'tehnologie' && 'Demistificare clară, impact real, scepticism sănătos'}
-              </p>
-            )}
+            <p className="font-sans text-[10px] text-white/20 italic">
+              {articleType === 'pamflet' && 'Swift · Voltaire · Caragiale — satiră tăioasă, umor fin'}
+              {articleType === 'editorial' && 'Poziție clară · argumentare solidă · concluzie memorabilă'}
+              {articleType === 'analiza' && 'Multi-perspectival · bazat pe fapte · predictiv'}
+              {articleType === 'blog' && 'Voce personală · perspectivă unică · ton cald'}
+              {articleType === 'reportaj' && 'Narațiune vie · personaje concrete · tensiune'}
+              {articleType === 'cultura' && 'Critică nuanțată · context bogat · valoare actuală'}
+              {articleType === 'tehnologie' && 'Demistificare clară · impact real · scepticism sănătos'}
+            </p>
           </div>
 
           {/* Word count */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
-            <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-3">
-              Lungime
-            </label>
+          <div className={sectionCls}>
+            <p className={sectionTitle}>Lungime</p>
             <div className="space-y-2">
               {WORD_COUNTS.map(wc => (
-                <button
-                  key={wc.value}
-                  onClick={() => setWordCount(wc.value)}
+                <button key={wc.value} onClick={() => setWordCount(wc.value)}
                   className={
                     'w-full flex items-center justify-between px-4 py-2.5 border transition-colors ' +
                     (wordCount === wc.value
                       ? 'bg-brand-red/10 border-brand-red text-white'
-                      : 'bg-transparent border-white/[0.07] text-white/50 hover:text-white hover:border-white/20')
+                      : 'border-white/[0.07] text-white/50 hover:text-white hover:border-white/20')
                   }
                 >
-                  <span className="font-sans text-[13px] font-medium">{wc.label}</span>
+                  <span className="font-sans text-[13px] font-medium">{wc.label} cuvinte</span>
                   <span className="font-sans text-[11px] text-white/30">{wc.desc}</span>
                 </button>
               ))}
@@ -392,21 +501,17 @@ export default function EditorPage() {
           </div>
 
           {/* Language + Category */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4">
-            <div>
-              <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-2">
-                Limbă sursă
-              </label>
+          <div className={sectionCls}>
+            <p className={sectionTitle}>Limbă și categorie</p>
+            <Field label="Limbă sursă">
               <div className="flex gap-2">
                 {(['ro', 'en'] as const).map(l => (
-                  <button
-                    key={l}
-                    onClick={() => setLanguage(l)}
+                  <button key={l} onClick={() => setLanguage(l)}
                     className={
-                      'flex-1 py-2 font-sans text-[12px] font-bold uppercase tracking-wider border transition-colors ' +
+                      'flex-1 py-2.5 font-sans text-[12px] font-bold uppercase tracking-wider border transition-colors ' +
                       (language === l
                         ? 'bg-brand-red border-brand-red text-white'
-                        : 'bg-transparent border-white/[0.07] text-white/40 hover:text-white')
+                        : 'border-white/[0.07] text-white/40 hover:text-white')
                     }
                   >
                     {l === 'ro' ? '🇷🇴 Română' : '🇬🇧 English'}
@@ -414,48 +519,35 @@ export default function EditorPage() {
                 ))}
               </div>
               <p className="font-sans text-[10px] text-white/20 mt-1.5">
-                Se generează automat și traducerea completă
+                Traducerea completă în cealaltă limbă e generată automat
               </p>
-            </div>
-            <div>
-              <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-2">
-                Categorie
-              </label>
+            </Field>
+            <Field label="Categorie">
               <select className={inputCls} value={category} onChange={e => setCategory(e.target.value)}>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
-            </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={isBreaking}
-                onChange={e => setIsBreaking(e.target.checked)}
-                className="accent-brand-red" />
-              <span className="font-sans text-[12px] text-white/60">⚡ Marchează ca Ultima Oră</span>
-            </label>
+            </Field>
           </div>
 
-          {/* Topic input */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
-            <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-2">
-              Subiect / Brief editorial
-            </label>
+          {/* Topic */}
+          <div className={sectionCls}>
+            <p className={sectionTitle}>Brief editorial</p>
             <textarea
               className={textareaCls}
-              rows={5}
+              rows={6}
               value={topic}
               onChange={e => setTopic(e.target.value)}
               placeholder={
                 articleType === 'pamflet'
-                  ? 'Ex: Discursul unui politician despre integritate după scandalul de corupție. Ironizează promisiunile fără acoperire...'
-                  : articleType === 'analiza'
-                  ? 'Ex: Impactul inteligenței artificiale asupra pieței muncii în România în următorii 5 ani...'
+                  ? 'Ex: Un politician promite transparență totală, la exact o lună după ce dosarul său penal a fost clasat. Ironizează cu precizie chirurgicală...'
                   : articleType === 'editorial'
-                  ? 'Ex: România trebuie să adopte o strategie națională de educație digitală înainte de 2026...'
-                  : 'Descrie subiectul articolului, unghiul dorit, orice context relevant...'
+                  ? 'Ex: România trebuie să adopte o strategie națională de educație digitală înainte de 2026, iar clasa politică amână deliberat...'
+                  : 'Descrie subiectul, unghiul dorit, orice context relevant...'
               }
             />
-            <p className="font-sans text-[10px] text-white/20 mt-1.5">
-              Cu cât brieful e mai specific, cu atât articolul e mai precis și mai valoros.
-            </p>
+            {genError && (
+              <p className="font-sans text-[12px] text-red-400 bg-red-400/10 px-3 py-2">{genError}</p>
+            )}
           </div>
 
           {/* Generate button */}
@@ -464,153 +556,267 @@ export default function EditorPage() {
             disabled={generating || !topic.trim()}
             className="w-full flex items-center justify-center gap-3 py-4 bg-brand-red text-white font-sans text-[13px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {generating ? (
-              <><RefreshCw className="w-4 h-4 animate-spin" /> Generează articol...</>
-            ) : (
-              <><Wand2 className="w-4 h-4" /> Generează cu AI</>
-            )}
+            {generating
+              ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generează articol...</>
+              : <><Wand2 className="w-4 h-4" /> Generează cu AI</>
+            }
           </button>
 
           {generating && (
-            <div className="bg-purple-900/20 border border-purple-500/20 p-4 text-center">
-              <p className="font-sans text-[12px] text-purple-300">
-                AI editorial procesează brieful...
-              </p>
-              <p className="font-sans text-[11px] text-purple-300/50 mt-1">
-                Titlu psihologic · {wordCount} cuvinte · bilingv · SEO
+            <div className="bg-purple-900/20 border border-purple-500/20 p-4 text-center space-y-1">
+              <p className="font-sans text-[12px] text-purple-300">AI editorial procesează brieful...</p>
+              <p className="font-sans text-[11px] text-purple-300/50">
+                Titlu psihologic · {wordCount} cuvinte · bilingv complet · SEO tags
               </p>
             </div>
           )}
         </div>
 
-        {/* ── RIGHT: Result preview + editing ── */}
-        <div className="lg:col-span-3 space-y-4">
-          {!result ? (
-            <div className="bg-[#1a1a1a] border border-white/[0.07] border-dashed flex flex-col items-center justify-center min-h-[500px] p-8 text-center">
-              <Wand2 className="w-12 h-12 text-white/10 mb-4" />
-              <p className="font-serif text-lg text-white/20 mb-2">Articolul generat va apărea aici</p>
-              <p className="font-sans text-[12px] text-white/15">
-                Alege tipul, lungimea și introdu subiectul, apoi apasă Generează
+        {/* ══ RIGHT: Result ═════════════════════════════════════════════════ */}
+        {!result ? (
+          <div className="bg-[#1a1a1a] border border-white/[0.07] border-dashed flex flex-col items-center justify-center min-h-[600px] p-8 text-center">
+            <Wand2 className="w-16 h-16 text-white/[0.06] mb-4" />
+            <p className="font-serif text-xl text-white/20 mb-2">
+              Articolul generat va apărea aici
+            </p>
+            <p className="font-sans text-[12px] text-white/15">
+              Selectează tipul · lungimea · introdu brieful · apasă Generează
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+
+            {/* Action bar */}
+            <div className="flex items-center justify-between">
+              <p className="font-sans text-[12px] text-white/30">
+                {savedPostId ? 'Ciornă salvată · poți publica oricând' : 'Articol generat · editează și publică'}
               </p>
+              <div className="flex gap-2">
+                <button onClick={() => saveArticle('draft')} disabled={saving}
+                  className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-[#1a1a1a] border border-white/10 text-white hover:border-white/30 transition-colors disabled:opacity-50">
+                  <Save className="w-3.5 h-3.5" />
+                  Salvează ciornă
+                </button>
+                <button onClick={() => saveArticle('published')} disabled={saving}
+                  className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-brand-red text-white hover:bg-red-700 transition-colors disabled:opacity-50">
+                  <Globe className="w-3.5 h-3.5" />
+                  Publică acum
+                </button>
+              </div>
             </div>
-          ) : (
-            <>
-              {/* Language tabs */}
-              <div className="flex items-center justify-between">
+
+            {/* ① TITLURI */}
+            <div className={sectionCls}>
+              <p className={sectionTitle}>① Titluri</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Titlu principal (RO)">
+                  <input className={inputCls} value={titleRo} onChange={e => { setTitleRo(e.target.value); if (!slug) setSlug(toSlug(e.target.value)) }} />
+                </Field>
+                <Field label="Title principal (EN)">
+                  <input className={inputCls} value={titleEn} onChange={e => setTitleEn(e.target.value)} />
+                </Field>
+                <Field label="Titlu alternativ (RO)">
+                  <input className={inputCls} value={titleAltRo} onChange={e => setTitleAltRo(e.target.value)} placeholder="Variantă alternativă..." />
+                </Field>
+                <Field label="Alternative title (EN)">
+                  <input className={inputCls} value={titleAltEn} onChange={e => setTitleAltEn(e.target.value)} placeholder="Alternative variant..." />
+                </Field>
+              </div>
+            </div>
+
+            {/* ② REZUMAT + EXCERPT */}
+            <div className={sectionCls}>
+              <p className={sectionTitle}>② Rezumat & Introducere</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Rezumat bullets (RO) — apare înainte de imagine pe articol">
+                  <textarea rows={5} className={textareaCls} value={summaryRo}
+                    onChange={e => setSummaryRo(e.target.value)}
+                    placeholder="• Punct 1&#10;• Punct 2&#10;• Punct 3" />
+                </Field>
+                <Field label="Summary bullets (EN)">
+                  <textarea rows={5} className={textareaCls} value={summaryEn}
+                    onChange={e => setSummaryEn(e.target.value)}
+                    placeholder="• Point 1&#10;• Point 2&#10;• Point 3" />
+                </Field>
+                <Field label="Introducere / Excerpt (RO)">
+                  <textarea rows={3} className={textareaCls} value={excerptRo}
+                    onChange={e => setExcerptRo(e.target.value)} />
+                </Field>
+                <Field label="Introduction / Excerpt (EN)">
+                  <textarea rows={3} className={textareaCls} value={excerptEn}
+                    onChange={e => setExcerptEn(e.target.value)} />
+                </Field>
+              </div>
+            </div>
+
+            {/* ③ IMAGINE COPERTĂ */}
+            <div className={sectionCls}>
+              <p className={sectionTitle}>③ Imagine copertă</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                <div className="space-y-3">
+                  <Field label="URL imagine">
+                    <input className={inputCls} value={coverImage}
+                      onChange={e => setCoverImage(e.target.value)}
+                      placeholder="https://... sau lasă gol și generează AI" />
+                  </Field>
+                  <button
+                    onClick={generateCoverImage}
+                    disabled={generatingImg}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600/20 border border-blue-500/30 text-blue-300 font-sans text-[12px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-colors disabled:opacity-50"
+                  >
+                    {generatingImg
+                      ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generează imaginea...</>
+                      : <><ImageIcon className="w-4 h-4" /> Generează imagine AI din articol</>
+                    }
+                  </button>
+                  <p className="font-sans text-[10px] text-white/20">
+                    AI generează imaginea bazată pe titlu și conținut. Articolul se salvează automat ca ciornă înainte.
+                  </p>
+                </div>
+                <div>
+                  {coverImage ? (
+                    <div className="space-y-2">
+                      <img src={coverImage} alt="Cover" className="w-full aspect-video object-cover" />
+                      <button onClick={() => setCoverImage('')}
+                        className="font-sans text-[11px] text-white/30 hover:text-red-400 transition-colors">
+                        ✕ Șterge imaginea
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="border border-white/[0.07] border-dashed aspect-video flex items-center justify-center">
+                      <div className="text-center">
+                        <ImageIcon className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                        <p className="font-sans text-[11px] text-white/20">Nicio imagine selectată</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ④ SEO TAGS */}
+            <div className={sectionCls}>
+              <p className={sectionTitle}>④ SEO Tags</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Tags (RO) — separate prin virgulă">
+                  <input className={inputCls} value={tagsRo}
+                    onChange={e => setTagsRo(e.target.value)}
+                    placeholder="tag1, tag2, tag3..." />
+                  {tagsRo && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {tagsRo.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
+                        <span key={tag} className="font-sans text-[10px] bg-brand-red/10 text-brand-red border border-brand-red/20 px-2 py-0.5">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </Field>
+                <Field label="Tags (EN) — comma separated">
+                  <input className={inputCls} value={tagsEn}
+                    onChange={e => setTagsEn(e.target.value)}
+                    placeholder="tag1, tag2, tag3..." />
+                  {tagsEn && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {tagsEn.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
+                        <span key={tag} className="font-sans text-[10px] bg-blue-500/10 text-blue-300 border border-blue-500/20 px-2 py-0.5">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </Field>
+              </div>
+            </div>
+
+            {/* ⑤ CONȚINUT */}
+            <div className={sectionCls}>
+              <div className="flex items-center justify-between mb-4">
+                <p className={sectionTitle.replace('mb-4', 'mb-0')}>⑤ Conținut complet</p>
                 <div className="flex gap-1">
                   {(['ro', 'en'] as const).map(l => (
-                    <button
-                      key={l}
-                      onClick={() => setPreviewTab(l)}
+                    <button key={l} onClick={() => setContentTab(l)}
                       className={
-                        'font-sans text-[11px] uppercase tracking-widest px-4 py-2 transition-colors ' +
-                        (previewTab === l
-                          ? 'bg-brand-red text-white'
-                          : 'bg-[#1a1a1a] text-white/40 border border-white/[0.07] hover:text-white')
+                        'font-sans text-[11px] uppercase tracking-wider px-3 py-1.5 border transition-colors ' +
+                        (contentTab === l
+                          ? 'bg-brand-red border-brand-red text-white'
+                          : 'border-white/[0.07] text-white/40 hover:text-white')
                       }
                     >
-                      {l === 'ro' ? '🇷🇴 Română' : '🇬🇧 English'}
+                      {l === 'ro' ? '🇷🇴 RO' : '🇬🇧 EN'}
                     </button>
                   ))}
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => saveArticle('draft')}
-                    disabled={saving}
-                    className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-[#1a1a1a] border border-white/10 text-white hover:border-white/30 transition-colors disabled:opacity-50"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    Salvează ciornă
-                  </button>
-                  <button
-                    onClick={() => saveArticle('published')}
-                    disabled={saving}
-                    className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-brand-red text-white hover:bg-red-700 transition-colors disabled:opacity-50"
-                  >
-                    <Globe className="w-3.5 h-3.5" />
-                    Publică acum
-                  </button>
+              </div>
+              {contentTab === 'ro' ? (
+                <textarea rows={24} className={textareaCls} value={contentRo}
+                  onChange={e => setContentRo(e.target.value)}
+                  placeholder="Conținut articol în română..." />
+              ) : (
+                <textarea rows={24} className={textareaCls} value={contentEn}
+                  onChange={e => setContentEn(e.target.value)}
+                  placeholder="Article content in English..." />
+              )}
+            </div>
+
+            {/* ⑥ METADATE */}
+            <div className={sectionCls}>
+              <p className={sectionTitle}>⑥ Metadate</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Slug URL">
+                  <input className={inputCls} value={slug} onChange={e => setSlug(e.target.value)} />
+                </Field>
+                <Field label="Autor">
+                  <input className={inputCls} value={authorName} onChange={e => setAuthorName(e.target.value)} />
+                </Field>
+                <Field label="Subcategorie">
+                  <select className={inputCls} value={subcategory} onChange={e => setSubcategory(e.target.value)}>
+                    {SUBCATEGORIES.map(s => <option key={s} value={s}>{s || '—'}</option>)}
+                  </select>
+                </Field>
+                <Field label="Status">
+                  <select className={inputCls} value={status} onChange={e => setStatus(e.target.value)}>
+                    <option value="draft">Ciornă</option>
+                    <option value="pending_review">În revizuire</option>
+                    <option value="published">Publicat</option>
+                  </select>
+                </Field>
+                <Field label="URL sursă / referință">
+                  <input className={inputCls} value={sourceUrl}
+                    onChange={e => setSourceUrl(e.target.value)}
+                    placeholder="https://sursa.com/articol" />
+                </Field>
+                <div className="flex items-center gap-3 pt-5">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={isBreaking}
+                      onChange={e => setIsBreaking(e.target.checked)}
+                      className="accent-brand-red w-4 h-4" />
+                    <div>
+                      <p className="font-sans text-[13px] text-white">⚡ Ultima Oră</p>
+                      <p className="font-sans text-[11px] text-white/30">Apare în ticker-ul roșu</p>
+                    </div>
+                  </label>
                 </div>
               </div>
+            </div>
 
-              {previewTab === 'ro' ? (
-                <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4">
-                  <Field label="Titlu principal (RO)">
-                    <input className={inputCls} value={getField('title_ro') as string}
-                      onChange={e => setField('title_ro', e.target.value)} />
-                  </Field>
-                  {(result.title_alt_ro || edited.title_alt_ro) && (
-                    <Field label="Titlu alternativ (RO)">
-                      <input className={inputCls} value={getField('title_alt_ro') as string}
-                        onChange={e => setField('title_alt_ro', e.target.value)} />
-                    </Field>
-                  )}
-                  <Field label="Rezumat (bullets)">
-                    <textarea rows={4} className={textareaCls} value={getField('summary_ro') as string}
-                      onChange={e => setField('summary_ro', e.target.value)} />
-                  </Field>
-                  <Field label="Introducere / Excerpt">
-                    <textarea rows={3} className={textareaCls} value={getField('excerpt_ro') as string}
-                      onChange={e => setField('excerpt_ro', e.target.value)} />
-                  </Field>
-                  <Field label="Conținut complet">
-                    <textarea rows={20} className={textareaCls} value={getField('content_ro') as string}
-                      onChange={e => setField('content_ro', e.target.value)} />
-                  </Field>
-                  <Field label="SEO Tags">
-                    <input className={inputCls}
-                      value={((getField('tags_ro') as string[]) || []).join(', ')}
-                      onChange={e => setField('tags_ro', e.target.value.split(',').map(t => t.trim()).filter(Boolean))}
-                      placeholder="tag1, tag2, tag3" />
-                  </Field>
-                </div>
-              ) : (
-                <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4">
-                  <Field label="Title (EN)">
-                    <input className={inputCls} value={getField('title_en') as string}
-                      onChange={e => setField('title_en', e.target.value)} />
-                  </Field>
-                  {(result.title_alt_en || edited.title_alt_en) && (
-                    <Field label="Alternative title (EN)">
-                      <input className={inputCls} value={getField('title_alt_en') as string}
-                        onChange={e => setField('title_alt_en', e.target.value)} />
-                    </Field>
-                  )}
-                  <Field label="Summary (bullets)">
-                    <textarea rows={4} className={textareaCls} value={getField('summary_en') as string}
-                      onChange={e => setField('summary_en', e.target.value)} />
-                  </Field>
-                  <Field label="Introduction / Excerpt">
-                    <textarea rows={3} className={textareaCls} value={getField('excerpt_en') as string}
-                      onChange={e => setField('excerpt_en', e.target.value)} />
-                  </Field>
-                  <Field label="Full content">
-                    <textarea rows={20} className={textareaCls} value={getField('content_en') as string}
-                      onChange={e => setField('content_en', e.target.value)} />
-                  </Field>
-                  <Field label="SEO Tags">
-                    <input className={inputCls}
-                      value={((getField('tags_en') as string[]) || []).join(', ')}
-                      onChange={e => setField('tags_en', e.target.value.split(',').map(t => t.trim()).filter(Boolean))}
-                      placeholder="tag1, tag2, tag3" />
-                  </Field>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+            {/* Bottom action bar */}
+            <div className="flex gap-3 pb-8">
+              <button onClick={() => saveArticle('draft')} disabled={saving}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-[#1a1a1a] border border-white/10 text-white font-sans text-[13px] font-bold hover:border-white/30 transition-colors disabled:opacity-50">
+                <Save className="w-4 h-4" />
+                Salvează ciornă
+              </button>
+              <button onClick={() => saveArticle('published')} disabled={saving}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-brand-red text-white font-sans text-[13px] font-bold hover:bg-red-700 transition-colors disabled:opacity-50">
+                <Globe className="w-4 h-4" />
+                Publică pe site
+              </button>
+            </div>
+
+          </div>
+        )}
       </div>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
-        {label}
-      </label>
-      {children}
     </div>
   )
 }
