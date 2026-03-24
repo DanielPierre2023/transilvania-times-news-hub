@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Lora, Inter } from 'next/font/google'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import LayoutShell from './components/LayoutShell'
+import { CookieConsentProvider } from './components/CookieConsentContext'
 import './globals.css'
 
 const lora = Lora({
@@ -53,9 +54,11 @@ export default async function RootLayout({
   return (
     <html lang="ro" className={`${lora.variable} ${inter.variable}`}>
       <body className="bg-background text-foreground font-sans antialiased min-h-screen flex flex-col">
-        <LayoutShell breakingNews={breakingTitles}>
-          {children}
-        </LayoutShell>
+        <CookieConsentProvider>
+          <LayoutShell breakingNews={breakingTitles}>
+            {children}
+          </LayoutShell>
+        </CookieConsentProvider>
       </body>
     </html>
   )
