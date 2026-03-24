@@ -3,7 +3,9 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Wand2, Save, Globe, RefreshCw, Image as ImageIcon } from 'lucide-react'
+import { Wand2, Save, Globe, RefreshCw, Upload, X, Loader2 } from 'lucide-react'
+
+// ─── ARTICLE TYPES ───────────────────────────────────────────────────────────
 
 const ARTICLE_TYPES = [
   { value: 'editorial',  label: 'Editorial',  emoji: '✒️', hint: 'Teză fermă · argumentare stratificată · concluzie memorabilă' },
@@ -28,22 +30,25 @@ const CATEGORIES = [
 
 const SUBCATEGORIES = ['', 'regional', 'national', 'international']
 
+// ─── PROMPTS ─────────────────────────────────────────────────────────────────
+
 function buildPrompt(type: string, topic: string, wordCount: number): string {
   const base = `SUBIECT: ${topic}
-LUNGIME: ~${wordCount} cuvinte pentru conținut.
-LIMBĂ: Scrie NATIV în română. Generează și versiunea completă nativă în engleză.
+LUNGIME: ~${wordCount} cuvinte per limbă.
+LIMBĂ: Generează NATIV în română ȘI nativ în engleză simultan.
 
-TITLU: psihologic puternic, curiozitate/urgență/emoție, fără punct final. Titlu alternativ obligatoriu.
-REZUMAT: 3-4 bullet-uri max 15 cuvinte fiecare, fiecare adaugă informație nouă.
+TITLU: psihologic puternic, curiozitate/urgență/emoție. Fără punct final.
+REZUMAT: 3-4 bullet-uri max 15 cuvinte, fiecare adaugă informație nouă.
 SEO: 6-8 taguri lowercase cu cratimă.
+FĂRĂ subtitluri (### sau ##). FĂRĂ cuvinte interzise: crucial, esențial, vital, paradigmă, sinergie.
 
-RĂSPUNDE EXCLUSIV JSON:
+RĂSPUNDE EXCLUSIV JSON (fără backticks, fără text în afara JSON):
 {
   "title_ro":"...","title_en":"...",
   "summary_ro":"bullet1\\nbullet2\\nbullet3",
   "summary_en":"bullet1\\nbullet2\\nbullet3",
   "excerpt_ro":"1-2 propoziții","excerpt_en":"1-2 sentences",
-  "content_ro":"articol complet","content_en":"full article",
+  "content_ro":"articol complet în română","content_en":"full article in English",
   "tags_ro":["tag1","tag2"],"tags_en":["tag1","tag2"],
   "seo_title_ro":"max 60 car","seo_title_en":"max 60 chars",
   "seo_description_ro":"max 160 car","seo_description_en":"max 160 chars"
@@ -58,7 +63,7 @@ TIP: EDITORIAL DE ÎNALTĂ CLASĂ
 3. ARGUMENTARE STRATIFICATĂ: 3-4 argumente cu fapte concrete, precedente, citate — se construiesc progresiv
 4. CONTRAARGUMENT ȘI RESPINGERE: recunoaște perspectiva opusă, demontează-o elegant
 5. CONCLUZIE MEMORABILĂ: propoziție care rămâne în minte, provoacă reflecție sau acțiune
-TON: Autoritar, lucid, angajat. INTERZIS: crucial, esențial, robust, vital, paradigmă, sinergie.`,
+TON: Autoritar, lucid, angajat.`,
 
     analiza: `${base}
 
@@ -74,60 +79,158 @@ TON: Expert, nuanțat, fără simplificări.`,
     pamflet: `${base}
 
 TIP: PAMFLET — SATIRĂ DE ÎNALTĂ CLASĂ (Swift, Voltaire, Caragiale)
-REGULI:
-1. Umor fin, stratificat. Sarcasmul taie ca bisturiul, nu toporul. Cititorul inteligent zâmbește cu satisfacție.
-2. Ținta precisă: identifică exact ce/cine e satirizat. Nu generaliza.
-STRUCTURĂ OBLIGATORIE:
-- LAUDATIO IRONICĂ: deschide cu compliment fals și exagerat față de țintă
-- DEZMEMBRARE PROGRESIVĂ: demontarea pretențiilor cu exemple concrete și comparații devastatoare
+1. Umor fin, stratificat. Sarcasmul taie ca bisturiul, nu toporul.
+2. Ținta precisă: identifică exact ce/cine e satirizat.
+STRUCTURĂ:
+- LAUDATIO IRONICĂ: compliment fals și exagerat față de țintă
+- DEZMEMBRARE PROGRESIVĂ: demontarea cu exemple concrete și comparații devastatoare
 - REVELAȚIA ABSURDĂ: masca cade complet
 - CONCLUZIE TĂIOASĂ: aparent serioasă, implacabil de sarcastică
 TEHNICI: hiperbolă controlată, ironie socratică, analogii incomode, întrebări retorice ucigătoare
-TITLUL: capodoperă de ironie — pare serios, e ucigător satiric
 FĂRĂ vulgaritate. FĂRĂ atacuri la persoană neverificabilă.`,
 
     blog: `${base}
 
-TIP: BLOG — VOCE PERSONALĂ, IMPACT REAL
+TIP: BLOG — VOCE PERSONALĂ
 1. DESCHIDERE PERSONALĂ: experiență sau observație care conectează imediat
-2. PUNCT DE VEDERE PROPRIU: nu "unii spun că". Ia o poziție. Spune ce crezi TU.
+2. PUNCT DE VEDERE PROPRIU: ia o poziție, spune ce crezi TU și de ce
 3. POVESTIRE + INFORMAȚIE: alternează narațiunea cu insight-uri valoroase
 4. UMOR SAU AUTOIRONIE: blogul bun nu se ia prea în serios
 5. CONCLUZIE PRACTICĂ: ce poate face cititorul cu această informație?
-TON: Cald, direct, inteligent fără a fi pedant. Ca și cum explici unui prieten deștept la cafea.`,
+TON: Cald, direct, inteligent fără a fi pedant.`,
 
     reportaj: `${base}
 
 TIP: REPORTAJ NARATIV
 1. SCENĂ DE DESCHIDERE: plasează cititorul în acțiune — detalii senzoriale, personaje concrete
-2. CONTEXTUL POVEȘTII: cine, ce, unde, când, de ce — ca narațiune, nu știre
+2. CONTEXTUL POVEȘTII: cine, ce, unde, când, de ce — ca narațiune
 3. VOCI: min 2-3 perspective diferite, citate directe
-4. TENSIUNEA NARATIVĂ: conflict, problemă nerezolvată, întrebare centrală
+4. TENSIUNEA NARATIVĂ: conflict, problemă nerezolvată
 5. REZOLUȚIE: răspuns sau o întrebare mai mare
 TON: Narativ, uman, long-form journalism.`,
 
     cultura: `${base}
 
-TIP: CRITICĂ CULTURALĂ PROFUNDĂ
+TIP: CRITICĂ CULTURALĂ
 1. OPERA/FENOMENUL: descrie cu acuratețe și detaliu relevant
 2. CONTEXTUL CULTURAL: situează în curentul artistic, istoric sau social
 3. ANALIZA CRITICĂ: nu rezumat — interpretare. Ce spune opera despre epoca ei?
-4. COMPARAȚII: pune în dialog cu alte opere sau momente culturale relevante
+4. COMPARAȚII: pune în dialog cu alte opere sau momente culturale
 5. VALOAREA ACTUALĂ: de ce contează azi?
 TON: Cultivat, pasionat, accesibil fără vulgarizare.`,
 
     tehnologie: `${base}
 
-TIP: JURNALISM TECH — NU COMUNICAT DE PRESĂ
+TIP: JURNALISM TECH
 1. NOUTATEA: ce s-a schimbat? de ce acum?
 2. FUNCȚIONAREA: explică accesibil, analogii clare, fără jargon inutil
 3. IMPLICAȚIILE REALE: impact concret pe oameni, business, societate
-4. VOCEA CRITICĂ: riscuri, limitări, întrebări nerezolvate — nu celebra orbește
+4. VOCEA CRITICĂ: riscuri, limitări, întrebări nerezolvate
 5. PERSPECTIVE GLOBALE: tendințe mai largi
 TON: Informat, scepticism sănătos, accesibil.`,
   }
   return prompts[type] || prompts['editorial']
 }
+
+// ─── IMAGE UPLOAD COMPONENT ───────────────────────────────────────────────────
+
+function ImageSection({
+  coverImage, setCoverImage,
+  titleRo, titleEn, summaryRo, summaryEn,
+  onGenerate, generating,
+}: {
+  coverImage: string
+  setCoverImage: (v: string) => void
+  titleRo: string; titleEn: string
+  summaryRo: string; summaryEn: string
+  onGenerate: () => void
+  generating: boolean
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setUploadError('Selectați un fișier imagine'); return }
+    if (file.size > 10 * 1024 * 1024) { setUploadError('Imaginea trebuie să fie sub 10MB'); return }
+
+    setUploading(true)
+    setUploadError('')
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const fileName = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { error } = await supabase.storage.from('blog-images').upload(fileName, file, {
+        contentType: file.type, upsert: false
+      })
+      if (error) throw error
+      const { data } = supabase.storage.from('blog-images').getPublicUrl(fileName)
+      setCoverImage(data.publicUrl)
+    } catch (err) {
+      setUploadError(`Eroare upload: ${(err as Error).message}`)
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
+
+  return (
+    <div className="space-y-3">
+      {/* Preview */}
+      {coverImage && (
+        <div className="relative">
+          <img src={coverImage} alt="Cover" className="w-full aspect-video object-cover" />
+          <button onClick={() => setCoverImage('')}
+            className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white p-1.5 transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* URL input */}
+      <div>
+        <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
+          URL imagine
+        </label>
+        <input className={inp} value={coverImage} onChange={e => setCoverImage(e.target.value)}
+          placeholder="https://... sau folosește butoanele de mai jos" />
+      </div>
+
+      {/* Two buttons side by side */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Upload from computer */}
+        <label className={
+          'flex items-center justify-center gap-2 py-3 border font-sans text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors ' +
+          (uploading ? 'border-white/10 text-white/30 cursor-not-allowed' : 'border-white/20 text-white/60 hover:text-white hover:border-white/40')
+        }>
+          <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" disabled={uploading} />
+          {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Upload...</> : <><Upload className="w-3.5 h-3.5" /> De pe calculator</>}
+        </label>
+
+        {/* Generate with AI */}
+        <button onClick={onGenerate} disabled={generating || (!titleRo && !titleEn)}
+          className="flex items-center justify-center gap-2 py-3 bg-blue-600/20 border border-blue-500/30 text-blue-300 font-sans text-[11px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-colors disabled:opacity-50">
+          {generating ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generează...</> : <><Wand2 className="w-3.5 h-3.5" /> Generează AI</>}
+        </button>
+      </div>
+
+      {uploadError && (
+        <p className="font-sans text-[11px] text-red-400 bg-red-400/10 px-3 py-2">{uploadError}</p>
+      )}
+      <p className="font-sans text-[10px] text-white/20">
+        Upload: JPG/PNG/WebP max 10MB. AI: generează din titlu + rezumat via FLUX.1 sau DALL-E 3.
+      </p>
+    </div>
+  )
+}
+
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 export default function EditorPage() {
   const router = useRouter()
@@ -143,7 +246,7 @@ export default function EditorPage() {
   const [generated, setGenerated]   = useState(false)
   const [genError, setGenError]     = useState('')
 
-  // Content fields
+  // Content fields — all editable after generation
   const [titleRo, setTitleRo]     = useState('')
   const [titleEn, setTitleEn]     = useState('')
   const [summaryRo, setSummaryRo] = useState('')
@@ -161,7 +264,7 @@ export default function EditorPage() {
 
   // Metadata
   const [slug, setSlug]             = useState('')
-  const [authorName, setAuthorName] = useState('')  // FREE EMPTY FIELD — user types manually
+  const [authorName, setAuthorName] = useState('')
   const [subcategory, setSubcategory] = useState('')
   const [sourceUrl, setSourceUrl]   = useState('')
   const [isBreaking, setIsBreaking] = useState(false)
@@ -187,7 +290,7 @@ export default function EditorPage() {
       .replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 80)
   }
 
-  // ── GENERATE ─────────────────────────────────────────────────────────────
+  // ── GENERATE ARTICLE ───────────────────────────────────────────────────────
 
   async function generate() {
     if (!topic.trim()) { setGenError('Introduceți brieful editorial.'); return }
@@ -196,12 +299,9 @@ export default function EditorPage() {
     setGenerated(false)
     setCoverImage('')
 
-    const fullPrompt = buildPrompt(articleType, topic, wordCount)
-
     try {
-      // Call the existing ai-generate-article with correct parameters
       const { data, error } = await supabase.functions.invoke('tt-generate-article', {
-        body: { prompt: fullPrompt, word_count: wordCount, editor: 'daniel_dobos', category }
+        body: { prompt: buildPrompt(articleType, topic, wordCount), word_count: wordCount, category }
       })
       if (error) throw new Error(error.message)
       if (!data)  throw new Error('Niciun răspuns de la AI.')
@@ -230,28 +330,30 @@ export default function EditorPage() {
     setGenerating(false)
   }
 
-  // ── GENERATE COVER IMAGE ─────────────────────────────────────────────────
-  // generate-cover-image accepts { title, excerpt }
-  // Summary is passed as excerpt — image is generated FROM article content
+  // ── GENERATE COVER IMAGE ───────────────────────────────────────────────────
+  // Uses new tt-generate-cover function — accepts { title, summary }
 
   async function generateCoverImage() {
     const imgTitle   = titleRo || titleEn
-    const imgContext = summaryRo || summaryEn || excerptRo || excerptEn
-    if (!imgTitle) { flash('Completați titlul sau generați articolul mai întâi.'); return }
+    const imgSummary = summaryRo || summaryEn || excerptRo
+    if (!imgTitle) { flash('Generați articolul mai întâi sau completați titlul.'); return }
+
     setGeneratingImg(true)
-    flash('Generez imaginea din conținutul articolului...')
+    flash('Generez imaginea din titlu și rezumat...')
     try {
-      const { data, error } = await supabase.functions.invoke('generate-cover-image', {
-        body: { title: imgTitle, excerpt: imgContext }
+      const { data, error } = await supabase.functions.invoke('tt-generate-cover', {
+        body: { title: imgTitle, summary: imgSummary }
       })
       if (error) throw new Error(error.message)
       if (data?.publicUrl) { setCoverImage(data.publicUrl); flash('✓ Imagine generată') }
-      else throw new Error(data?.error || 'Fără URL imagine.')
-    } catch (e) { flash(`Eroare imagine: ${(e as Error).message}`) }
+      else throw new Error(data?.error || 'Eroare generare imagine.')
+    } catch (e) {
+      flash(`Eroare imagine: ${(e as Error).message}`)
+    }
     setGeneratingImg(false)
   }
 
-  // ── SAVE ─────────────────────────────────────────────────────────────────
+  // ── SAVE ───────────────────────────────────────────────────────────────────
 
   async function saveArticle(newStatus: 'draft' | 'published') {
     setSaving(true)
@@ -265,14 +367,13 @@ export default function EditorPage() {
       tags_en: tagsEn.split(',').map(t => t.trim()).filter(Boolean),
       cover_image: coverImage || null,
       category, subcategory: subcategory || null,
-      author_name: authorName || null,   // The manually entered author name
+      author_name: authorName || null,
       source_url: sourceUrl || null,
       is_breaking: isBreaking,
       slug: finalSlug, status: newStatus,
       published_at: newStatus === 'published' ? new Date().toISOString() : null,
     }
-    const { data: saved, error } = await supabase
-      .from('blog_posts').insert(payload as never).select('id, slug').single()
+    const { data: saved, error } = await supabase.from('blog_posts').insert(payload as never).select('id, slug').single()
     if (error || !saved) { flash(`Eroare: ${error?.message}`); setSaving(false); return }
     if (newStatus === 'published') {
       await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${saved.slug}`, { method: 'POST' })
@@ -282,7 +383,7 @@ export default function EditorPage() {
     setTimeout(() => router.push(`/admin/articles/${saved.id}/edit`), 1500)
   }
 
-  // ── STYLES ────────────────────────────────────────────────────────────────
+  // ── STYLES ─────────────────────────────────────────────────────────────────
 
   const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
   const ta  = inp + " resize-none leading-relaxed"
@@ -319,7 +420,7 @@ export default function EditorPage() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-6">
 
-        {/* ── LEFT ──────────────────────────────────────────────────────── */}
+        {/* ── LEFT ─────────────────────────────────────────────────────── */}
         <div className="space-y-4">
 
           {/* Article type */}
@@ -334,9 +435,7 @@ export default function EditorPage() {
                       ? 'bg-brand-red border-brand-red text-white'
                       : 'border-white/[0.07] text-white/50 hover:text-white hover:border-white/20')
                   }
-                >
-                  <span>{t.emoji}</span>{t.label}
-                </button>
+                ><span>{t.emoji}</span>{t.label}</button>
               ))}
             </div>
             <p className="font-sans text-[10px] text-white/20 italic">
@@ -352,9 +451,7 @@ export default function EditorPage() {
                 <button key={wc.value} onClick={() => setWordCount(wc.value)}
                   className={
                     'flex-1 flex flex-col items-center py-2.5 border transition-colors ' +
-                    (wordCount === wc.value
-                      ? 'bg-brand-red border-brand-red text-white'
-                      : 'border-white/[0.07] text-white/50 hover:text-white')
+                    (wordCount === wc.value ? 'bg-brand-red border-brand-red text-white' : 'border-white/[0.07] text-white/50 hover:text-white')
                   }
                 >
                   <span className="font-sans text-[14px] font-bold">{wc.label}</span>
@@ -378,7 +475,7 @@ export default function EditorPage() {
             <textarea className={ta} rows={7} value={topic} onChange={e => setTopic(e.target.value)}
               placeholder={
                 articleType === 'pamflet'
-                  ? 'Ex: Un politician promite transparență totală, exact la o lună după ce dosarul lui a fost clasat. Ironizează cu precizie chirurgicală...'
+                  ? 'Ex: Un politician promite transparență totală la exact o lună după ce dosarul lui a fost clasat. Ironizează cu precizie chirurgicală...'
                   : 'Descrie subiectul, unghiul, contextul dorit...'
               }
             />
@@ -399,22 +496,22 @@ export default function EditorPage() {
           {generating && (
             <div className="bg-[#1a1a1a] border border-purple-500/20 p-4 text-center space-y-1">
               <p className="font-sans text-[12px] text-purple-300">
-                AI scrie {ARTICLE_TYPES.find(t => t.value === articleType)?.label}...
+                Gemini scrie {ARTICLE_TYPES.find(t => t.value === articleType)?.label}...
               </p>
               <p className="font-sans text-[11px] text-purple-300/40">
-                {wordCount} cuvinte · titlu psihologic · RO + EN · SEO complet
+                {wordCount} cuvinte · RO + EN · titlu psihologic · SEO complet
               </p>
             </div>
           )}
         </div>
 
-        {/* ── RIGHT ─────────────────────────────────────────────────────── */}
+        {/* ── RIGHT ────────────────────────────────────────────────────── */}
         {!generated ? (
           <div className="bg-[#1a1a1a] border border-white/[0.07] border-dashed flex flex-col items-center justify-center min-h-[600px] p-8 text-center">
             <Wand2 className="w-16 h-16 text-white/[0.05] mb-5" />
             <p className="font-serif text-xl text-white/20 mb-2">Articolul generat va apărea aici</p>
             <p className="font-sans text-[12px] text-white/10 max-w-xs">
-              Selectează tipul · lungimea · categoria<br/>Scrie brieful · apasă Generează
+              Selectează tipul · lungimea · categoria · scrie brieful · apasă Generează
             </p>
           </div>
         ) : (
@@ -449,16 +546,13 @@ export default function EditorPage() {
               </div>
             </div>
 
-            {/* ② REZUMAT + EXCERPT */}
+            {/* ② REZUMAT */}
             <div className={sec}>
               <p className={sh}>② Rezumat & Introducere</p>
-              <p className="font-sans text-[10px] text-white/20 -mt-2 mb-2">
-                Rezumatul apare pe articol ÎNAINTE de imagine. Este folosit și ca bază pentru generarea imaginii copertă.
-              </p>
+              <p className="font-sans text-[10px] text-white/20 -mt-2 mb-1">Rezumatul apare pe articol înainte de imagine. Este folosit și pentru generarea imaginii copertă.</p>
               <div className="grid md:grid-cols-2 gap-4">
                 <F label="Rezumat bullets (RO)">
-                  <textarea rows={5} className={ta} value={summaryRo} onChange={e => setSummaryRo(e.target.value)}
-                    placeholder="• Punct 1&#10;• Punct 2&#10;• Punct 3" />
+                  <textarea rows={5} className={ta} value={summaryRo} onChange={e => setSummaryRo(e.target.value)} placeholder="• Punct 1&#10;• Punct 2&#10;• Punct 3" />
                 </F>
                 <F label="Summary (EN)">
                   <textarea rows={5} className={ta} value={summaryEn} onChange={e => setSummaryEn(e.target.value)} />
@@ -472,46 +566,17 @@ export default function EditorPage() {
               </div>
             </div>
 
-            {/* ③ IMAGINE COPERTĂ */}
+            {/* ③ IMAGINE */}
             <div className={sec}>
               <p className={sh}>③ Imagine copertă</p>
-              <div className="grid md:grid-cols-2 gap-4 items-start">
-                <div className="space-y-3">
-                  <F label="URL imagine (sau generează automat de mai jos)">
-                    <input className={inp} value={coverImage}
-                      onChange={e => setCoverImage(e.target.value)}
-                      placeholder="https://... sau lasă gol" />
-                  </F>
-                  <button onClick={generateCoverImage} disabled={generatingImg}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600/20 border border-blue-500/30 text-blue-300 font-sans text-[12px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-colors disabled:opacity-50">
-                    {generatingImg
-                      ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generează imaginea...</>
-                      : <><ImageIcon className="w-4 h-4" /> Generează imagine din rezumat</>
-                    }
-                  </button>
-                  <p className="font-sans text-[10px] text-white/20">
-                    AI folosește titlul + rezumatul articolului ca sursă vizuală. HuggingFace FLUX.1 → DALL-E 3 (fallback).
-                  </p>
-                </div>
-                <div>
-                  {coverImage ? (
-                    <div className="space-y-2">
-                      <img src={coverImage} alt="Cover" className="w-full aspect-video object-cover" />
-                      <button onClick={() => setCoverImage('')}
-                        className="font-sans text-[11px] text-white/30 hover:text-red-400 transition-colors">
-                        ✕ Șterge imaginea
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="border border-white/[0.07] border-dashed aspect-video flex items-center justify-center">
-                      <div className="text-center space-y-1">
-                        <ImageIcon className="w-8 h-8 text-white/10 mx-auto" />
-                        <p className="font-sans text-[11px] text-white/20">Nicio imagine</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ImageSection
+                coverImage={coverImage}
+                setCoverImage={setCoverImage}
+                titleRo={titleRo} titleEn={titleEn}
+                summaryRo={summaryRo} summaryEn={summaryEn}
+                onGenerate={generateCoverImage}
+                generating={generatingImg}
+              />
             </div>
 
             {/* ④ SEO TAGS */}
@@ -541,11 +606,11 @@ export default function EditorPage() {
                   <input className={inp} value={seoTitleEn} onChange={e => setSeoTitleEn(e.target.value)} />
                   <span className={`font-sans text-[10px] mt-1 block ${seoTitleEn.length > 60 ? 'text-red-400' : 'text-white/20'}`}>{seoTitleEn.length}/60</span>
                 </F>
-                <F label="Meta Description (RO) — max 160 caractere">
+                <F label="Meta Description (RO) — max 160">
                   <textarea rows={2} className={ta} value={seoDescRo} onChange={e => setSeoDescRo(e.target.value)} />
                   <span className={`font-sans text-[10px] mt-1 block ${seoDescRo.length > 160 ? 'text-red-400' : 'text-white/20'}`}>{seoDescRo.length}/160</span>
                 </F>
-                <F label="Meta Description (EN) — max 160 chars">
+                <F label="Meta Description (EN) — max 160">
                   <textarea rows={2} className={ta} value={seoDescEn} onChange={e => setSeoDescEn(e.target.value)} />
                   <span className={`font-sans text-[10px] mt-1 block ${seoDescEn.length > 160 ? 'text-red-400' : 'text-white/20'}`}>{seoDescEn.length}/160</span>
                 </F>
@@ -580,10 +645,8 @@ export default function EditorPage() {
                 <F label="Slug URL">
                   <input className={inp} value={slug} onChange={e => setSlug(e.target.value)} />
                 </F>
-                <F label="Autor — introdu manual numele autorului">
-                  <input className={inp} value={authorName}
-                    onChange={e => setAuthorName(e.target.value)}
-                    placeholder="Ex: Daniel Dobos, Redacția TT..." />
+                <F label="Autor — introdu manual">
+                  <input className={inp} value={authorName} onChange={e => setAuthorName(e.target.value)} placeholder="Numele autorului" />
                 </F>
                 <F label="Subcategorie">
                   <select className={inp} value={subcategory} onChange={e => setSubcategory(e.target.value)}>
