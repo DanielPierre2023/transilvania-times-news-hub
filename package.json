@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:vite": "vite",
     "build": "next build",
+    "build:dev": "vite build --mode development",
     "start": "next start",
     "lint": "next lint"
   },
