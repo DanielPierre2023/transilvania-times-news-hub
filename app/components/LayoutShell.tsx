@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, MapPin, Mail, Phone } from 'lucide-react'
+import { Menu, X, Search, MapPin, Mail, Phone } from 'lucide-react'
 
 // ── Inline newsletter form for footer (no external dependency) ────────────────
 function FooterNewsletter() {
@@ -76,9 +76,10 @@ interface LayoutShellProps {
 
 export default function LayoutShell({ children, breakingNews }: LayoutShellProps) {
   const pathname  = usePathname()
-  const [mobileOpen, setMobileOpen]   = useState(false)
-  const [scrolled,   setScrolled]      = useState(false)
-  const [tickerIdx,  setTickerIdx]     = useState(0)
+  const [mobileOpen,  setMobileOpen]  = useState(false)
+  const [scrolled,    setScrolled]    = useState(false)
+  const [searchOpen,  setSearchOpen]  = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Scroll shadow
   useEffect(() => {
@@ -86,15 +87,6 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
-
-  // Breaking news ticker rotation
-  useEffect(() => {
-    if (breakingNews.length <= 1) return
-    const interval = setInterval(() => {
-      setTickerIdx(i => (i + 1) % breakingNews.length)
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [breakingNews.length])
 
   const isAdminRoute = pathname?.startsWith('/admin')
 
@@ -108,15 +100,30 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
 
       {/* ── Breaking news ticker ── */}
       {breakingNews.length > 0 && (
-        <div className="bg-brand-red text-white py-1.5 px-4 flex items-center gap-3 overflow-hidden">
-          <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] shrink-0 flex items-center gap-1">
+        <div className="bg-brand-red text-white py-1.5 flex items-center gap-3 overflow-hidden">
+          <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] shrink-0 flex items-center gap-1 px-4 border-r border-white/20">
             <span className="text-yellow-300">⚡</span> ULTIMA ORĂ
           </span>
           <div className="flex-1 overflow-hidden">
-            <p className="font-sans text-[12px] truncate">
-              {breakingNews[tickerIdx]}
-            </p>
+            <div
+              className="flex gap-16 whitespace-nowrap"
+              style={{
+                animation: 'ticker-scroll 30s linear infinite',
+              }}
+            >
+              {[...breakingNews, ...breakingNews].map((title, i) => (
+                <span key={i} className="font-sans text-[12px] shrink-0">
+                  {title}
+                </span>
+              ))}
+            </div>
           </div>
+          <style>{`
+            @keyframes ticker-scroll {
+              0%   { transform: translateX(0); }
+              100% { transform: translateX(-50%); }
+            }
+          `}</style>
         </div>
       )}
 
@@ -152,17 +159,40 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
 
             {/* Right: search + support button */}
             <div className="flex items-center gap-3">
-              <button aria-label="Căutare" className="text-muted-foreground hover:text-foreground transition-colors p-1">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                </svg>
-              </button>
+              {searchOpen ? (
+                <div className="flex items-center gap-2 border-b border-foreground/30 pb-0.5">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && searchQuery.trim()) {
+                        window.location.href = `/cautare?q=${encodeURIComponent(searchQuery.trim())}`
+                      }
+                      if (e.key === 'Escape') {
+                        setSearchOpen(false)
+                        setSearchQuery('')
+                      }
+                    }}
+                    placeholder="Caută articole..."
+                    className="bg-transparent text-xs font-sans outline-none w-48 placeholder:text-muted-foreground"
+                  />
+                  <button onClick={() => { setSearchOpen(false); setSearchQuery('') }}>
+                    <X className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setSearchOpen(true)} aria-label="Caută">
+                  <Search className="w-4 h-4 text-foreground/70 hover:text-foreground transition-colors" />
+                </button>
+              )}
               <Link
-                  href="/contact"
-                  className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] px-4 py-1.5 bg-brand-red text-white hover:bg-red-700 transition-colors"
-                >
-                  Susține-ne
-                </Link>
+                href="/contact"
+                className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] px-4 py-1.5 bg-brand-red text-white hover:bg-red-700 transition-colors"
+              >
+                Susține-ne
+              </Link>
             </div>
           </div>
         </div>
