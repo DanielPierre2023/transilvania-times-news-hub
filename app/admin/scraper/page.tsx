@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
   RefreshCw, CheckCircle2, XCircle, Clock,
-  ExternalLink, AlertCircle, Loader2, Rss, Sparkles,
+  ExternalLink, AlertCircle, Loader2, Rss, Sparkles, Trash2,
 } from 'lucide-react'
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -18,7 +18,6 @@ interface ScrapedArticle {
   ai_score: number | null
   created_at: string
   rewrite_error: string | null
-  // set after processing — joined from blog_posts via scraped_article_id
   draft_post_id?: string | null
   draft_slug?: string | null
 }
@@ -63,16 +62,21 @@ export default function ScraperFinal() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const [tab,         setTab]         = useState<Tab>('queue')
-  const [articles,    setArticles]    = useState<ScrapedArticle[]>([])
-  const [sources,     setSources]     = useState<RssSource[]>([])
-  const [loading,     setLoading]     = useState(false)
-  const [scraping,    setScraping]    = useState(false)
-  const [processing,  setProcessing]  = useState<string | null>(null)  // article id
-  const [bulkRunning, setBulkRunning] = useState(false)
-  const [toast,       setToast]       = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
+  const [tab,              setTab]              = useState<Tab>('queue')
+  const [articles,         setArticles]         = useState<ScrapedArticle[]>([])
+  const [sources,          setSources]          = useState<RssSource[]>([])
+  const [loading,          setLoading]          = useState(false)
+  const [scraping,         setScraping]         = useState(false)
+  const [processing,       setProcessing]       = useState<string | null>(null)
+  const [bulkRunning,      setBulkRunning]      = useState(false)
+  const [toast,            setToast]            = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
 
-  // ── helpers ──────────────────────────────────────────────────────────────
+  // ── Selection state ───────────────────────────────────────────────────────
+  const [selectedArticles, setSelectedArticles] = useState<Set<string>>(new Set())
+  const [selectedSources,  setSelectedSources]  = useState<Set<string>>(new Set())
+  const [deletingArticles, setDeletingArticles] = useState(false)
+  const [deletingSources,  setDeletingSources]  = useState(false)
+
   const showToast = (msg: string, type: 'ok' | 'err' = 'ok') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 4500)
@@ -84,15 +88,11 @@ export default function ScraperFinal() {
     try {
       const { data, error } = await supabase
         .from('scraped_articles')
-        .select(`
-          id, original_title, original_url, category, county,
-          status, ai_score, created_at, rewrite_error
-        `)
+        .select(`id, original_title, original_url, category, county, status, ai_score, created_at, rewrite_error`)
         .order('created_at', { ascending: false })
         .limit(100)
       if (error) throw error
 
-      // Enrich processed articles with their blog_post id/slug
       const processed = (data ?? []).filter(a => a.status === 'processed')
       const postMap: Record<string, { id: string; slug: string }> = {}
       if (processed.length > 0) {
@@ -112,12 +112,14 @@ export default function ScraperFinal() {
           draft_slug:    postMap[a.id]?.slug ?? null,
         }))
       )
+      // Clear selection when list refreshes
+      setSelectedArticles(new Set())
     } catch (err: unknown) {
       showToast(`Eroare la încărcare: ${err instanceof Error ? err.message : String(err)}`, 'err')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── fetch sources ─────────────────────────────────────────────────────────
   const fetchSources = useCallback(async () => {
@@ -126,7 +128,8 @@ export default function ScraperFinal() {
       .select('*')
       .order('name')
     setSources(data ?? [])
-  }, [])
+    setSelectedSources(new Set())
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchArticles()
@@ -137,9 +140,7 @@ export default function ScraperFinal() {
   const runScraper = async () => {
     setScraping(true)
     try {
-      const { data, error } = await supabase.functions.invoke('tt-scrape-rss', {
-        body: {},
-      })
+      const { data, error } = await supabase.functions.invoke('tt-scrape-rss', { body: {} })
       if (error) throw error
       showToast(`Scraper finalizat: ${data?.total_scraped ?? 0} articole noi`, 'ok')
       await fetchArticles()
@@ -150,7 +151,7 @@ export default function ScraperFinal() {
     }
   }
 
-  // ── process single article (manual "AI Rescrie") ──────────────────────────
+  // ── process single article ────────────────────────────────────────────────
   const processArticle = async (article: ScrapedArticle) => {
     setProcessing(article.id)
     try {
@@ -158,8 +159,10 @@ export default function ScraperFinal() {
         body: { article_id: article.id, mode: 'manual' },
       })
       if (error) throw error
-      if (!data?.results?.[0]?.post_id) throw new Error('Funcția nu a returnat post_id')
-
+      const result = data?.results?.[0]
+      if (!result?.post_id) {
+        throw new Error(result?.error ?? `Răspuns neașteptat: ${JSON.stringify(data)}`)
+      }
       showToast('Articol procesat — ciornă creată ✓', 'ok')
       await fetchArticles()
     } catch (err: unknown) {
@@ -197,11 +200,96 @@ export default function ScraperFinal() {
     await fetchSources()
   }
 
+  // ── delete selected articles ──────────────────────────────────────────────
+  const deleteSelectedArticles = async () => {
+    if (selectedArticles.size === 0) return
+    if (!confirm(`Ștergi ${selectedArticles.size} articole și ciornele asociate? Articolele publicate nu vor fi afectate. Acțiunea este ireversibilă.`)) return
+    setDeletingArticles(true)
+    try {
+      // Delete linked blog_posts drafts only — never touch published articles
+      await supabase
+        .from('blog_posts')
+        .delete()
+        .in('scraped_article_id', [...selectedArticles])
+        .neq('status', 'published')
+
+      // Delete the scraped_articles rows
+      const { error } = await supabase
+        .from('scraped_articles')
+        .delete()
+        .in('id', [...selectedArticles])
+      if (error) throw error
+
+      showToast(`${selectedArticles.size} articole și ciornele asociate șterse ✓`, 'ok')
+      await fetchArticles()
+    } catch (err: unknown) {
+      showToast(`Eroare ștergere: ${err instanceof Error ? err.message : String(err)}`, 'err')
+    } finally {
+      setDeletingArticles(false)
+    }
+  }
+
+  // ── delete selected sources ───────────────────────────────────────────────
+  const deleteSelectedSources = async () => {
+    if (selectedSources.size === 0) return
+    if (!confirm(`Ștergi ${selectedSources.size} surse RSS? Acțiunea este ireversibilă.`)) return
+    setDeletingSources(true)
+    try {
+      const { error } = await supabase
+        .from('rss_sources')
+        .delete()
+        .in('id', [...selectedSources])
+      if (error) throw error
+      showToast(`${selectedSources.size} surse șterse ✓`, 'ok')
+      await fetchSources()
+    } catch (err: unknown) {
+      showToast(`Eroare ștergere: ${err instanceof Error ? err.message : String(err)}`, 'err')
+    } finally {
+      setDeletingSources(false)
+    }
+  }
+
+  // ── select all helpers ────────────────────────────────────────────────────
+  const allArticlesSelected = articles.length > 0 && selectedArticles.size === articles.length
+  const allSourcesSelected  = sources.length  > 0 && selectedSources.size  === sources.length
+
+  const toggleAllArticles = () => {
+    if (allArticlesSelected) {
+      setSelectedArticles(new Set())
+    } else {
+      setSelectedArticles(new Set(articles.map(a => a.id)))
+    }
+  }
+
+  const toggleAllSources = () => {
+    if (allSourcesSelected) {
+      setSelectedSources(new Set())
+    } else {
+      setSelectedSources(new Set(sources.map(s => s.id)))
+    }
+  }
+
+  const toggleArticle = (id: string) => {
+    setSelectedArticles(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSource2 = (id: string) => {
+    setSelectedSources(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
   // ─── COUNTS ───────────────────────────────────────────────────────────────
-  const countScraped    = articles.filter(a => a.status === 'scraped').length
-  const countProcessed  = articles.filter(a => a.status === 'processed').length
-  const countFailed     = articles.filter(a => a.status === 'failed').length
-  const activeSources   = sources.filter(s => s.is_active).length
+  const countScraped   = articles.filter(a => a.status === 'scraped').length
+  const countProcessed = articles.filter(a => a.status === 'processed').length
+  const countFailed    = articles.filter(a => a.status === 'failed').length
+  const activeSources  = sources.filter(s => s.is_active).length
 
   // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
@@ -210,9 +298,7 @@ export default function ScraperFinal() {
       {/* ── Toast ── */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded shadow-lg text-sm font-medium
-          ${toast.type === 'ok'
-            ? 'bg-emerald-600 text-white'
-            : 'bg-red-600 text-white'}`}>
+          ${toast.type === 'ok' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
           {toast.type === 'ok'
             ? <CheckCircle2 className="w-4 h-4 shrink-0" />
             : <AlertCircle  className="w-4 h-4 shrink-0" />}
@@ -236,9 +322,7 @@ export default function ScraperFinal() {
               className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] text-white text-sm font-medium
                 hover:bg-[#333] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {scraping
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <Rss      className="w-4 h-4" />}
+              {scraping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rss className="w-4 h-4" />}
               {scraping ? 'Se scrapează…' : 'Rulează Scraper'}
             </button>
             {countScraped > 0 && (
@@ -248,9 +332,7 @@ export default function ScraperFinal() {
                 className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium
                   hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {bulkRunning
-                  ? <Loader2   className="w-4 h-4 animate-spin" />
-                  : <Sparkles  className="w-4 h-4" />}
+                {bulkRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                 {bulkRunning ? 'Se procesează…' : `AI Procesează Tot (${countScraped})`}
               </button>
             )}
@@ -282,6 +364,37 @@ export default function ScraperFinal() {
         {/* ── Queue Tab ── */}
         {tab === 'queue' && (
           <div className="space-y-2">
+
+            {/* Selection toolbar */}
+            {articles.length > 0 && (
+              <div className="flex items-center justify-between bg-white border border-[#e5e2d9] px-4 py-2.5 mb-2">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-[#666]">
+                  <input
+                    type="checkbox"
+                    checked={allArticlesSelected}
+                    onChange={toggleAllArticles}
+                    className="accent-[#c41e3a] w-4 h-4"
+                  />
+                  {selectedArticles.size > 0
+                    ? `${selectedArticles.size} selectate`
+                    : 'Selectează tot'}
+                </label>
+                {selectedArticles.size > 0 && (
+                  <button
+                    onClick={deleteSelectedArticles}
+                    disabled={deletingArticles}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-medium
+                      hover:bg-red-700 transition-colors disabled:opacity-50 rounded"
+                  >
+                    {deletingArticles
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Trash2  className="w-3.5 h-3.5" />}
+                    Șterge selecția ({selectedArticles.size})
+                  </button>
+                )}
+              </div>
+            )}
+
             {loading && (
               <div className="flex items-center gap-2 text-[#666] text-sm py-8 justify-center">
                 <Loader2 className="w-4 h-4 animate-spin" /> Se încarcă…
@@ -293,16 +406,19 @@ export default function ScraperFinal() {
                 <p className="text-sm">Niciun articol în coadă. Rulează scraperul.</p>
               </div>
             )}
+
             {articles.map(article => (
               <ArticleRow
                 key={article.id}
                 article={article}
                 onProcess={() => processArticle(article)}
                 isProcessing={processing === article.id}
+                checked={selectedArticles.has(article.id)}
+                onCheck={() => toggleArticle(article.id)}
               />
             ))}
 
-            {/* ── Summary bar ── */}
+            {/* Summary bar */}
             {articles.length > 0 && (
               <div className="flex items-center gap-6 py-4 text-xs text-[#999] border-t border-[#e5e2d9] mt-4">
                 <span className="text-amber-600 font-medium">{countScraped} neprocesate</span>
@@ -318,24 +434,69 @@ export default function ScraperFinal() {
         {/* ── Sources Tab ── */}
         {tab === 'sources' && (
           <div className="space-y-2">
+
+            {/* Selection toolbar */}
+            {sources.length > 0 && (
+              <div className="flex items-center justify-between bg-white border border-[#e5e2d9] px-4 py-2.5 mb-2">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-[#666]">
+                  <input
+                    type="checkbox"
+                    checked={allSourcesSelected}
+                    onChange={toggleAllSources}
+                    className="accent-[#c41e3a] w-4 h-4"
+                  />
+                  {selectedSources.size > 0
+                    ? `${selectedSources.size} selectate`
+                    : 'Selectează tot'}
+                </label>
+                {selectedSources.size > 0 && (
+                  <button
+                    onClick={deleteSelectedSources}
+                    disabled={deletingSources}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-medium
+                      hover:bg-red-700 transition-colors disabled:opacity-50 rounded"
+                  >
+                    {deletingSources
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Trash2  className="w-3.5 h-3.5" />}
+                    Șterge selecția ({selectedSources.size})
+                  </button>
+                )}
+              </div>
+            )}
+
             {sources.length === 0 && (
               <div className="text-center py-16 text-[#999]">
                 <p className="text-sm">Nicio sursă RSS configurată.</p>
               </div>
             )}
+
             {sources.map(source => (
               <div key={source.id}
-                className="bg-white border border-[#e5e2d9] p-4 flex items-center justify-between">
-                <div>
+                className={`bg-white border border-[#e5e2d9] p-4 flex items-center gap-3
+                  ${selectedSources.has(source.id) ? 'border-[#c41e3a] bg-red-50/30' : ''}`}>
+
+                {/* Checkbox */}
+                <input
+                  type="checkbox"
+                  checked={selectedSources.has(source.id)}
+                  onChange={() => toggleSource2(source.id)}
+                  className="accent-[#c41e3a] w-4 h-4 shrink-0"
+                />
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[#1a1a1a]">{source.name}</p>
-                  <p className="text-xs text-[#999] mt-0.5">{source.url}</p>
+                  <p className="text-xs text-[#999] mt-0.5 truncate">{source.url}</p>
                   {source.last_scraped_at && (
                     <p className="text-xs text-[#bbb] mt-0.5">
                       Ultima scraping: {new Date(source.last_scraped_at).toLocaleString('ro-RO')}
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+
+                {/* Controls */}
+                <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs text-[#999]">Limită: {source.output_limit}</span>
                   <button
                     onClick={() => toggleSource(source.id, source.is_active)}
@@ -360,10 +521,14 @@ function ArticleRow({
   article,
   onProcess,
   isProcessing,
+  checked,
+  onCheck,
 }: {
   article: ScrapedArticle
   onProcess: () => void
   isProcessing: boolean
+  checked: boolean
+  onCheck: () => void
 }) {
   const timeAgo = (iso: string) => {
     const diff = Date.now() - new Date(iso).getTime()
@@ -375,11 +540,19 @@ function ArticleRow({
   }
 
   return (
-    <div className={`bg-white border rounded p-4 flex items-start justify-between gap-4 transition-opacity
+    <div className={`bg-white border rounded p-4 flex items-start gap-3 transition-opacity
       ${isProcessing ? 'opacity-60' : ''}
-      ${article.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-[#e5e2d9]'}`}>
+      ${checked ? 'border-[#c41e3a] bg-red-50/30' : article.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-[#e5e2d9]'}`}>
 
-      {/* Left: article info */}
+      {/* Checkbox */}
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onCheck}
+        className="accent-[#c41e3a] w-4 h-4 mt-1 shrink-0"
+      />
+
+      {/* Article info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <StatusBadge status={article.status} score={article.ai_score} />
@@ -411,7 +584,7 @@ function ArticleRow({
         )}
       </div>
 
-      {/* Right: action */}
+      {/* Action */}
       <div className="shrink-0 flex flex-col items-end gap-2">
         {article.status === 'scraped' && (
           <button
