@@ -132,7 +132,22 @@ TON: Informat, scepticism sănătos, accesibil.`,
   return prompts[type] || prompts['editorial']
 }
 
-// ─── IMAGE UPLOAD COMPONENT ───────────────────────────────────────────────────
+// ─── F FIELD WRAPPER — module level (fixes author input focus bug) ─────────────
+// IMPORTANT: must stay at module level, NOT inside EditorPage.
+// Defining a component inside another component causes React to unmount/remount
+// it on every render, losing input focus after every keystroke.
+function F({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
+        {label}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+// ─── IMAGE SECTION ────────────────────────────────────────────────────────────
 
 function ImageSection({
   coverImage, setCoverImage,
@@ -182,7 +197,6 @@ function ImageSection({
 
   return (
     <div className="space-y-3">
-      {/* Preview */}
       {coverImage && (
         <div className="relative">
           <img src={coverImage} alt="Cover" className="w-full aspect-video object-cover" />
@@ -193,7 +207,6 @@ function ImageSection({
         </div>
       )}
 
-      {/* URL input */}
       <div>
         <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
           URL imagine
@@ -202,9 +215,7 @@ function ImageSection({
           placeholder="https://... sau folosește butoanele de mai jos" />
       </div>
 
-      {/* Two buttons side by side */}
       <div className="grid grid-cols-2 gap-2">
-        {/* Upload from computer */}
         <label className={
           'flex items-center justify-center gap-2 py-3 border font-sans text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors ' +
           (uploading ? 'border-white/10 text-white/30 cursor-not-allowed' : 'border-white/20 text-white/60 hover:text-white hover:border-white/40')
@@ -213,7 +224,6 @@ function ImageSection({
           {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Upload...</> : <><Upload className="w-3.5 h-3.5" /> De pe calculator</>}
         </label>
 
-        {/* Generate with AI */}
         <button onClick={onGenerate} disabled={generating || (!titleRo && !titleEn)}
           className="flex items-center justify-center gap-2 py-3 bg-blue-600/20 border border-blue-500/30 text-blue-300 font-sans text-[11px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-colors disabled:opacity-50">
           {generating ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generează...</> : <><Wand2 className="w-3.5 h-3.5" /> Generează AI</>}
@@ -224,7 +234,7 @@ function ImageSection({
         <p className="font-sans text-[11px] text-red-400 bg-red-400/10 px-3 py-2">{uploadError}</p>
       )}
       <p className="font-sans text-[10px] text-white/20">
-        Upload: JPG/PNG/WebP max 10MB. AI: generează din titlu + rezumat via FLUX.1 sau DALL-E 3.
+        Upload: JPG/PNG/WebP max 10MB. AI: HuggingFace FLUX / Pollinations FLUX / Unsplash.
       </p>
     </div>
   )
@@ -235,18 +245,15 @@ function ImageSection({
 export default function EditorPage() {
   const router = useRouter()
 
-  // Generation params
   const [articleType, setArticleType] = useState('editorial')
   const [wordCount, setWordCount]     = useState(1200)
   const [category, setCategory]       = useState('opinion')
   const [topic, setTopic]             = useState('')
 
-  // Generation state
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated]   = useState(false)
   const [genError, setGenError]     = useState('')
 
-  // Content fields — all editable after generation
   const [titleRo, setTitleRo]     = useState('')
   const [titleEn, setTitleEn]     = useState('')
   const [summaryRo, setSummaryRo] = useState('')
@@ -262,18 +269,16 @@ export default function EditorPage() {
   const [seoDescRo, setSeoDescRo]     = useState('')
   const [seoDescEn, setSeoDescEn]     = useState('')
 
-  // Metadata
-  const [slug, setSlug]             = useState('')
-  const [authorName, setAuthorName] = useState('')
+  const [slug, setSlug]               = useState('')
+  const [authorName, setAuthorName]   = useState('')
   const [subcategory, setSubcategory] = useState('')
-  const [sourceUrl, setSourceUrl]   = useState('')
-  const [isBreaking, setIsBreaking] = useState(false)
+  const [sourceUrl, setSourceUrl]     = useState('')
+  const [isBreaking, setIsBreaking]   = useState(false)
 
-  // Cover image
-  const [coverImage, setCoverImage]       = useState('')
-  const [generatingImg, setGeneratingImg] = useState(false)
+  const [coverImage, setCoverImage]           = useState('')
+  const [coverImageCredit, setCoverImageCredit] = useState('')
+  const [generatingImg, setGeneratingImg]     = useState(false)
 
-  // UI
   const [contentTab, setContentTab] = useState<'ro' | 'en'>('ro')
   const [saving, setSaving]         = useState(false)
   const [msg, setMsg]               = useState('')
@@ -298,6 +303,7 @@ export default function EditorPage() {
     setGenError('')
     setGenerated(false)
     setCoverImage('')
+    setCoverImageCredit('')
 
     try {
       const { data, error } = await supabase.functions.invoke('tt-generate-article', {
@@ -323,7 +329,14 @@ export default function EditorPage() {
       setSlug(data.slug || toSlug(data.title_ro || data.title_en || ''))
       setGenerated(true)
       setContentTab('ro')
-      flash('✓ Articol generat')
+      flash('✓ Articol generat — generez imaginea...')
+
+      // Auto-generate cover in background — fire and forget, no await.
+      // Pass data directly to avoid React async state update timing issue.
+      generateCoverImage(
+        data.title_ro || data.title_en,
+        data.summary_ro || data.summary_en || data.excerpt_ro
+      )
     } catch (e) {
       setGenError(`Eroare: ${(e as Error).message}`)
     }
@@ -331,22 +344,29 @@ export default function EditorPage() {
   }
 
   // ── GENERATE COVER IMAGE ───────────────────────────────────────────────────
-  // Uses new tt-generate-cover function — accepts { title, summary }
+  // Accepts optional overrides to avoid React async state timing issues
+  // when called immediately after setting state in generate().
 
-  async function generateCoverImage() {
-    const imgTitle   = titleRo || titleEn
-    const imgSummary = summaryRo || summaryEn || excerptRo
+  async function generateCoverImage(overrideTitle?: string, overrideSummary?: string) {
+    const imgTitle   = overrideTitle   || titleRo || titleEn
+    const imgSummary = overrideSummary || summaryRo || summaryEn || excerptRo
     if (!imgTitle) { flash('Generați articolul mai întâi sau completați titlul.'); return }
 
     setGeneratingImg(true)
-    flash('Generez imaginea din titlu și rezumat...')
     try {
       const { data, error } = await supabase.functions.invoke('tt-generate-cover', {
-        body: { title: imgTitle, summary: imgSummary }
+        body: { title: imgTitle, summary: imgSummary, category }
       })
       if (error) throw new Error(error.message)
-      if (data?.publicUrl) { setCoverImage(data.publicUrl); flash('✓ Imagine generată') }
-      else throw new Error(data?.error || 'Eroare generare imagine.')
+      if (data?.publicUrl) {
+        setCoverImage(data.publicUrl)
+        if (data.isAiGenerated !== false) {
+          setCoverImageCredit('Imagine generată cu inteligență artificială')
+        }
+        flash('✓ Imagine generată')
+      } else {
+        throw new Error(data?.error || 'Eroare generare imagine.')
+      }
     } catch (e) {
       flash(`Eroare imagine: ${(e as Error).message}`)
     }
@@ -366,6 +386,7 @@ export default function EditorPage() {
       tags_ro: tagsRo.split(',').map(t => t.trim()).filter(Boolean),
       tags_en: tagsEn.split(',').map(t => t.trim()).filter(Boolean),
       cover_image: coverImage || null,
+      cover_image_credit: coverImageCredit || null,
       category, subcategory: subcategory || null,
       author_name: authorName || null,
       source_url: sourceUrl || null,
@@ -378,7 +399,9 @@ export default function EditorPage() {
     if (newStatus === 'published') {
       await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${saved.slug}`, { method: 'POST' })
       flash('✓ Publicat și live pe site')
-    } else flash('✓ Salvat ca ciornă')
+    } else {
+      flash('✓ Salvat ca ciornă')
+    }
     setSaving(false)
     setTimeout(() => router.push(`/admin/articles/${saved.id}/edit`), 1500)
   }
@@ -387,13 +410,9 @@ export default function EditorPage() {
 
   const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
   const ta  = inp + " resize-none leading-relaxed"
-  const lbl = "block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5"
   const sec = "bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4"
   const sh  = "font-sans text-[11px] uppercase tracking-widest text-white/40 border-b border-white/[0.07] pb-3 mb-1"
 
-  function F({ label, children }: { label: string; children: React.ReactNode }) {
-    return <div><label className={lbl}>{label}</label>{children}</div>
-  }
   function Pills({ value, cls }: { value: string; cls: string }) {
     const tags = value.split(',').map(t => t.trim()).filter(Boolean)
     if (!tags.length) return null
@@ -404,7 +423,6 @@ export default function EditorPage() {
 
   return (
     <div className="max-w-7xl">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-serif text-2xl font-bold text-white">Editor AI</h1>
@@ -423,7 +441,6 @@ export default function EditorPage() {
         {/* ── LEFT ─────────────────────────────────────────────────────── */}
         <div className="space-y-4">
 
-          {/* Article type */}
           <div className={sec}>
             <p className={sh}>Tip articol</p>
             <div className="grid grid-cols-2 gap-2">
@@ -443,7 +460,6 @@ export default function EditorPage() {
             </p>
           </div>
 
-          {/* Word count */}
           <div className={sec}>
             <p className={sh}>Lungime</p>
             <div className="flex gap-2">
@@ -461,7 +477,6 @@ export default function EditorPage() {
             </div>
           </div>
 
-          {/* Category */}
           <div className={sec}>
             <p className={sh}>Categorie</p>
             <select className={inp} value={category} onChange={e => setCategory(e.target.value)}>
@@ -469,13 +484,12 @@ export default function EditorPage() {
             </select>
           </div>
 
-          {/* Brief */}
           <div className={sec}>
             <p className={sh}>Brief editorial</p>
             <textarea className={ta} rows={7} value={topic} onChange={e => setTopic(e.target.value)}
               placeholder={
                 articleType === 'pamflet'
-                  ? 'Ex: Un politician promite transparență totală la exact o lună după ce dosarul lui a fost clasat. Ironizează cu precizie chirurgicală...'
+                  ? 'Ex: Un politician promite transparență totală la exact o lună după ce dosarul lui a fost clasat...'
                   : 'Descrie subiectul, unghiul, contextul dorit...'
               }
             />
@@ -484,7 +498,6 @@ export default function EditorPage() {
             )}
           </div>
 
-          {/* Generate */}
           <button onClick={generate} disabled={generating || !topic.trim()}
             className="w-full flex items-center justify-center gap-3 py-4 bg-brand-red text-white font-sans text-[13px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             {generating
@@ -496,7 +509,7 @@ export default function EditorPage() {
           {generating && (
             <div className="bg-[#1a1a1a] border border-purple-500/20 p-4 text-center space-y-1">
               <p className="font-sans text-[12px] text-purple-300">
-                Gemini scrie {ARTICLE_TYPES.find(t => t.value === articleType)?.label}...
+                AI scrie {ARTICLE_TYPES.find(t => t.value === articleType)?.label}...
               </p>
               <p className="font-sans text-[11px] text-purple-300/40">
                 {wordCount} cuvinte · RO + EN · titlu psihologic · SEO complet
@@ -517,7 +530,6 @@ export default function EditorPage() {
         ) : (
           <div className="space-y-4">
 
-            {/* Action bar */}
             <div className="flex items-center justify-between">
               <p className="font-sans text-[12px] text-white/30">Editează orice câmp înainte de publicare</p>
               <div className="flex gap-2">
@@ -574,9 +586,23 @@ export default function EditorPage() {
                 setCoverImage={setCoverImage}
                 titleRo={titleRo} titleEn={titleEn}
                 summaryRo={summaryRo} summaryEn={summaryEn}
-                onGenerate={generateCoverImage}
+                onGenerate={() => generateCoverImage()}
                 generating={generatingImg}
               />
+              {/* Credit / sursa fotografie */}
+              <F label="Sursă / creditare fotografie">
+                <input
+                  className={inp}
+                  value={coverImageCredit}
+                  onChange={e => setCoverImageCredit(e.target.value)}
+                  placeholder="Imagine generată cu inteligență artificială / © Reuters / Arhivă"
+                />
+              </F>
+              {coverImageCredit && (
+                <p className="font-sans text-[10px] text-blue-400/60">
+                  {coverImageCredit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: „{coverImageCredit}"
+                </p>
+              )}
             </div>
 
             {/* ④ SEO TAGS */}
@@ -646,7 +672,13 @@ export default function EditorPage() {
                   <input className={inp} value={slug} onChange={e => setSlug(e.target.value)} />
                 </F>
                 <F label="Autor — introdu manual">
-                  <input className={inp} value={authorName} onChange={e => setAuthorName(e.target.value)} placeholder="Numele autorului" />
+                  <input
+                    className={inp}
+                    value={authorName}
+                    onChange={e => setAuthorName(e.target.value)}
+                    placeholder="Numele autorului"
+                    autoComplete="off"
+                  />
                 </F>
                 <F label="Subcategorie">
                   <select className={inp} value={subcategory} onChange={e => setSubcategory(e.target.value)}>
