@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
-import { Menu, X, LogOut, Settings, MapPin, Mail, Phone } from 'lucide-react'
+import { Menu, X, MapPin, Mail, Phone } from 'lucide-react'
 
 // ── Inline newsletter form for footer (no external dependency) ────────────────
 function FooterNewsletter() {
@@ -78,25 +77,8 @@ interface LayoutShellProps {
 export default function LayoutShell({ children, breakingNews }: LayoutShellProps) {
   const pathname  = usePathname()
   const [mobileOpen, setMobileOpen]   = useState(false)
-  const [isAdmin,    setIsAdmin]       = useState(false)
   const [scrolled,   setScrolled]      = useState(false)
   const [tickerIdx,  setTickerIdx]     = useState(0)
-
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-
-  // Check if user is admin
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setIsAdmin(!!data.session?.user)
-    })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setIsAdmin(!!session?.user)
-    })
-    return () => subscription.unsubscribe()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll shadow
   useEffect(() => {
@@ -175,27 +157,12 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                   <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
                 </svg>
               </button>
-              {isAdmin ? (
-                <div className="flex items-center gap-2">
-                  <Link href="/admin/dashboard"
-                    className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors">
-                    <Settings size={12} /> Admin
-                  </Link>
-                  <button
-                    onClick={async () => { await supabase.auth.signOut() }}
-                    className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors"
-                  >
-                    <LogOut size={12} />
-                  </button>
-                </div>
-              ) : (
-                <Link
+              <Link
                   href="/contact"
                   className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] px-4 py-1.5 bg-brand-red text-white hover:bg-red-700 transition-colors"
                 >
                   Susține-ne
                 </Link>
-              )}
             </div>
           </div>
         </div>
@@ -203,7 +170,7 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
         {/* ── Masthead — big centered title ── */}
         <div className="py-5 text-center border-b border-foreground/[0.08]">
           <Link href="/" className="inline-block">
-            <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold text-foreground tracking-tight">
+            <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold italic text-brand-red tracking-tight">
               Transilvania Times
             </h1>
           </Link>
