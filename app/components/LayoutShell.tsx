@@ -91,61 +91,102 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
         scrolled ? 'shadow-md' : ''
       }`}>
 
-        {/* Logo + main nav */}
-        <div className="px-6 py-4 max-w-7xl mx-auto w-full flex items-center justify-between gap-6">
+        {/* ── Top utility bar ── */}
+        <div className="border-b border-foreground/[0.08] px-6 py-1.5">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
 
-          {/* Logo */}
-          <Link href="/" className="shrink-0 flex items-center gap-3">
-            <img
-              src="/assets/logos/transilvania-times-logo.svg"
-              alt="Transilvania Times"
-              className="h-10 w-auto hidden sm:block"
-            />
-            <span className="font-serif font-bold text-xl text-foreground sm:hidden">
-              Transilvania Times
-            </span>
-          </Link>
-
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-0.5">
-            {NAV_LINKS.map(link => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`font-sans text-[11px] font-bold uppercase tracking-[0.12em] px-3 py-2 transition-colors ${
-                  pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
-                    ? 'text-brand-red'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
-            <WeatherWidget />
-            {isAdmin ? (
-              <div className="flex items-center gap-1 ml-2">
-                <Link href="/admin/dashboard"
-                  className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors px-2 py-2">
-                  <Settings size={12} /> Admin
-                </Link>
+            {/* Left: language switcher + date + weather */}
+            <div className="flex items-center gap-3 font-sans text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={async () => { await supabase.auth.signOut() }}
-                  className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors px-2 py-2"
+                  onClick={() => {}}
+                  className="font-bold text-brand-red uppercase tracking-wider"
                 >
-                  <LogOut size={12} />
+                  RO
                 </button>
+                <span className="text-foreground/20">|</span>
+                <Link href="/en" className="uppercase tracking-wider hover:text-brand-red transition-colors">
+                  EN
+                </Link>
               </div>
-            ) : null}
-          </nav>
+              <span className="text-foreground/20">|</span>
+              <span className="hidden sm:inline capitalize">
+                {new Date().toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </span>
+              <WeatherWidget />
+            </div>
 
-          {/* Mobile menu button */}
-          <button
-            className="md:hidden text-foreground p-1"
-            onClick={() => setMobileOpen(o => !o)}
-            aria-label="Menu"
-          >
-            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
-          </button>
+            {/* Right: search + support button */}
+            <div className="flex items-center gap-3">
+              <button aria-label="Căutare" className="text-muted-foreground hover:text-foreground transition-colors p-1">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                </svg>
+              </button>
+              {isAdmin ? (
+                <div className="flex items-center gap-2">
+                  <Link href="/admin/dashboard"
+                    className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors">
+                    <Settings size={12} /> Admin
+                  </Link>
+                  <button
+                    onClick={async () => { await supabase.auth.signOut() }}
+                    className="font-sans text-[11px] text-muted-foreground hover:text-brand-red flex items-center gap-1 transition-colors"
+                  >
+                    <LogOut size={12} />
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  href="/contact"
+                  className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] px-4 py-1.5 bg-brand-red text-white hover:bg-red-700 transition-colors"
+                >
+                  Susține-ne
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Masthead — big centered title ── */}
+        <div className="py-5 text-center border-b border-foreground/[0.08]">
+          <Link href="/" className="inline-block">
+            <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold text-foreground tracking-tight">
+              Transilvania Times
+            </h1>
+          </Link>
+        </div>
+
+        {/* ── Navigation row ── */}
+        <div className="px-6">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+
+            {/* Desktop nav */}
+            <nav className="hidden md:flex items-center mx-auto">
+              {NAV_LINKS.filter(l => l.href !== '/en').map(link => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`font-sans text-[12px] font-medium px-4 py-3 transition-colors ${
+                    pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
+                      ? 'text-brand-red font-bold'
+                      : 'text-foreground/70 hover:text-foreground'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
+
+            {/* Mobile menu button */}
+            <button
+              className="md:hidden ml-auto text-foreground p-2"
+              onClick={() => setMobileOpen(o => !o)}
+              aria-label="Menu"
+            >
+              {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+            </button>
+          </div>
         </div>
 
         {/* Mobile nav */}
@@ -163,7 +204,7 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 {link.label}
               </Link>
             ))}
-            <div className="pt-2 flex items-center gap-3">
+            <div className="pt-2">
               <WeatherWidget />
             </div>
           </div>
@@ -182,11 +223,9 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
 
             {/* Brand */}
             <div className="md:col-span-2">
-              <img
-                src="/assets/logos/transilvania-times-logo.svg"
-                alt="Transilvania Times"
-                className="h-10 w-auto mb-4"
-              />
+              <Link href="/" className="font-serif font-bold text-2xl text-foreground block mb-4">
+                Transilvania Times
+              </Link>
               <p className="font-sans text-sm text-muted-foreground leading-relaxed max-w-sm">
                 Jurnalism independent din inima Transilvaniei. Știri regionale, analiză și cultură pentru comunitatea transilvăneană.
               </p>
