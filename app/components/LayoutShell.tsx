@@ -139,14 +139,21 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
             {/* Left: language switcher + date + weather */}
             <div className="flex items-center gap-3 font-sans text-[11px] text-muted-foreground">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {}}
-                  className="font-bold text-brand-red uppercase tracking-wider"
+                <Link
+                  href="/"
+                  className={`uppercase tracking-wider transition-colors ${
+                    !pathname?.startsWith('/en') ? 'font-bold text-brand-red' : 'hover:text-brand-red'
+                  }`}
                 >
                   RO
-                </button>
+                </Link>
                 <span className="text-foreground/20">|</span>
-                <Link href="/en" className="uppercase tracking-wider hover:text-brand-red transition-colors">
+                <Link
+                  href="/en"
+                  className={`uppercase tracking-wider transition-colors ${
+                    pathname?.startsWith('/en') ? 'font-bold text-brand-red' : 'hover:text-brand-red'
+                  }`}
+                >
                   EN
                 </Link>
               </div>
