@@ -200,7 +200,7 @@ export default function EditorPage() {
 
     try {
       // Call the existing ai-generate-article with correct parameters
-      const { data, error } = await supabase.functions.invoke('ai-generate-article', {
+      const { data, error } = await supabase.functions.invoke('tt-generate-article', {
         body: { prompt: fullPrompt, word_count: wordCount, editor: 'daniel_dobos', category }
       })
       if (error) throw new Error(error.message)
