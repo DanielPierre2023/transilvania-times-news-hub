@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
-  RefreshCw, Play, CheckCircle2, XCircle, Clock,
+  RefreshCw, CheckCircle2, XCircle, Clock,
   ExternalLink, AlertCircle, Loader2, Rss, Sparkles,
 } from 'lucide-react'
 
@@ -94,7 +94,7 @@ export default function ScraperFinal() {
 
       // Enrich processed articles with their blog_post id/slug
       const processed = (data ?? []).filter(a => a.status === 'processed')
-      let postMap: Record<string, { id: string; slug: string }> = {}
+      const postMap: Record<string, { id: string; slug: string }> = {}
       if (processed.length > 0) {
         const { data: posts } = await supabase
           .from('blog_posts')
@@ -112,8 +112,8 @@ export default function ScraperFinal() {
           draft_slug:    postMap[a.id]?.slug ?? null,
         }))
       )
-    } catch (err: any) {
-      showToast(`Eroare la încărcare: ${err.message}`, 'err')
+    } catch (err: unknown) {
+      showToast(`Eroare la încărcare: ${err instanceof Error ? err.message : String(err)}`, 'err')
     } finally {
       setLoading(false)
     }
@@ -143,8 +143,8 @@ export default function ScraperFinal() {
       if (error) throw error
       showToast(`Scraper finalizat: ${data?.total_scraped ?? 0} articole noi`, 'ok')
       await fetchArticles()
-    } catch (err: any) {
-      showToast(`Eroare scraper: ${err.message}`, 'err')
+    } catch (err: unknown) {
+      showToast(`Eroare scraper: ${err instanceof Error ? err.message : String(err)}`, 'err')
     } finally {
       setScraping(false)
     }
@@ -162,8 +162,8 @@ export default function ScraperFinal() {
 
       showToast('Articol procesat — ciornă creată ✓', 'ok')
       await fetchArticles()
-    } catch (err: any) {
-      showToast(`Eroare procesare: ${err.message}`, 'err')
+    } catch (err: unknown) {
+      showToast(`Eroare procesare: ${err instanceof Error ? err.message : String(err)}`, 'err')
     } finally {
       setProcessing(null)
     }
@@ -184,8 +184,8 @@ export default function ScraperFinal() {
         data?.failed > 0 ? 'err' : 'ok'
       )
       await fetchArticles()
-    } catch (err: any) {
-      showToast(`Eroare bulk: ${err.message}`, 'err')
+    } catch (err: unknown) {
+      showToast(`Eroare bulk: ${err instanceof Error ? err.message : String(err)}`, 'err')
     } finally {
       setBulkRunning(false)
     }
