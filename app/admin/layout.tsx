@@ -7,11 +7,12 @@ import { createBrowserClient } from '@supabase/ssr'
 import {
   LayoutDashboard, FileText, Rss, MessageSquare,
   Mail, Users, Inbox, Settings, LogOut, Menu, X,
-  ChevronRight, Newspaper
+  ChevronRight, Newspaper, PenLine
 } from 'lucide-react'
 
 const NAV = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { label: 'Editor AI', href: '/admin/editor', icon: PenLine },
   { label: 'Articole', href: '/admin/articles', icon: FileText },
   { label: 'Scraper RSS', href: '/admin/scraper', icon: Rss },
   { label: 'Comentarii', href: '/admin/comments', icon: MessageSquare },
@@ -36,6 +37,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setUserEmail(data.user.email || '')
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function handleLogout() {
