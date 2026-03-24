@@ -74,7 +74,7 @@ export default function ScraperPage() {
     setScraping(true)
     flash('Scraping în desfășurare...')
     try {
-      const { error } = await supabase.functions.invoke('scrape-rss', {
+      const { error } = await supabase.functions.invoke('tt-scrape-rss', {
         body: sourceId ? { source_id: sourceId } : {}
       })
       if (error) flash(`Eroare scraper: ${error.message}`)
