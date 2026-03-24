@@ -1,17 +1,24 @@
-'use client'
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '@/lib/supabaseClient'
+import {
+  RefreshCw, Play, CheckCircle2, XCircle, Clock,
+  ExternalLink, AlertCircle, Loader2, Rss, Sparkles,
+} from 'lucide-react'
 
-import { useEffect, useState, useCallback } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
-import { Plus, Trash2, Play, RefreshCw, Wand2, CheckCircle, Clock, XCircle } from 'lucide-react'
-
-// Real column names from scraped_articles table
+// ─── TYPES ───────────────────────────────────────────────────────────────────
 interface ScrapedArticle {
   id: string
-  original_title: string | null
-  original_url: string | null
+  original_title: string
+  original_url: string
   category: string | null
-  status: string
+  county: string | null
+  status: 'scraped' | 'processed' | 'failed' | 'used'
+  ai_score: number | null
   created_at: string
+  rewrite_error: string | null
+  // set after processing — joined from blog_posts via scraped_article_id
+  draft_post_id?: string | null
+  draft_slug?: string | null
 }
 
 interface RssSource {
@@ -19,363 +26,424 @@ interface RssSource {
   name: string
   url: string
   is_active: boolean
-  county: string | null
-  output_limit: number | null
-  last_scraped_at?: string | null
+  output_limit: number
+  last_scraped_at: string | null
 }
 
-export default function ScraperPage() {
-  const [sources, setSources]           = useState<RssSource[]>([])
-  const [queue, setQueue]               = useState<ScrapedArticle[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [scraping, setScraping]         = useState(false)
-  const [processingId, setProcessingId] = useState<string | null>(null)
-  const [processAll, setProcessAll]     = useState(false)
-  const [queueFilter, setQueueFilter]   = useState('scraped')
-  const [showAdd, setShowAdd]           = useState(false)
-  const [msg, setMsg]                   = useState('')
-  const [newSource, setNewSource]       = useState({
-    name: '', url: '', county: '', output_limit: 10
-  })
+type Tab = 'queue' | 'sources'
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// ─── STATUS BADGE ─────────────────────────────────────────────────────────────
+function StatusBadge({ status, score }: { status: ScrapedArticle['status']; score: number | null }) {
+  const map: Record<ScrapedArticle['status'], { label: string; cls: string }> = {
+    scraped:   { label: 'Neprocesat',  cls: 'bg-amber-100 text-amber-800 border border-amber-200' },
+    processed: { label: 'Procesat',    cls: 'bg-emerald-100 text-emerald-800 border border-emerald-200' },
+    used:      { label: 'Folosit',     cls: 'bg-blue-100 text-blue-800 border border-blue-200' },
+    failed:    { label: 'Eșuat',       cls: 'bg-red-100 text-red-800 border border-red-200' },
+  }
+  const { label, cls } = map[status] ?? map.scraped
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${cls}`}>
+      {status === 'processed' && <CheckCircle2 className="w-3 h-3" />}
+      {status === 'failed'    && <XCircle      className="w-3 h-3" />}
+      {status === 'scraped'   && <Clock        className="w-3 h-3" />}
+      {label}
+      {score !== null && status === 'processed' && (
+        <span className="ml-1 opacity-70">· {score}/100</span>
+      )}
+    </span>
   )
+}
 
-  function flash(text: string) {
-    setMsg(text)
-    setTimeout(() => setMsg(''), 5000)
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+export default function ScraperFinal() {
+  const [tab,         setTab]         = useState<Tab>('queue')
+  const [articles,    setArticles]    = useState<ScrapedArticle[]>([])
+  const [sources,     setSources]     = useState<RssSource[]>([])
+  const [loading,     setLoading]     = useState(false)
+  const [scraping,    setScraping]    = useState(false)
+  const [processing,  setProcessing]  = useState<string | null>(null)  // article id
+  const [bulkRunning, setBulkRunning] = useState(false)
+  const [toast,       setToast]       = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  const showToast = (msg: string, type: 'ok' | 'err' = 'ok') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 4500)
   }
 
-  const load = useCallback(async () => {
+  // ── fetch queue ──────────────────────────────────────────────────────────
+  const fetchArticles = useCallback(async () => {
     setLoading(true)
-    const [{ data: sourcesData }, { data: queueData }] = await Promise.all([
-      supabase
-        .from('rss_sources')
-        .select('id, name, url, is_active, county, output_limit')
-        .order('name'),
-      supabase
+    try {
+      const { data, error } = await supabase
         .from('scraped_articles')
-        .select('id, original_title, original_url, category, status, created_at')
-        .eq('status', queueFilter)
+        .select(`
+          id, original_title, original_url, category, county,
+          status, ai_score, created_at, rewrite_error
+        `)
         .order('created_at', { ascending: false })
-        .limit(60),
-    ])
-    setSources((sourcesData ?? []) as RssSource[])
-    setQueue((queueData ?? []) as ScrapedArticle[])
-    setLoading(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queueFilter])
+        .limit(100)
+      if (error) throw error
 
-  useEffect(() => { load() }, [load])
+      // Enrich processed articles with their blog_post id/slug
+      const processed = (data ?? []).filter(a => a.status === 'processed')
+      let postMap: Record<string, { id: string; slug: string }> = {}
+      if (processed.length > 0) {
+        const { data: posts } = await supabase
+          .from('blog_posts')
+          .select('id, slug, scraped_article_id')
+          .in('scraped_article_id', processed.map(a => a.id))
+        ;(posts ?? []).forEach(p => {
+          postMap[p.scraped_article_id] = { id: p.id, slug: p.slug }
+        })
+      }
 
-  async function runScraper(sourceId?: string) {
+      setArticles(
+        (data ?? []).map(a => ({
+          ...a,
+          draft_post_id: postMap[a.id]?.id  ?? null,
+          draft_slug:    postMap[a.id]?.slug ?? null,
+        }))
+      )
+    } catch (err: any) {
+      showToast(`Eroare la încărcare: ${err.message}`, 'err')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // ── fetch sources ─────────────────────────────────────────────────────────
+  const fetchSources = useCallback(async () => {
+    const { data } = await supabase
+      .from('rss_sources')
+      .select('*')
+      .order('name')
+    setSources(data ?? [])
+  }, [])
+
+  useEffect(() => {
+    fetchArticles()
+    fetchSources()
+  }, [fetchArticles, fetchSources])
+
+  // ── run scraper ───────────────────────────────────────────────────────────
+  const runScraper = async () => {
     setScraping(true)
-    flash('Scraping în desfășurare...')
     try {
-      const { error } = await supabase.functions.invoke('tt-scrape-rss', {
-        body: sourceId ? { source_id: sourceId } : {}
+      const { data, error } = await supabase.functions.invoke('tt-scrape-rss', {
+        body: {},
       })
-      if (error) flash(`Eroare scraper: ${error.message}`)
-      else flash('✓ Scraping complet. Articole noi în coadă.')
-    } catch (e) {
-      flash(`Eroare: ${(e as Error).message}`)
+      if (error) throw error
+      showToast(`Scraper finalizat: ${data?.total_scraped ?? 0} articole noi`, 'ok')
+      await fetchArticles()
+    } catch (err: any) {
+      showToast(`Eroare scraper: ${err.message}`, 'err')
+    } finally {
+      setScraping(false)
     }
-    await load()
-    setScraping(false)
   }
 
-  async function processArticle(articleId: string) {
-    setProcessingId(articleId)
+  // ── process single article (manual "AI Rescrie") ──────────────────────────
+  const processArticle = async (article: ScrapedArticle) => {
+    setProcessing(article.id)
     try {
-      const { error } = await supabase.functions.invoke('process-rewrite-job', {
-        body: { article_id: articleId }
+      const { data, error } = await supabase.functions.invoke('tt-process-scraped-article', {
+        body: { article_id: article.id, mode: 'manual' },
       })
-      if (error) flash(`Eroare AI: ${error.message}`)
-      else flash('✓ Articol rescris și publicat.')
-    } catch (e) {
-      flash(`Eroare: ${(e as Error).message}`)
+      if (error) throw error
+      if (!data?.results?.[0]?.post_id) throw new Error('Funcția nu a returnat post_id')
+
+      showToast('Articol procesat — ciornă creată ✓', 'ok')
+      await fetchArticles()
+    } catch (err: any) {
+      showToast(`Eroare procesare: ${err.message}`, 'err')
+    } finally {
+      setProcessing(null)
     }
-    await load()
-    setProcessingId(null)
   }
 
-  async function processAllArticles() {
-    const scraped = queue.filter(a => a.status === 'scraped')
-    setProcessAll(true)
-    flash(`Procesez ${scraped.length} articole cu AI...`)
-    for (const article of scraped) {
-      await processArticle(article.id)
+  // ── bulk process all scraped ──────────────────────────────────────────────
+  const bulkProcess = async () => {
+    const count = articles.filter(a => a.status === 'scraped').length
+    if (count === 0) { showToast('Niciun articol neprocesat în coadă', 'err'); return }
+    setBulkRunning(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('tt-process-scraped-article', {
+        body: { process_all: true, mode: 'manual' },
+      })
+      if (error) throw error
+      showToast(
+        `Procesate: ${data?.processed ?? 0} ✓   Eșuate: ${data?.failed ?? 0}`,
+        data?.failed > 0 ? 'err' : 'ok'
+      )
+      await fetchArticles()
+    } catch (err: any) {
+      showToast(`Eroare bulk: ${err.message}`, 'err')
+    } finally {
+      setBulkRunning(false)
     }
-    flash(`✓ ${scraped.length} articole procesate.`)
-    setProcessAll(false)
   }
 
-  async function addSource() {
-    if (!newSource.url.trim()) return
-    await supabase.from('rss_sources').insert({
-      name:         newSource.name || new URL(newSource.url).hostname,
-      url:          newSource.url.trim(),
-      county:       newSource.county || null,
-      output_limit: newSource.output_limit,
-      is_active:    true,
-    })
-    setNewSource({ name: '', url: '', county: '', output_limit: 10 })
-    setShowAdd(false)
-    load()
+  // ── toggle source active ──────────────────────────────────────────────────
+  const toggleSource = async (id: string, current: boolean) => {
+    await supabase.from('rss_sources').update({ is_active: !current }).eq('id', id)
+    await fetchSources()
   }
 
-  async function toggleSource(id: string, active: boolean) {
-    await supabase.from('rss_sources').update({ is_active: !active }).eq('id', id)
-    load()
-  }
+  // ─── COUNTS ───────────────────────────────────────────────────────────────
+  const countScraped    = articles.filter(a => a.status === 'scraped').length
+  const countProcessed  = articles.filter(a => a.status === 'processed').length
+  const countFailed     = articles.filter(a => a.status === 'failed').length
+  const activeSources   = sources.filter(s => s.is_active).length
 
-  async function deleteSource(id: string) {
-    if (!confirm('Ștergi definitiv această sursă RSS?')) return
-    await supabase.from('rss_sources').delete().eq('id', id)
-    load()
-  }
+  // ─── RENDER ───────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-[#f5f4f0] font-sans">
 
-  async function deleteScrapedArticle(id: string) {
-    await supabase.from('scraped_articles').delete().eq('id', id)
-    load()
-  }
+      {/* ── Toast ── */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded shadow-lg text-sm font-medium
+          ${toast.type === 'ok'
+            ? 'bg-emerald-600 text-white'
+            : 'bg-red-600 text-white'}`}>
+          {toast.type === 'ok'
+            ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+            : <AlertCircle  className="w-4 h-4 shrink-0" />}
+          {toast.msg}
+        </div>
+      )}
 
-  const inp = "bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2 outline-none focus:border-white/30 transition-colors"
+      {/* ── Header ── */}
+      <header className="bg-white border-b border-[#e5e2d9] px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div>
+            <h1 className="font-serif text-2xl text-[#1a1a1a]">Scraper RSS</h1>
+            <p className="text-xs text-[#666] mt-0.5">
+              {activeSources} surse active · {countScraped} neprocesate · {countProcessed} procesate
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={runScraper}
+              disabled={scraping}
+              className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] text-white text-sm font-medium
+                hover:bg-[#333] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {scraping
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Rss      className="w-4 h-4" />}
+              {scraping ? 'Se scrapează…' : 'Rulează Scraper'}
+            </button>
+            {countScraped > 0 && (
+              <button
+                onClick={bulkProcess}
+                disabled={bulkRunning}
+                className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium
+                  hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {bulkRunning
+                  ? <Loader2   className="w-4 h-4 animate-spin" />
+                  : <Sparkles  className="w-4 h-4" />}
+                {bulkRunning ? 'Se procesează…' : `AI Procesează Tot (${countScraped})`}
+              </button>
+            )}
+            <button onClick={fetchArticles} disabled={loading}
+              className="p-2 text-[#666] hover:text-[#1a1a1a] transition-colors">
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+      </header>
 
-  const statusIcon = (s: string) => {
-    if (s === 'used')    return <CheckCircle className="w-3.5 h-3.5 text-green-400" />
-    if (s === 'scraped') return <Clock className="w-3.5 h-3.5 text-yellow-400" />
-    if (s === 'failed')  return <XCircle className="w-3.5 h-3.5 text-red-400" />
-    return <Clock className="w-3.5 h-3.5 text-white/20" />
+      {/* ── Tabs ── */}
+      <div className="max-w-6xl mx-auto px-6 mt-6">
+        <div className="flex gap-1 border-b border-[#e5e2d9] mb-6">
+          {(['queue', 'sources'] as Tab[]).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
+                ${tab === t
+                  ? 'border-[#c41e3a] text-[#c41e3a]'
+                  : 'border-transparent text-[#666] hover:text-[#1a1a1a]'}`}
+            >
+              {t === 'queue' ? `Coadă (${articles.length})` : `Surse RSS (${sources.length})`}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Queue Tab ── */}
+        {tab === 'queue' && (
+          <div className="space-y-2">
+            {loading && (
+              <div className="flex items-center gap-2 text-[#666] text-sm py-8 justify-center">
+                <Loader2 className="w-4 h-4 animate-spin" /> Se încarcă…
+              </div>
+            )}
+            {!loading && articles.length === 0 && (
+              <div className="text-center py-16 text-[#999]">
+                <Rss className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Niciun articol în coadă. Rulează scraperul.</p>
+              </div>
+            )}
+            {articles.map(article => (
+              <ArticleRow
+                key={article.id}
+                article={article}
+                onProcess={() => processArticle(article)}
+                isProcessing={processing === article.id}
+              />
+            ))}
+
+            {/* ── Summary bar ── */}
+            {articles.length > 0 && (
+              <div className="flex items-center gap-6 py-4 text-xs text-[#999] border-t border-[#e5e2d9] mt-4">
+                <span className="text-amber-600 font-medium">{countScraped} neprocesate</span>
+                <span className="text-emerald-600 font-medium">{countProcessed} procesate</span>
+                {countFailed > 0 && (
+                  <span className="text-red-600 font-medium">{countFailed} eșuate</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Sources Tab ── */}
+        {tab === 'sources' && (
+          <div className="space-y-2">
+            {sources.length === 0 && (
+              <div className="text-center py-16 text-[#999]">
+                <p className="text-sm">Nicio sursă RSS configurată.</p>
+              </div>
+            )}
+            {sources.map(source => (
+              <div key={source.id}
+                className="bg-white border border-[#e5e2d9] p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-[#1a1a1a]">{source.name}</p>
+                  <p className="text-xs text-[#999] mt-0.5">{source.url}</p>
+                  {source.last_scraped_at && (
+                    <p className="text-xs text-[#bbb] mt-0.5">
+                      Ultima scraping: {new Date(source.last_scraped_at).toLocaleString('ro-RO')}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-[#999]">Limită: {source.output_limit}</span>
+                  <button
+                    onClick={() => toggleSource(source.id, source.is_active)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors
+                      ${source.is_active ? 'bg-emerald-500' : 'bg-[#ccc]'}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform
+                      ${source.is_active ? 'translate-x-4' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── ARTICLE ROW ──────────────────────────────────────────────────────────────
+function ArticleRow({
+  article,
+  onProcess,
+  isProcessing,
+}: {
+  article: ScrapedArticle
+  onProcess: () => void
+  isProcessing: boolean
+}) {
+  const timeAgo = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime()
+    const h = Math.floor(diff / 3600000)
+    const m = Math.floor(diff / 60000)
+    if (h > 0) return `${h}h în urmă`
+    if (m > 0) return `${m}min în urmă`
+    return 'Acum'
   }
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className={`bg-white border rounded p-4 flex items-start justify-between gap-4 transition-opacity
+      ${isProcessing ? 'opacity-60' : ''}
+      ${article.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-[#e5e2d9]'}`}>
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-white">Scraper RSS + AI Pipeline</h1>
-          <p className="font-sans text-[13px] text-white/40 mt-1">
-            Colectează articole · Rescrie cu Gemini AI · Publică automat
-          </p>
-        </div>
-        {msg && (
-          <span className={`font-sans text-[12px] px-3 py-1.5 border ${
-            msg.startsWith('Eroare')
-              ? 'text-red-400 bg-red-400/10 border-red-400/20'
-              : 'text-green-400 bg-green-400/10 border-green-400/20'
-          }`}>{msg}</span>
-        )}
-      </div>
-
-      {/* Pipeline visualization */}
-      <div className="flex items-center gap-0 overflow-x-auto pb-2">
-        {[
-          { n:'1', label:'RSS Sources',          desc:'Surse configurate' },
-          { n:'2', label:'scrape-rss',            desc:'Colectare articole' },
-          { n:'3', label:'scraped_articles',       desc:'Coadă procesare' },
-          { n:'4', label:'process-rewrite-job',    desc:'Gemini AI rewrite' },
-          { n:'5', label:'blog_posts → frontend', desc:'Live pe website' },
-        ].map((s, i) => (
-          <div key={i} className="flex items-center shrink-0">
-            <div className="bg-[#1a1a1a] border border-white/[0.07] px-4 py-3 text-center min-w-[130px]">
-              <div className="font-serif text-lg font-bold text-brand-red">{s.n}</div>
-              <div className="font-sans text-[11px] font-bold text-white leading-tight">{s.label}</div>
-              <div className="font-sans text-[10px] text-white/30">{s.desc}</div>
-            </div>
-            {i < 4 && <div className="text-white/20 px-1.5 text-sm">→</div>}
-          </div>
-        ))}
-      </div>
-
-      {/* RSS Sources */}
-      <div className="bg-[#1a1a1a] border border-white/[0.07]">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.07]">
-          <h2 className="font-sans text-[13px] font-bold text-white uppercase tracking-widest">
-            Surse RSS ({sources.length})
-          </h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => runScraper()}
-              disabled={scraping}
-              className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-brand-red text-white hover:bg-red-700 transition-colors disabled:opacity-50"
-            >
-              {scraping
-                ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Scraping...</>
-                : <><Play className="w-3.5 h-3.5" /> Run All</>
-              }
-            </button>
-            <button
-              onClick={() => setShowAdd(!showAdd)}
-              className="flex items-center gap-2 font-sans text-[12px] px-3 py-2 bg-[#111] border border-white/10 text-white hover:border-white/30 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" /> Adaugă sursă
-            </button>
-          </div>
-        </div>
-
-        {/* Add form */}
-        {showAdd && (
-          <div className="px-5 py-4 border-b border-white/[0.07] bg-white/[0.02] flex flex-wrap gap-3 items-end">
-            <div>
-              <label className="block font-sans text-[10px] text-white/30 mb-1 uppercase tracking-widest">Nume</label>
-              <input className={inp} value={newSource.name}
-                onChange={e => setNewSource(p => ({ ...p, name: e.target.value }))}
-                placeholder="Ex: Digi24 Cluj" />
-            </div>
-            <div className="flex-1 min-w-[220px]">
-              <label className="block font-sans text-[10px] text-white/30 mb-1 uppercase tracking-widest">URL RSS *</label>
-              <input className={inp + ' w-full'} value={newSource.url}
-                onChange={e => setNewSource(p => ({ ...p, url: e.target.value }))}
-                placeholder="https://site.ro/feed.xml" />
-            </div>
-            <div>
-              <label className="block font-sans text-[10px] text-white/30 mb-1 uppercase tracking-widest">Județ</label>
-              <input className={inp} value={newSource.county}
-                onChange={e => setNewSource(p => ({ ...p, county: e.target.value }))}
-                placeholder="Cluj" style={{ width: 90 }} />
-            </div>
-            <div>
-              <label className="block font-sans text-[10px] text-white/30 mb-1 uppercase tracking-widest">Limită articole</label>
-              <input className={inp} type="number" value={newSource.output_limit}
-                onChange={e => setNewSource(p => ({ ...p, output_limit: Number(e.target.value) }))}
-                style={{ width: 70 }} />
-            </div>
-            <div className="flex gap-2">
-              <button onClick={addSource}
-                className="font-sans text-[12px] px-4 py-2 bg-brand-red text-white hover:bg-red-700 transition-colors">
-                Adaugă
-              </button>
-              <button onClick={() => setShowAdd(false)}
-                className="font-sans text-[12px] px-3 py-2 text-white/40 hover:text-white transition-colors">
-                Anulează
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="divide-y divide-white/[0.05]">
-          {loading ? (
-            [...Array(3)].map((_, i) => (
-              <div key={i} className="px-5 py-3 animate-pulse">
-                <div className="h-3 bg-white/10 rounded w-1/2 mb-1" />
-                <div className="h-2 bg-white/[0.05] rounded w-1/3" />
-              </div>
-            ))
-          ) : sources.length === 0 ? (
-            <div className="px-5 py-10 text-center font-sans text-white/20">
-              Nicio sursă RSS. Adaugă prima sursă cu butonul de sus.
-            </div>
-          ) : sources.map(source => (
-            <div key={source.id} className="flex items-center gap-4 px-5 py-3 hover:bg-white/[0.02]">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-sans text-[13px] text-white font-medium">{source.name}</p>
-                  {source.county && (
-                    <span className="font-sans text-[10px] text-white/40 bg-white/[0.05] px-1.5 py-0.5">
-                      {source.county}
-                    </span>
-                  )}
-                  {source.output_limit && (
-                    <span className="font-sans text-[10px] text-white/30">
-                      max {source.output_limit} articole
-                    </span>
-                  )}
-                  {!source.is_active && (
-                    <span className="font-sans text-[10px] text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5">Inactiv</span>
-                  )}
-                </div>
-                <p className="font-sans text-[11px] text-white/30 truncate mt-0.5">{source.url}</p>
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => runScraper(source.id)} disabled={scraping} title="Scrape acum"
-                  className="p-2 text-white/30 hover:text-green-400 transition-colors disabled:opacity-30">
-                  <Play className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={() => toggleSource(source.id, source.is_active)}
-                  title={source.is_active ? 'Dezactivează' : 'Activează'}
-                  className="font-sans text-[11px] px-2 py-1 text-white/30 hover:text-white border border-white/10 hover:border-white/30 transition-colors">
-                  {source.is_active ? 'OFF' : 'ON'}
-                </button>
-                <button onClick={() => deleteSource(source.id)} title="Șterge sursă"
-                  className="p-2 text-white/30 hover:text-red-400 transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Processing queue */}
-      <div className="bg-[#1a1a1a] border border-white/[0.07]">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.07]">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="font-sans text-[13px] font-bold text-white uppercase tracking-widest">
-              Coadă procesare
-            </h2>
-            <div className="flex gap-1">
-              {['scraped', 'processing', 'used', 'failed'].map(s => (
-                <button key={s} onClick={() => setQueueFilter(s)}
-                  className={
-                    'font-sans text-[10px] uppercase px-2 py-1 transition-colors ' +
-                    (queueFilter === s ? 'bg-brand-red text-white' : 'bg-white/5 text-white/30 hover:text-white')
-                  }
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-          {queueFilter === 'scraped' && queue.length > 0 && (
-            <button onClick={processAllArticles} disabled={processAll || !!processingId}
-              className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-purple-600 text-white hover:bg-purple-700 transition-colors disabled:opacity-50">
-              {processAll
-                ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Procesează...</>
-                : <><Wand2 className="w-3.5 h-3.5" /> AI Procesează toate ({queue.length})</>
-              }
-            </button>
+      {/* Left: article info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <StatusBadge status={article.status} score={article.ai_score} />
+          {article.category && (
+            <span className="text-[11px] px-2 py-0.5 bg-[#f0ede6] text-[#666] rounded">
+              {article.category}
+            </span>
           )}
+          {article.county && (
+            <span className="text-[11px] text-[#999]">{article.county}</span>
+          )}
+          <span className="text-[11px] text-[#bbb]">{timeAgo(article.created_at)}</span>
         </div>
+        <p className="text-sm text-[#1a1a1a] font-medium line-clamp-2 leading-snug">
+          {article.original_title}
+        </p>
+        {article.status === 'failed' && article.rewrite_error && (
+          <p className="text-xs text-red-600 mt-1 line-clamp-1">{article.rewrite_error}</p>
+        )}
+        {article.original_url && (
+          <a
+            href={article.original_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-[#999] hover:text-[#c41e3a] flex items-center gap-1 mt-1 w-fit"
+          >
+            <ExternalLink className="w-3 h-3" /> Sursă originală
+          </a>
+        )}
+      </div>
 
-        <div className="divide-y divide-white/[0.05]">
-          {queue.length === 0 ? (
-            <div className="px-5 py-10 text-center font-sans text-[13px] text-white/20">
-              Niciun articol cu statusul &quot;{queueFilter}&quot;.
-            </div>
-          ) : queue.map(article => (
-            <div key={article.id} className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.02]">
-              <div className="shrink-0">{statusIcon(article.status)}</div>
-              <div className="flex-1 min-w-0">
-                <p className="font-sans text-[13px] text-white truncate">
-                  {article.original_title || article.original_url || article.id}
-                </p>
-                <p className="font-sans text-[11px] text-white/30">
-                  {article.category?.toUpperCase()} · {new Date(article.created_at).toLocaleString('ro-RO')}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {article.status === 'scraped' && (
-                  <button onClick={() => processArticle(article.id)}
-                    disabled={processingId === article.id || processAll}
-                    className="flex items-center gap-1.5 font-sans text-[11px] px-3 py-1.5 bg-purple-600/20 border border-purple-500/30 text-purple-300 hover:bg-purple-600/30 transition-colors disabled:opacity-50">
-                    {processingId === article.id
-                      ? <><RefreshCw className="w-3 h-3 animate-spin" /> Procesează...</>
-                      : <><Wand2 className="w-3 h-3" /> AI Rescrie</>
-                    }
-                  </button>
-                )}
-                <button onClick={() => deleteScrapedArticle(article.id)} title="Șterge"
-                  className="p-1.5 text-white/20 hover:text-red-400 transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Right: action */}
+      <div className="shrink-0 flex flex-col items-end gap-2">
+        {article.status === 'scraped' && (
+          <button
+            onClick={onProcess}
+            disabled={isProcessing}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium
+              hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
+          >
+            {isProcessing
+              ? <Loader2  className="w-3.5 h-3.5 animate-spin" />
+              : <Sparkles className="w-3.5 h-3.5" />}
+            {isProcessing ? 'Se procesează…' : 'AI Rescrie'}
+          </button>
+        )}
+
+        {article.status === 'processed' && article.draft_post_id && (
+          <a
+            href={`/admin/articles/${article.draft_post_id}/edit`}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium
+              hover:bg-emerald-700 transition-colors rounded"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Ver ciornă →
+          </a>
+        )}
+
+        {article.status === 'failed' && (
+          <button
+            onClick={onProcess}
+            disabled={isProcessing}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-medium
+              hover:bg-red-700 transition-colors disabled:opacity-50 rounded"
+          >
+            {isProcessing
+              ? <Loader2   className="w-3.5 h-3.5 animate-spin" />
+              : <RefreshCw className="w-3.5 h-3.5" />}
+            Reîncearcă
+          </button>
+        )}
       </div>
     </div>
   )
