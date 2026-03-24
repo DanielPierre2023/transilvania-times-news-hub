@@ -600,7 +600,7 @@ export default function EditorPage() {
               </F>
               {coverImageCredit && (
                 <p className="font-sans text-[10px] text-blue-400/60">
-                  {coverImageCredit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: „{coverImageCredit}"
+                  {coverImageCredit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: &bdquo;{coverImageCredit}&rdquo;
                 </p>
               )}
             </div>
