@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabaseClient'
+import { createBrowserClient } from '@supabase/ssr'
 import {
   RefreshCw, Play, CheckCircle2, XCircle, Clock,
   ExternalLink, AlertCircle, Loader2, Rss, Sparkles,
@@ -58,6 +58,11 @@ function StatusBadge({ status, score }: { status: ScrapedArticle['status']; scor
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function ScraperFinal() {
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   const [tab,         setTab]         = useState<Tab>('queue')
   const [articles,    setArticles]    = useState<ScrapedArticle[]>([])
   const [sources,     setSources]     = useState<RssSource[]>([])
