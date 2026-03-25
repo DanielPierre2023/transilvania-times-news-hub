@@ -16,7 +16,7 @@ export default function SubscribersPage() {
   const [subscribers, setSubscribers] = useState<Subscriber[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('confirmed')
+  const [filter, setFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all')
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
 
