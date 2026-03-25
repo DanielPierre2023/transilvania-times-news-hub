@@ -314,8 +314,11 @@ export async function POST(req: NextRequest) {
 
       if (!resendRes.ok) {
         const err = await resendRes.text()
-        console.error('[newsletter] Resend welcome email error:', err)
-        // Don't fail the subscription — just log the error
+        console.error('[newsletter] Resend error:', resendRes.status, err)
+        return NextResponse.json({ 
+          success: true, 
+          warning: `Subscribed but email failed: ${resendRes.status} ${err}` 
+        })
       }
     }
 
