@@ -4,14 +4,35 @@
 // Displays in sidebar ad slot while awaiting Google AdSense approval.
 // Replace with AdUnit real slot once AdSense is approved.
 
+import { usePathname } from 'next/navigation'
+
 export default function SponsorBanner() {
+  const pathname = usePathname()
+  const isEn = pathname?.startsWith('/en')
+
+  const copy = isEn ? {
+    label: 'Sponsored content',
+    headline1: 'Working more.',
+    headline2: 'Delivering less.',
+    body: 'We automate repetitive processes with AI and machine learning. Your team focuses on what matters.',
+    cta: 'Discover our solutions →',
+    tagline: 'OUR VISION · YOUR WAY',
+  } : {
+    label: 'Conținut sponsorizat',
+    headline1: 'Lucrezi mai mult.',
+    headline2: 'Produci mai puțin.',
+    body: 'Automatizăm procesele repetitive cu AI și machine learning. Echipa ta se concentrează pe ce contează.',
+    cta: 'Descoperă soluțiile →',
+    tagline: 'OUR VISION · YOUR WAY',
+  }
+
   return (
     <a
       href="https://add-individual-solutions.com"
       target="_blank"
       rel="noopener noreferrer sponsored"
       className="block group"
-      aria-label="ADD Individual Solutions — AI Solutions Engineered for Impact"
+      aria-label="ADD Individual Solutions"
     >
       <div style={{
         width: '100%',
@@ -36,131 +57,80 @@ export default function SponsorBanner() {
           ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
         }}
       >
-        {/* Amber accent circle — top right */}
+        {/* Amber accent top right */}
         <div style={{
-          position: 'absolute',
-          top: '-40px',
-          right: '-40px',
-          width: '140px',
-          height: '140px',
-          borderRadius: '50%',
-          background: 'rgba(240,165,0,0.12)',
-          pointerEvents: 'none',
+          position: 'absolute', top: '-40px', right: '-40px',
+          width: '140px', height: '140px', borderRadius: '50%',
+          background: 'rgba(240,165,0,0.12)', pointerEvents: 'none',
         }} />
 
-        {/* Amber accent circle — bottom left */}
+        {/* Amber accent bottom left */}
         <div style={{
-          position: 'absolute',
-          bottom: '-30px',
-          left: '-30px',
-          width: '100px',
-          height: '100px',
-          borderRadius: '50%',
-          background: 'rgba(240,165,0,0.08)',
-          pointerEvents: 'none',
+          position: 'absolute', bottom: '-30px', left: '-30px',
+          width: '100px', height: '100px', borderRadius: '50%',
+          background: 'rgba(240,165,0,0.08)', pointerEvents: 'none',
         }} />
 
-        {/* Top: label */}
         <div>
           <p style={{
-            fontFamily: 'Arial, sans-serif',
-            fontSize: '9px',
-            fontWeight: '700',
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            color: 'rgba(240,165,0,0.7)',
-            marginBottom: '16px',
+            fontFamily: 'Arial, sans-serif', fontSize: '9px', fontWeight: '700',
+            letterSpacing: '0.18em', textTransform: 'uppercase',
+            color: 'rgba(240,165,0,0.7)', marginBottom: '16px',
           }}>
-            Conținut sponsorizat
+            {copy.label}
           </p>
 
-          {/* Headline */}
           <p style={{
-            fontFamily: 'Georgia, serif',
-            fontSize: '22px',
-            fontWeight: '700',
-            color: '#ffffff',
-            lineHeight: '1.25',
-            marginBottom: '12px',
+            fontFamily: 'Georgia, serif', fontSize: '22px', fontWeight: '700',
+            color: '#ffffff', lineHeight: '1.25', marginBottom: '12px',
           }}>
-            Lucrezi mai mult.<br />
-            <span style={{ color: '#F0A500' }}>Produci mai puțin.</span>
+            {copy.headline1}<br />
+            <span style={{ color: '#F0A500' }}>{copy.headline2}</span>
           </p>
 
-          {/* Body */}
           <p style={{
-            fontFamily: 'Arial, sans-serif',
-            fontSize: '12px',
-            color: 'rgba(255,255,255,0.65)',
-            lineHeight: '1.6',
-            marginBottom: '20px',
+            fontFamily: 'Arial, sans-serif', fontSize: '12px',
+            color: 'rgba(255,255,255,0.65)', lineHeight: '1.6', marginBottom: '20px',
           }}>
-            Automatizăm procesele repetitive cu AI și machine learning. Echipa ta se concentrează pe ce contează.
+            {copy.body}
           </p>
         </div>
 
-        {/* Bottom: brand + CTA */}
         <div>
-          {/* CTA button */}
           <div style={{
-            display: 'inline-block',
-            background: '#F0A500',
-            color: '#0D1B4B',
-            fontFamily: 'Arial, sans-serif',
-            fontSize: '11px',
-            fontWeight: '700',
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-            padding: '9px 16px',
-            marginBottom: '16px',
-            transition: 'background 0.2s',
+            display: 'inline-block', background: '#F0A500', color: '#0D1B4B',
+            fontFamily: 'Arial, sans-serif', fontSize: '11px', fontWeight: '700',
+            letterSpacing: '0.1em', textTransform: 'uppercase',
+            padding: '9px 16px', marginBottom: '16px',
           }}>
-            Descoperă soluțiile →
+            {copy.cta}
           </div>
 
-          {/* Brand name */}
           <div style={{
             borderTop: '1px solid rgba(255,255,255,0.1)',
-            paddingTop: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
+            paddingTop: '12px', display: 'flex', alignItems: 'center', gap: '8px',
           }}>
-            {/* ADD logo mark — pure CSS */}
             <div style={{
-              width: '28px',
-              height: '28px',
-              background: '#F0A500',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
+              width: '28px', height: '28px', background: '#F0A500',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
               <span style={{
-                fontFamily: 'Georgia, serif',
-                fontSize: '13px',
-                fontWeight: '700',
-                color: '#0D1B4B',
-                lineHeight: 1,
+                fontFamily: 'Georgia, serif', fontSize: '13px',
+                fontWeight: '700', color: '#0D1B4B', lineHeight: 1,
               }}>A</span>
             </div>
             <div>
               <p style={{
-                fontFamily: 'Arial, sans-serif',
-                fontSize: '11px',
-                fontWeight: '700',
-                color: '#ffffff',
-                lineHeight: '1.2',
+                fontFamily: 'Arial, sans-serif', fontSize: '11px',
+                fontWeight: '700', color: '#ffffff', lineHeight: '1.2',
               }}>
                 ADD Individual Solutions
               </p>
               <p style={{
-                fontFamily: 'Arial, sans-serif',
-                fontSize: '9px',
-                color: 'rgba(255,255,255,0.4)',
-                letterSpacing: '0.08em',
+                fontFamily: 'Arial, sans-serif', fontSize: '9px',
+                color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em',
               }}>
-                OUR VISION · YOUR WAY
+                {copy.tagline}
               </p>
             </div>
           </div>
