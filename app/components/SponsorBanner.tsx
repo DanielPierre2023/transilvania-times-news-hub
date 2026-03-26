@@ -162,12 +162,12 @@ function BannerCSS({ headline, body, cta, advertiser, bg, accent, isEn }: {
 function AddFallback({ isEn }: { isEn: boolean }) {
   const copy = isEn ? {
     label: 'Sponsored content',
-    headline: 'Working more.\nDelivering less.',
+    headline: 'Working less.\nDelivering more.',
     body: 'We automate repetitive processes with AI and machine learning. Your team focuses on what matters.',
     cta: 'Discover our solutions →',
   } : {
     label: 'Conținut sponsorizat',
-    headline: 'Lucrezi mai mult.\nProduci mai puțin.',
+    headline: 'Lucrezi mai putin.\nProduci mai mult.',
     body: 'Automatizăm procesele repetitive cu AI și machine learning. Echipa ta se concentrează pe ce contează.',
     cta: 'Descoperă soluțiile →',
   }
