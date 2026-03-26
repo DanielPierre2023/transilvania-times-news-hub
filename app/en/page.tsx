@@ -4,6 +4,7 @@ import { enUS } from 'date-fns/locale'
 import Link from 'next/link'
 import ArticleCard from '@/app/components/ArticleCard'
 import type { Metadata } from 'next'
+import SponsorBanner from '@/app/components/SponsorBanner'
 
 export const revalidate = 0
 
@@ -385,10 +386,8 @@ export default async function HomePageEN() {
               </Link>
             ))}
           </div>
-          <div className="mt-4 bg-foreground text-background p-4 flex flex-col">
-            <span className="text-[9px] font-sans font-bold uppercase tracking-[0.2em] text-background/50 mb-3">Sponsored</span>
-            <div className="aspect-[16/9] bg-background/10 mb-3 flex items-center justify-center text-background/30 text-xs italic font-sans">Ad Placeholder</div>
-            <h4 className="font-serif font-bold text-sm leading-snug text-background">Sponsored Content</h4>
+          <div className="mt-4">
+            <SponsorBanner />
           </div>
         </div>
       </section>
