@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Lora, Inter } from 'next/font/google'
+import Script from 'next/script'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import LayoutShell from './components/LayoutShell'
 import { CookieConsentProvider } from './components/CookieConsentContext'
