@@ -18,6 +18,22 @@ interface ArticleContentProps {
   defaultLang: 'ro' | 'en'
 }
 
+// Detects plain text and converts to HTML paragraphs.
+// HTML content (AI-generated) passes through unchanged.
+function formatContent(raw: string): string {
+  // If content already contains HTML tags — return as-is (AI generated)
+  if (/<[a-z][\s\S]*>/i.test(raw)) return raw
+
+  // Plain text — convert double newlines to <p> paragraphs
+  // Single newlines within a paragraph become <br />
+  return raw
+    .split(/\n\s*\n/)
+    .map(para => para.trim())
+    .filter(Boolean)
+    .map(para => `<p>${para.replace(/\n/g, '<br />')}</p>`)
+    .join('\n')
+}
+
 export default function ArticleContent({
   titleRo,
   titleEn,
@@ -46,7 +62,7 @@ export default function ArticleContent({
       coverImageCredit.toLowerCase().includes('ai')
     : false
 
-  // Parse summary bullets
+  // Parse summary bullets — each line is a separate point
   const summaryLines = summary
     ? summary.split('\n').map(l => l.trim()).filter(Boolean)
     : []
@@ -84,11 +100,11 @@ export default function ArticleContent({
         {title}
       </h1>
 
-      {/* Summary bullets */}
+      {/* Summary bullets — each line justified and separated */}
       {summaryLines.length > 0 && (
-        <div className="border-l-2 border-brand-red pl-4 mb-6 space-y-1">
+        <div className="border-l-2 border-brand-red pl-4 mb-6 space-y-2">
           {summaryLines.map((line, i) => (
-            <p key={i} className="font-sans text-sm text-muted-foreground leading-relaxed">
+            <p key={i} className="font-sans text-sm text-muted-foreground leading-relaxed text-justify">
               {line.startsWith('•') || line.startsWith('-') || line.startsWith('·')
                 ? line.substring(1).trim()
                 : line}
@@ -138,7 +154,7 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Article body */}
+      {/* Article body — justified paragraphs */}
       {content && (
         <div
           className="prose prose-lg max-w-none font-serif text-foreground
@@ -147,8 +163,8 @@ export default function ArticleContent({
             prose-a:text-brand-red prose-a:no-underline hover:prose-a:underline
             prose-strong:font-bold prose-strong:text-foreground
             prose-blockquote:border-l-brand-red prose-blockquote:text-muted-foreground
-            [&_p]:font-serif [&_p]:text-[17px] [&_p]:leading-[1.8] [&_p]:mb-5"
-          dangerouslySetInnerHTML={{ __html: content }}
+            [&_p]:font-serif [&_p]:text-[17px] [&_p]:leading-[1.8] [&_p]:mb-5 [&_p]:text-justify"
+          dangerouslySetInnerHTML={{ __html: formatContent(content) }}
         />
       )}
     </div>
