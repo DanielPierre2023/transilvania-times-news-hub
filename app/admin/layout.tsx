@@ -7,19 +7,20 @@ import { createBrowserClient } from '@supabase/ssr'
 import {
   LayoutDashboard, FileText, Rss, MessageSquare,
   Mail, Users, Inbox, Settings, LogOut, Menu, X,
-  ChevronRight, Newspaper, PenLine
+  ChevronRight, Newspaper, PenLine, BarChart2
 } from 'lucide-react'
 
 const NAV = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-  { label: 'Editor AI', href: '/admin/editor', icon: PenLine },
-  { label: 'Articole', href: '/admin/articles', icon: FileText },
-  { label: 'Scraper RSS', href: '/admin/scraper', icon: Rss },
-  { label: 'Comentarii', href: '/admin/comments', icon: MessageSquare },
-  { label: 'Newsletter', href: '/admin/newsletter', icon: Mail },
-  { label: 'Abonați', href: '/admin/subscribers', icon: Users },
-  { label: 'Inbox', href: '/admin/inbox', icon: Inbox },
-  { label: 'Setări', href: '/admin/settings', icon: Settings },
+  { label: 'Dashboard',   href: '/admin/dashboard',  icon: LayoutDashboard },
+  { label: 'Editor AI',   href: '/admin/editor',      icon: PenLine },
+  { label: 'Articole',    href: '/admin/articles',    icon: FileText },
+  { label: 'Scraper RSS', href: '/admin/scraper',     icon: Rss },
+  { label: 'Comentarii',  href: '/admin/comments',    icon: MessageSquare },
+  { label: 'Newsletter',  href: '/admin/newsletter',  icon: Mail },
+  { label: 'Abonați',     href: '/admin/subscribers', icon: Users },
+  { label: 'Publicitate', href: '/admin/sponsors',    icon: BarChart2 },
+  { label: 'Inbox',       href: '/admin/inbox',       icon: Inbox },
+  { label: 'Setări',      href: '/admin/settings',    icon: Settings },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
