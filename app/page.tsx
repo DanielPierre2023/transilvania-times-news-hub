@@ -3,6 +3,7 @@ import { formatDistanceToNow, format, parseISO } from 'date-fns'
 import { ro } from 'date-fns/locale'
 import Link from 'next/link'
 import ArticleCard from './components/ArticleCard'
+import SponsorBanner from './components/SponsorBanner'
 
 export const revalidate = 0
 
@@ -57,7 +58,6 @@ export default async function HomePage() {
   if (error) console.error('[HomePage]', error.message)
   const posts = ((data ?? []) as unknown as Post[])
 
-  // Exact same slices as original Index.tsx
   const heroMain        = posts[0]  ?? null
   const heroRight       = posts[1]  ?? null
   const secondaryText   = posts[2]  ?? null
@@ -270,7 +270,7 @@ export default async function HomePage() {
             )}
           </div>
 
-          {/* Col 3 — Newsletter promo (replacing AdUnit) */}
+          {/* Col 3 — Newsletter promo */}
           <div className="flex items-center justify-center p-6">
             <div className="bg-brand-red p-6 w-full text-center">
               <p className="text-[9px] font-sans font-bold uppercase tracking-[0.2em] text-white/60 mb-3">Buletin informativ</p>
@@ -366,7 +366,7 @@ export default async function HomePage() {
           </div>
         </div>
 
-        {/* RIGHT — Avatar + title list + sponsored card */}
+        {/* RIGHT — Avatar + title list + sponsor banner */}
         <div className="lg:col-span-4 p-6 flex flex-col">
           <div className="flex flex-col flex-1">
             {editorialRight.map((post, i) => (
@@ -389,7 +389,6 @@ export default async function HomePage() {
               </Link>
             ))}
           </div>
-          {/* Sponsored placeholder */}
           {/* Sponsor banner */}
           <div className="mt-4">
             <SponsorBanner />
@@ -398,9 +397,8 @@ export default async function HomePage() {
       </section>
 
       {/* ═══ CATEGORY SECTIONS ═══ */}
-      {categoryGroups.map(([cat, catPosts], groupIdx) => (
+      {categoryGroups.map(([cat, catPosts]) => (
         <section key={cat} className="border-b border-foreground/10">
-          {/* Category header */}
           <div className="flex items-center gap-3 px-6 pt-8 pb-4">
             <div className="w-2 h-2 bg-brand-red" />
             <Link
@@ -411,7 +409,6 @@ export default async function HomePage() {
             </Link>
             <div className="flex-1 h-px bg-foreground/10" />
           </div>
-          {/* 3-column grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 px-6 pb-6 gap-0">
             {catPosts.slice(0, 3).map((post, i) => (
               <ArticleCard
