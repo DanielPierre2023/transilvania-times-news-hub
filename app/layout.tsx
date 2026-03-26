@@ -53,6 +53,15 @@ export default async function RootLayout({
 
   return (
     <html lang="ro" className={`${lora.variable} ${inter.variable}`}>
+      <head>
+        {/* Google AdSense — loads only after GDPR consent (handled by AdUnit component) */}
+        <Script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5809590003717527"
+          crossOrigin="anonymous"
+          strategy="lazyOnload"
+        />
+      </head>
       <body className="bg-background text-foreground font-sans antialiased min-h-screen flex flex-col">
         <CookieConsentProvider>
           <LayoutShell breakingNews={breakingTitles}>
