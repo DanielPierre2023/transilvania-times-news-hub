@@ -390,16 +390,9 @@ export default async function HomePage() {
             ))}
           </div>
           {/* Sponsored placeholder */}
-          <div className="mt-4 bg-foreground text-background p-4 flex flex-col">
-            <span className="text-[9px] font-sans font-bold uppercase tracking-[0.2em] text-background/50 mb-3">
-              Publicitate
-            </span>
-            <div className="aspect-[16/9] bg-background/10 mb-3 flex items-center justify-center text-background/30 text-xs italic font-sans">
-              Spațiu publicitar
-            </div>
-            <h4 className="font-serif font-bold text-sm leading-snug text-background">
-              Conținut sponsorizat
-            </h4>
+          {/* Sponsor banner */}
+          <div className="mt-4">
+            <SponsorBanner />
           </div>
         </div>
       </section>
