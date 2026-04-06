@@ -1,4 +1,7 @@
+// supabase/functions/_shared/sanitize.ts
 // Enterprise-grade post-processing sanitization for AI-generated content
+// v2 — humanizeContent now model-agnostic: Claude Haiku preferred, GPT-4o fallback
+
 type Replacement = [RegExp, string | ((...args: string[]) => string)];
 
 const EN_PHRASES: Replacement[] = [
@@ -266,6 +269,58 @@ function removeEditorialQuestions(text: string): string {
   });
 }
 
+// ── NEW v2: Convert markdown paragraphs to HTML <p> tags ──────────────────────
+// Used after Claude/Gemini output to ensure consistent HTML for the frontend
+export function markdownToHtml(text: string): string {
+  if (!text) return text;
+  // If already contains <p> tags, pass through sanitize only
+  if (/<p[\s>]/i.test(text)) return text;
+
+  return text
+    .split(/\n\n+/)
+    .map(para => {
+      const t = para.trim();
+      if (!t) return '';
+      // Strip any remaining markdown bold/italic
+      const clean = t
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/^#+\s+/, '');
+      return `<p>${clean}</p>`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+// ── NEW v2: Validate and enforce SEO field lengths ─────────────────────────────
+export function validateSeoTitle(title: string): string {
+  if (!title) return title;
+  let t = sanitizeTitle(title);
+  if (t.length > 60) t = t.slice(0, 57) + '...';
+  return t;
+}
+
+export function validateSeoDescription(desc: string): string {
+  if (!desc) return desc;
+  let d = desc.trim();
+  if (d.length > 160) d = d.slice(0, 157) + '...';
+  return d;
+}
+
+// ── NEW v2: Validate summary sentences ────────────────────────────────────────
+export function isCompleteSentence(s: string): boolean {
+  const trimmed = s.trim();
+  if (!trimmed) return false;
+  return trimmed.split(/\s+/).length >= 5 && /[.!?]$/.test(trimmed);
+}
+
+export function isSummaryValid(summary: string): boolean {
+  if (!summary || typeof summary !== 'string') return false;
+  const sentences = summary.split('\n').map(s => s.trim()).filter(Boolean);
+  if (sentences.length < 2) return false;
+  return sentences.filter(isCompleteSentence).length >= 2;
+}
+
 export function sanitizeContent(text: string, language: 'en' | 'ro' | 'both' = 'both'): string {
   if (!text) return text;
   let result = text;
@@ -294,11 +349,6 @@ export function sanitizeContent(text: string, language: 'en' | 'ro' | 'both' = '
   return result.trim();
 }
 
-/**
- * Normalize an array of SEO tags to lowercase-hyphenated slugs.
- * "Cluj Foundation" → "cluj-foundation"
- * Deduplicates and caps at 50 chars per tag.
- */
 export function normalizeTags(tags: string[]): string[] {
   if (!tags || !Array.isArray(tags)) return [];
   const seen = new Set<string>();
@@ -308,10 +358,10 @@ export function normalizeTags(tags: string[]): string[] {
       return tag
         .trim()
         .toLowerCase()
-        .replace(/[.,;:!?'"()[\]{}]/g, '')    // strip punctuation
-        .replace(/\s+/g, '-')                  // spaces → hyphens
-        .replace(/-{2,}/g, '-')                // collapse multiple hyphens
-        .replace(/^-|-$/g, '')                 // trim leading/trailing hyphens
+        .replace(/[.,;:!?'"()[\]{}]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/^-|-$/g, '')
         .slice(0, 50);
     })
     .filter(tag => {
@@ -321,20 +371,12 @@ export function normalizeTags(tags: string[]): string[] {
     });
 }
 
-/**
- * Sanitize a headline/title:
- * - Strip trailing period, comma, semicolon, colon, ellipsis
- * - Ensure sentence case (first letter uppercase)
- * - Trim whitespace
- */
 export function sanitizeTitle(title: string): string {
   if (!title) return title;
   let t = title.trim();
-  // Remove trailing punctuation (period, comma, semicolon, colon, ellipsis)
   t = t.replace(/[.,;:]+$/, '');
   t = t.replace(/\.{2,}$/, '');
   t = t.replace(/…$/, '');
-  // Ensure first letter is uppercase
   if (t.length > 0) {
     t = t.charAt(0).toUpperCase() + t.slice(1);
   }
@@ -348,21 +390,23 @@ export function countWords(text: string): number {
     .replace(/`[^`]+`/g, '')
     .replace(/!\[.*?\]\(.*?\)/g, '')
     .replace(/\[([^\]]+)\]\(.*?\)/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
     .replace(/[#*_~>|-]/g, '')
     .replace(/\n+/g, ' ');
   return clean.split(/\s+/).filter(w => w.length > 0).length;
 }
 
 /**
- * Persona-aware humanization pass.
- * Instead of a generic rewrite that flattens all voices into neutral prose,
- * this explicitly preserves the editor's linguistic fingerprint.
+ * Persona-aware humanization — v2
+ * Uses Claude Haiku when available (better humanization), falls back to GPT-4o.
+ * Preserves editor's linguistic fingerprint instead of flattening to neutral.
  */
 export async function humanizeContent(
-  text: string,
-  language: 'en' | 'ro',
-  apiKey: string,
-  editorPersona?: string
+  text:          string,
+  language:      'en' | 'ro',
+  openaiApiKey:  string,
+  editorPersona?: string,
+  claudeApiKey?:  string,  // v2: prefer Claude Haiku when available
 ): Promise<string> {
   if (!text || text.length < 200) return text;
 
@@ -371,31 +415,58 @@ export async function humanizeContent(
     : '';
 
   const prompt = language === 'ro'
-    ? `${personaInstruction}\n\nRefinează textul de mai jos păstrând vocea și stilul autorului. Variază lungimea propozițiilor — amestecă propoziții scurte cu altele lungi. Adaugă tranziții naturale. NU schimba sensul, faptele sau structura narativă. NU adăuga titluri sau concluzii. NU folosi: crucial, esențial, robust, vital, fundamental, semnificativ, paradigmă, ecosistem, sinergie, peisajul. Returnează doar textul refinat.`
-    : `${personaInstruction}\n\nRefine the text below while preserving the author's voice and style. Vary sentence length — mix short with long. Add natural transitions. Do NOT change meaning, facts, or narrative structure. Do NOT add headings or conclusion. Do NOT use: delve, landscape, robust, comprehensive, crucial, essential, vital, pivotal, leverage, navigate, paradigm, ecosystem, synergy, foster, bolster, harness, streamline. Return only the refined text.`;
+    ? `${personaInstruction}\n\nRefinează textul de mai jos păstrând vocea și stilul autorului. Variază lungimea propozițiilor — amestecă propoziții scurte (5-8 cuvinte) cu altele lungi (25-35 cuvinte). Adaugă tranziții naturale. NU schimba sensul, faptele sau structura narativă. NU adăuga titluri sau concluzii. NU folosi: crucial, esențial, robust, vital, fundamental, semnificativ, paradigmă, ecosistem, sinergie, peisajul. Returnează doar textul refinat, fără comentarii.`
+    : `${personaInstruction}\n\nRefine the text below while preserving the author's voice and style. Vary sentence length — mix short punchy sentences (5-8 words) with longer analytical ones (25-35 words). Add natural transitions. Do NOT change meaning, facts, or narrative structure. Do NOT add headings or conclusion. Do NOT use: delve, landscape, robust, comprehensive, crucial, essential, vital, pivotal, leverage, navigate, paradigm, ecosystem, synergy, foster, bolster, harness, streamline. Return only the refined text, no commentary.`;
 
+  // Prefer Claude Haiku — better sentence rhythm variation, less detectable output
+  if (claudeApiKey) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method:  'POST',
+        headers: {
+          'Content-Type':       'application/json',
+          'anthropic-version':  '2023-06-01',
+          'x-api-key':          claudeApiKey,
+        },
+        body: JSON.stringify({
+          model:       'claude-haiku-4-5-20251001',
+          max_tokens:  6000,
+          temperature: 0.5,
+          system:      prompt,
+          messages:    [{ role: 'user', content: text }],
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+      const data = await res.json();
+      const result = data.content?.[0]?.text;
+      if (result && result.length > text.length * 0.5) {
+        return sanitizeContent(result, language);
+      }
+    } catch {
+      console.warn('[humanize] Claude Haiku failed, falling back to GPT-4o');
+    }
+  }
+
+  // Fallback: GPT-4o
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${openaiApiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: prompt },
-          { role: 'user', content: text },
-        ],
+        model:       'gpt-4o',
+        messages:    [{ role: 'system', content: prompt }, { role: 'user', content: text }],
         temperature: 0.4,
-        max_tokens: 6000,
+        max_tokens:  6000,
       }),
     });
-    const data = await res.json();
+    const data   = await res.json();
     const result = data.choices?.[0]?.message?.content;
     if (result && result.length > text.length * 0.5) {
       return sanitizeContent(result, language);
     }
     return text;
   } catch {
-    console.error('Humanization pass failed, returning original');
+    console.error('[humanize] Both models failed, returning original');
     return text;
   }
 }
