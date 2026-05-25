@@ -3,10 +3,14 @@
   publish = ".next"
 
 [build.environment]
-  RESEND_API_KEY = "re_JAKozxMG_56DYpSsN5Jt6FB7ZqofHq9Lx"
-  
+  NODE_VERSION            = "20"
+  NEXT_TELEMETRY_DISABLED = "1"
+  # RESEND_API_KEY removed — set in Netlify UI → Site config → Environment variables
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# ── Redirects ────────────────────────────────────────────────────────────────
 
 [[redirects]]
   from   = "http://*"
@@ -20,12 +24,37 @@
   status = 301
   force  = true
 
+# ── Cache — immutable hashed assets ─────────────────────────────────────────
+
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# ── Cache — ads.txt (Google fetches this daily) ──────────────────────────────
+
+[[headers]]
+  for = "/ads.txt"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+# ── Cache — admin pages (never cache user-specific or protected routes) ──────
+
+[[headers]]
+  for = "/admin/*"
+  [headers.values]
+    Cache-Control = "private, no-cache, no-store, must-revalidate"
+
+# ── Security + cache — all pages ─────────────────────────────────────────────
+# More-specific rules above take precedence over this catch-all.
+
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Content-Type-Options = "nosniff"
-    X-Frame-Options        = "DENY"
-    X-XSS-Protection       = "1; mode=block"
-    Referrer-Policy        = "strict-origin-when-cross-origin"
-    Permissions-Policy     = "geolocation=(), microphone=(), camera=()"
-    Content-Security-Policy = "default-src 'self' https://zimpimoierpsocnmnizm.supabase.co; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co"
+    Cache-Control           = "public, s-maxage=60, stale-while-revalidate=300"
+    X-Content-Type-Options  = "nosniff"
+    X-Frame-Options         = "DENY"
+    X-XSS-Protection        = "1; mode=block"
+    Referrer-Policy         = "strict-origin-when-cross-origin"
+    Permissions-Policy      = "geolocation=(), microphone=(), camera=()"
+    Content-Security-Policy = "default-src 'self' https://zimpimoierpsocnmnizm.supabase.co; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://pagead2.googlesyndication.com https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co https://pagead2.googlesyndication.com https://adservice.google.com; frame-src https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com"
