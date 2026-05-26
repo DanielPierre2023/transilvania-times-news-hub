@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Camera, Bot } from 'lucide-react'
+import AuthorByline, { type AuthorData } from './AuthorByline'
 
 interface ArticleContentProps {
   titleRo: string | null
@@ -13,6 +14,7 @@ interface ArticleContentProps {
   coverImage: string | null
   coverImageCredit?: string | null
   authorName: string | null
+  author?: AuthorData | null       // ← NEW: full author record (nullable for backwards compat)
   publishedAt: string | null
   timeAgoStr: string
   defaultLang: 'ro' | 'en'
@@ -44,6 +46,7 @@ export default function ArticleContent({
   coverImage,
   coverImageCredit,
   authorName,
+  author,
   publishedAt,
   timeAgoStr,
   defaultLang,
@@ -113,21 +116,14 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Author + date */}
-      <div className="flex items-center gap-3 mb-8 pb-6 border-b border-foreground/10">
-        <div className="w-8 h-8 bg-brand-red/10 border border-brand-red/20 flex items-center justify-center">
-          <span className="font-serif text-brand-red text-sm font-bold">
-            {authorName ? authorName.charAt(0).toUpperCase() : 'T'}
-          </span>
-        </div>
-        <div>
-          <p className="font-sans text-[12px] font-bold text-foreground">
-            {authorName || 'Transilvania Times'}
-          </p>
-          {timeAgoStr && (
-            <p className="font-sans text-[11px] text-muted-foreground">{timeAgoStr}</p>
-          )}
-        </div>
+      {/* Author + date — uses AuthorByline component */}
+      <div className="mb-8 pb-6 border-b border-foreground/10">
+        <AuthorByline
+          author={author ?? null}
+          authorName={authorName}
+          timeAgoStr={timeAgoStr}
+          lang={lang}
+        />
       </div>
 
       {/* Cover image */}
