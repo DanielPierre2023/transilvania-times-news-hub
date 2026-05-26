@@ -26,6 +26,18 @@ interface MetaPost {
   slug: string
 }
 
+interface AuthorRecord {
+  slug: string
+  name_ro: string
+  name_en: string
+  title_ro: string
+  title_en: string
+  bio_ro: string
+  bio_en: string
+  avatar_url: string | null
+  avatar_style: string | null
+}
+
 interface Post {
   id: string
   slug: string
@@ -40,13 +52,17 @@ interface Post {
   category: string | null
   subcategory: string | null
   cover_image: string | null
-  cover_image_credit: string | null  // ← added
+  cover_image_credit: string | null
   author_name: string | null
   published_at: string | null
+  updated_at: string | null
   tags_ro: string[] | null
   tags_en: string[] | null
   is_breaking: boolean | null
   source_url: string | null
+  sources: string[] | null
+  word_count: number | null
+  authors: AuthorRecord | null
 }
 
 interface RelatedPost {
@@ -105,9 +121,21 @@ export default async function ArticlePage({
 
   const supabase = await createSupabaseServerClient()
 
+  // ── Fetch post WITH author join ──────────────────────────────────────────
   const { data, error } = await supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, content_ro, content_en, excerpt_ro, excerpt_en, summary_ro, summary_en, category, subcategory, cover_image, cover_image_credit, author_name, published_at, tags_ro, tags_en, is_breaking, source_url')
+    .select(`
+      id, slug, title_ro, title_en, content_ro, content_en,
+      excerpt_ro, excerpt_en, summary_ro, summary_en,
+      category, subcategory, cover_image, cover_image_credit,
+      author_name, published_at, updated_at,
+      tags_ro, tags_en, is_breaking, source_url,
+      sources, word_count,
+      authors (
+        slug, name_ro, name_en, title_ro, title_en,
+        bio_ro, bio_en, avatar_url, avatar_style
+      )
+    `)
     .eq('slug', slug)
     .eq('status', 'published')
     .single()
@@ -129,6 +157,9 @@ export default async function ArticlePage({
   const catLabel = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
   const tags = (post.tags_ro || post.tags_en || []) as string[]
 
+  // Extract author from join result
+  const author = post.authors ?? null
+
   let timeAgoStr = ''
   if (post.published_at) {
     try {
@@ -145,6 +176,11 @@ export default async function ArticlePage({
     .order('published_at', { ascending: false })
     .limit(4)
 
+  // ── JSON-LD: NewsArticle + BreadcrumbList ────────────────────────────────
+  const authorName = author
+    ? (defaultLang === 'en' ? author.name_en : author.name_ro)
+    : (post.author_name || 'Transilvania Times')
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -152,12 +188,46 @@ export default async function ArticlePage({
     description: post.excerpt_ro || post.excerpt_en || '',
     image: post.cover_image || '',
     datePublished: post.published_at || '',
-    author: { '@type': 'Person', name: post.author_name || 'Transilvania Times' },
+    dateModified: post.updated_at || post.published_at || '',
+    articleSection: post.category || 'news',
+    wordCount: post.word_count || undefined,
+    keywords: tags.join(', ') || undefined,
+    author: {
+      '@type': 'Person',
+      name: authorName,
+      ...(author?.slug ? { url: `${SITE_URL}/autor/${author.slug}` } : {}),
+      ...(author ? { description: defaultLang === 'en' ? author.bio_en : author.bio_ro } : {}),
+    },
     publisher: {
-      '@type': 'Organization', name: 'Transilvania Times',
+      '@type': 'Organization',
+      name: 'Transilvania Times',
+      url: SITE_URL,
       logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.png` },
     },
     url: articleUrl,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': articleUrl },
+  }
+
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Acasă', item: SITE_URL },
+      ...(post.category
+        ? [{
+            '@type': 'ListItem',
+            position: 2,
+            name: CAT_LABELS[post.category] || post.category,
+            item: `${SITE_URL}/categorie/${post.category}`,
+          }]
+        : []),
+      {
+        '@type': 'ListItem',
+        position: post.category ? 3 : 2,
+        name: post.title_ro || post.title_en || '',
+        item: articleUrl,
+      },
+    ],
   }
 
   return (
@@ -165,6 +235,10 @@ export default async function ArticlePage({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
       <article className="max-w-7xl mx-auto border-x border-foreground/10">
         <div className="max-w-3xl mx-auto px-6 pt-10 pb-4">
@@ -198,6 +272,7 @@ export default async function ArticlePage({
             coverImage={post.cover_image}
             coverImageCredit={post.cover_image_credit}
             authorName={post.author_name}
+            author={author}
             publishedAt={post.published_at}
             timeAgoStr={timeAgoStr}
             defaultLang={defaultLang}
@@ -219,7 +294,25 @@ export default async function ArticlePage({
             </div>
           )}
 
-          {post.source_url && (
+          {/* Sources section — outbound links to original sources */}
+          {post.sources && post.sources.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-foreground/[0.06]">
+              <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+                Surse
+              </p>
+              <div className="space-y-1">
+                {post.sources.map((src: string, i: number) => (
+                  <p key={i} className="font-sans text-[11px] text-muted-foreground">
+                    <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
+                      {(() => { try { return new URL(src).hostname } catch { return src } })()}
+                    </a>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {post.source_url && (!post.sources || post.sources.length === 0) && (
             <div className="mt-4">
               <p className="font-sans text-[11px] text-muted-foreground">
                 Sursă:{' '}
