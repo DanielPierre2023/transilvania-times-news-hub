@@ -1,3 +1,8 @@
+// app/layout.tsx
+//
+// B6: Added RSS and Atom feed discovery links in <head>.
+// Browsers, feed readers, and Google Discover auto-detect these.
+
 import type { Metadata } from 'next'
 import { Lora, Inter } from 'next/font/google'
 import Script from 'next/script'
@@ -54,15 +59,29 @@ export default async function RootLayout({
 
   return (
     <html lang="ro" className={`${lora.variable} ${inter.variable}`}>
-     <head>
-  {/* Google AdSense verification */}
-  {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-  <script
-    async
-    src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5809590003717527"
-    crossOrigin="anonymous"
-  />
-</head>
+      <head>
+        {/* Google AdSense verification */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5809590003717527"
+          crossOrigin="anonymous"
+        />
+
+        {/* B6: RSS + Atom feed discovery — auto-detected by browsers, Feedly, Google */}
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          title="Transilvania Times — RSS (Română)"
+          href="https://transilvaniatimes.com/rss.xml"
+        />
+        <link
+          rel="alternate"
+          type="application/atom+xml"
+          title="Transilvania Times — Atom Feed"
+          href="https://transilvaniatimes.com/atom.xml"
+        />
+      </head>
       <body className="bg-background text-foreground font-sans antialiased min-h-screen flex flex-col">
         <CookieConsentProvider>
           <LayoutShell breakingNews={breakingTitles}>
