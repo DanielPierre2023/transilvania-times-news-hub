@@ -99,7 +99,7 @@ export default function EditorialStandardsPage() {
         <div className="mb-10 border-t border-foreground/10 pt-8">
           <h2 className="font-serif text-xl font-bold text-foreground mb-4">Separarea știrilor de opinii</h2>
           <p className="font-serif text-[17px] leading-[1.8] text-foreground text-justify">
-            Articolele de știri sunt separate clar de materialele de opinie. Știrile relatează fapte verificate și prezintă multiple perspective. Articolele de opinie sunt marcate explicit cu categoria „Opinie" și reflectă punctul de vedere al autorului, nu poziția oficială a publicației. Materialele sponsorizate sunt identificate vizibil și nu influențează conținutul editorial.
+            Articolele de știri sunt separate clar de materialele de opinie. Știrile relatează fapte verificate și prezintă multiple perspective. Articolele de opinie sunt marcate explicit cu categoria Opinie și reflectă punctul de vedere al autorului, nu poziția oficială a publicației. Materialele sponsorizate sunt identificate vizibil și nu influențează conținutul editorial.
           </p>
         </div>
 
