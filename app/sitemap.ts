@@ -35,20 +35,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ]
 
-  const articlePages: MetadataRoute.Sitemap = (posts ?? []).flatMap(post => [
-    {
-      url: `${BASE_URL}/blog/${post.slug}`,
-      lastModified: new Date(post.updated_at),
-      changeFrequency: 'weekly' as const,
-      priority: 0.8,
-    },
-    {
-      url: `${BASE_URL}/en/blog/${post.slug}`,
-      lastModified: new Date(post.updated_at),
-      changeFrequency: 'weekly' as const,
-      priority: 0.7,
-    },
-  ])
+  // Articles only at /blog/ — English served via ?lang=en, not /en/blog/
+  const articlePages: MetadataRoute.Sitemap = (posts ?? []).map(post => ({
+    url: `${BASE_URL}/blog/${post.slug}`,
+    lastModified: new Date(post.updated_at),
+    changeFrequency: 'weekly' as const,
+    priority: 0.8,
+  }))
 
   return [...staticPages, ...articlePages]
 }
