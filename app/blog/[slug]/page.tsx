@@ -1,3 +1,13 @@
+// app/blog/[slug]/page.tsx
+//
+// B4: hreflang — both ro and en alternates now correctly declared:
+//     ro  → /blog/[slug]
+//     en  → /blog/[slug]?lang=en
+//     x-default → /blog/[slug]
+//
+// B5: OG article namespace — added publishedTime, modifiedTime,
+//     authors, section, and tags. MetaPost query expanded accordingly.
+
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import { ro } from 'date-fns/locale'
@@ -17,13 +27,26 @@ const CAT_LABELS: Record<string, string> = {
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// B5: Extended MetaPost interface — includes all article OG namespace fields
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface MetaPost {
-  title_ro: string | null
-  title_en: string | null
-  excerpt_ro: string | null
-  excerpt_en: string | null
-  cover_image: string | null
-  slug: string
+  title_ro:     string | null
+  title_en:     string | null
+  excerpt_ro:   string | null
+  excerpt_en:   string | null
+  cover_image:  string | null
+  slug:         string
+  // B5 additions
+  published_at: string | null
+  updated_at:   string | null
+  category:     string | null
+  tags_ro:      string[] | null
+  tags_en:      string[] | null
+  authors: {
+    slug: string
+  } | null
 }
 
 interface AuthorRecord {
@@ -74,39 +97,87 @@ interface RelatedPost {
   category: string | null
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// generateMetadata — B4 hreflang + B5 OG article tags
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
-  const supabase = await createSupabaseServerClient()
+  const supabase  = await createSupabaseServerClient()
+
+  // B5: expanded select — fetch all fields needed for article OG namespace
   const { data } = await supabase
     .from('blog_posts')
-    .select('title_ro, title_en, excerpt_ro, excerpt_en, cover_image, slug')
+    .select(`
+      title_ro, title_en, excerpt_ro, excerpt_en, cover_image, slug,
+      published_at, updated_at, category, tags_ro, tags_en,
+      authors ( slug )
+    `)
     .eq('slug', slug)
     .single()
 
   if (!data) return { title: 'Article Not Found' }
 
-  const post = data as unknown as MetaPost
-  const title = post.title_ro || post.title_en || ''
+  const post        = data as unknown as MetaPost
+  const title       = post.title_ro || post.title_en || ''
   const description = post.excerpt_ro || post.excerpt_en || ''
-  const image = post.cover_image || ''
-  const url = `${SITE_URL}/blog/${post.slug}`
+  const image       = post.cover_image || ''
+  const url         = `${SITE_URL}/blog/${post.slug}`
+  const urlEn       = `${url}?lang=en`
+
+  // Merge RO + EN tags, deduplicate, cap at 10 for OG
+  const allTags = [
+    ...(post.tags_ro ?? []),
+    ...(post.tags_en ?? []),
+  ].filter((t, i, arr) => t && arr.indexOf(t) === i).slice(0, 10)
 
   return {
     title,
     description,
-    alternates: { canonical: url, languages: { ro: url, en: url } },
-    openGraph: {
-      title, description, url, type: 'article',
-      images: image ? [{ url: image, width: 1200, height: 630 }] : [],
+
+    // B4: correct hreflang — ro = canonical URL, en = ?lang=en, x-default = ro
+    alternates: {
+      canonical: url,
+      languages: {
+        ro:          url,
+        en:          urlEn,
+        'x-default': url,
+      },
     },
+
+    openGraph: {
+      title,
+      description,
+      url,
+      type: 'article',
+      images: image ? [{ url: image, width: 1200, height: 630 }] : [],
+
+      // B5: OG article namespace properties
+      publishedTime: post.published_at  ?? undefined,
+      modifiedTime:  post.updated_at    ?? undefined,
+      authors:       post.authors?.slug
+        ? [`${SITE_URL}/autor/${post.authors.slug}`]
+        : undefined,
+      section:       post.category
+        ? (CAT_LABELS[post.category] ?? post.category)
+        : undefined,
+      tags:          allTags.length > 0 ? allTags : undefined,
+    },
+
     twitter: {
-      card: 'summary_large_image', title, description,
+      card:   'summary_large_image',
+      title,
+      description,
       images: image ? [image] : [],
     },
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page component — unchanged from original
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default async function ArticlePage({
   params,
@@ -115,13 +186,12 @@ export default async function ArticlePage({
   params: Promise<{ slug: string }>
   searchParams: Promise<{ lang?: string }>
 }) {
-  const { slug } = await params
+  const { slug }          = await params
   const { lang: langParam } = await searchParams
   const defaultLang: 'ro' | 'en' = langParam === 'en' ? 'en' : 'ro'
 
   const supabase = await createSupabaseServerClient()
 
-  // ── Fetch post WITH author join ──────────────────────────────────────────
   const { data, error } = await supabase
     .from('blog_posts')
     .select(`
@@ -152,12 +222,11 @@ export default async function ArticlePage({
     )
   }
 
-  const post = data as unknown as Post
+  const post       = data as unknown as Post
   const articleUrl = `${SITE_URL}/blog/${post.slug}`
-  const catLabel = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
-  const tags = (post.tags_ro || post.tags_en || []) as string[]
+  const catLabel   = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
+  const tags       = (post.tags_ro || post.tags_en || []) as string[]
 
-  // Extract author from join result
   const author = post.authors ?? null
 
   let timeAgoStr = ''
@@ -176,7 +245,6 @@ export default async function ArticlePage({
     .order('published_at', { ascending: false })
     .limit(4)
 
-  // ── JSON-LD: NewsArticle + BreadcrumbList ────────────────────────────────
   const authorName = author
     ? (defaultLang === 'en' ? author.name_en : author.name_ro)
     : (post.author_name || 'Transilvania Times')
@@ -214,12 +282,7 @@ export default async function ArticlePage({
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Acasă', item: SITE_URL },
       ...(post.category
-        ? [{
-            '@type': 'ListItem',
-            position: 2,
-            name: CAT_LABELS[post.category] || post.category,
-            item: `${SITE_URL}/categorie/${post.category}`,
-          }]
+        ? [{ '@type': 'ListItem', position: 2, name: CAT_LABELS[post.category] || post.category, item: `${SITE_URL}/categorie/${post.category}` }]
         : []),
       {
         '@type': 'ListItem',
@@ -232,14 +295,8 @@ export default async function ArticlePage({
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
       <article className="max-w-7xl mx-auto border-x border-foreground/10">
         <div className="max-w-3xl mx-auto px-6 pt-10 pb-4">
 
@@ -294,7 +351,6 @@ export default async function ArticlePage({
             </div>
           )}
 
-          {/* Sources section — outbound links to original sources */}
           {post.sources && post.sources.length > 0 && (
             <div className="mt-6 pt-4 border-t border-foreground/[0.06]">
               <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-2">
