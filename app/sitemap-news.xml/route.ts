@@ -1,61 +1,109 @@
-import { NextResponse } from 'next/server'
+// app/sitemap.ts
+//
+// B7: Added missing static editorial pages (editorial, legal, author profiles).
+// The Google News sitemap lives at /sitemap-news.xml — submit it separately
+// in Google Search Console. Standard XML sitemap does not support <news:>
+// namespace; the two sitemaps serve distinct purposes.
+
+import type { MetadataRoute } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import type { Database } from '@/src/integrations/supabase/types'
 
-const SITE_URL = 'https://transilvaniatimes.com'
-const PUBLICATION_NAME = 'Transilvania Times'
-const PUBLICATION_LANGUAGE = 'ro'
+export const revalidate = 3600 // 1 hour
 
-export const revalidate = 3600 // regenerate every hour
+const BASE_URL = 'https://transilvaniatimes.com'
 
-export async function GET() {
-  const supabase = createClient(
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  // Google News sitemap: only articles from the last 48 hours
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
-
+  // ── Articles ─────────────────────────────────────────────────────────────
   const { data: posts } = await supabase
     .from('blog_posts')
-    .select('slug, title_ro, title_en, published_at, category')
+    .select('slug, updated_at')
     .eq('status', 'published')
-    .gte('published_at', cutoff)
-    .order('published_at', { ascending: false })
+    .not('slug', 'is', null)
+    .order('updated_at', { ascending: false })
     .limit(1000)
 
-  const articles = (posts ?? []).map(post => {
-    const title = (post.title_ro || post.title_en || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    const pubDate = post.published_at
-      ? new Date(post.published_at).toISOString()
-      : new Date().toISOString()
+  // ── Author profiles ───────────────────────────────────────────────────────
+  const { data: authors } = await supabase
+    .from('authors')
+    .select('slug, updated_at')
+    .not('slug', 'is', null)
 
-    return `  <url>
-    <loc>${SITE_URL}/blog/${post.slug}</loc>
-    <news:news>
-      <news:publication>
-        <news:name>${PUBLICATION_NAME}</news:name>
-        <news:language>${PUBLICATION_LANGUAGE}</news:language>
-      </news:publication>
-      <news:publication_date>${pubDate}</news:publication_date>
-      <news:title>${title}</news:title>
-    </news:news>
-    <lastmod>${pubDate}</lastmod>
-  </url>`
-  }).join('\n')
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset
-  xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-  xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"
->
-${articles}
-</urlset>`
-
-  return new NextResponse(xml, {
-    headers: {
-      'Content-Type': 'application/xml; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+  // ── Static pages ──────────────────────────────────────────────────────────
+  const staticPages: MetadataRoute.Sitemap = [
+    {
+      url: BASE_URL,
+      lastModified: new Date(),
+      changeFrequency: 'hourly',
+      priority: 1.0,
     },
-  })
+    {
+      url: `${BASE_URL}/en`,
+      lastModified: new Date(),
+      changeFrequency: 'hourly',
+      priority: 0.9,
+    },
+    // Category hubs
+    ...['news','politics','technology','business','culture','travel','education','sports','health','opinion'].map(cat => ({
+      url: `${BASE_URL}/categorie/${cat}`,
+      lastModified: new Date(),
+      changeFrequency: 'hourly' as const,
+      priority: 0.8,
+    })),
+    // Editorial pages (added in Batch A)
+    {
+      url: `${BASE_URL}/despre`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.6,
+    },
+    {
+      url: `${BASE_URL}/standarde-editoriale`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.5,
+    },
+    // Legal
+    {
+      url: `${BASE_URL}/politica-confidentialitate`,
+      lastModified: new Date(),
+      changeFrequency: 'yearly' as const,
+      priority: 0.3,
+    },
+    {
+      url: `${BASE_URL}/termeni-si-conditii`,
+      lastModified: new Date(),
+      changeFrequency: 'yearly' as const,
+      priority: 0.3,
+    },
+    {
+      url: `${BASE_URL}/contact`,
+      lastModified: new Date(),
+      changeFrequency: 'yearly' as const,
+      priority: 0.4,
+    },
+  ]
+
+  // ── Author profile pages ──────────────────────────────────────────────────
+  const authorPages: MetadataRoute.Sitemap = (authors ?? []).map(author => ({
+    url: `${BASE_URL}/autor/${author.slug}`,
+    lastModified: author.updated_at ? new Date(author.updated_at) : new Date(),
+    changeFrequency: 'weekly' as const,
+    priority: 0.6,
+  }))
+
+  // ── Article pages (RO canonical only — EN served via ?lang=en) ───────────
+  const articlePages: MetadataRoute.Sitemap = (posts ?? []).map(post => ({
+    url: `${BASE_URL}/blog/${post.slug}`,
+    lastModified: new Date(post.updated_at),
+    changeFrequency: 'weekly' as const,
+    priority: 0.8,
+  }))
+
+  return [...staticPages, ...authorPages, ...articlePages]
 }
