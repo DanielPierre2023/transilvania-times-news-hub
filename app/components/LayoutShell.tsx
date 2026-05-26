@@ -374,6 +374,14 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                 Termeni
               </Link>
+              <Link href="/despre"
+                className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                Despre
+              </Link>
+              <Link href="/standarde-editoriale"
+                className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                Standarde
+              </Link>
               <div className="flex items-center gap-3 ml-2">
                 <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" aria-label="Facebook"
                   className="text-muted-foreground hover:text-brand-red transition-colors">
