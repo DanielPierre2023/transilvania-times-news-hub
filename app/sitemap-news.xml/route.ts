@@ -1,109 +1,120 @@
-// app/sitemap.ts
+// app/sitemap-news.xml/route.ts
 //
-// B7: Added missing static editorial pages (editorial, legal, author profiles).
-// The Google News sitemap lives at /sitemap-news.xml — submit it separately
-// in Google Search Console. Standard XML sitemap does not support <news:>
-// namespace; the two sitemaps serve distinct purposes.
+// B7: Google News sitemap — Google News requirements:
+//   • xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"
+//   • Required: <news:publication>, <news:publication_date> (ISO 8601 + TZ), <news:title>
+//   • Max 1000 URLs per sitemap
+//   • No <changefreq> or <priority> (Google ignores them in News sitemaps)
+//   • No hard 48-hour date filter — Google determines recency from
+//     <news:publication_date> itself. A date filter causes an empty sitemap on
+//     low-frequency publishing days, which Google reports as "Missing XML tag: url".
+//     Serving recent articles is correct; Google News ignores entries older than
+//     2 days when deciding what to surface in results.
+//
+// Submit in Google Search Console → Sitemaps → Add:
+//   https://transilvaniatimes.com/sitemap-news.xml
 
-import type { MetadataRoute } from 'next'
+import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/src/integrations/supabase/types'
 
-export const revalidate = 3600 // 1 hour
+export const revalidate = 300 // 5 minutes — stays fresh for breaking news
 
-const BASE_URL = 'https://transilvaniatimes.com'
+const SITE_URL         = 'https://transilvaniatimes.com'
+const PUBLICATION_NAME = 'Transilvania Times'
+const PUBLICATION_LANG = 'ro'
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+function esc(text: string): string {
+  return text
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;')
+    .replace(/'/g,  '&apos;')
+}
+
+function toIso(iso: string | null): string {
+  if (!iso) return new Date().toISOString()
+  try { return new Date(iso).toISOString() } catch { return new Date().toISOString() }
+}
+
+// Sanitize pipe-delimited compound categories ("STIRI|POLITICA") and tag arrays
+// into clean comma-separated keywords for <news:keywords>
+function sanitizeKeywords(tags: string[] | null, category: string | null): string {
+  const CAT_LABELS: Record<string, string> = {
+    news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
+    business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
+    education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+  }
+  if (tags && tags.length > 0) {
+    return tags.slice(0, 5).join(', ')
+  }
+  if (category) {
+    return category
+      .split('|')
+      .map(c => CAT_LABELS[c.toLowerCase().trim()] ?? c.trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(', ')
+  }
+  return ''
+}
+
+export async function GET() {
   const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  // ── Articles ─────────────────────────────────────────────────────────────
-  const { data: posts } = await supabase
+  // Fetch the 200 most recent published articles — no date cutoff.
+  // Google News reads <news:publication_date> to determine recency.
+  // A hard cutoff here produces an empty sitemap on low-frequency publishing
+  // days, which causes the Google Search Console "Missing XML tag: url" error.
+  const { data: posts, error } = await supabase
     .from('blog_posts')
-    .select('slug, updated_at')
+    .select('slug, title_ro, category, tags_ro, published_at')
     .eq('status', 'published')
-    .not('slug', 'is', null)
-    .order('updated_at', { ascending: false })
-    .limit(1000)
+    .not('slug',     'is', null)
+    .not('title_ro', 'is', null)
+    .order('published_at', { ascending: false })
+    .limit(200)
 
-  // ── Author profiles ───────────────────────────────────────────────────────
-  const { data: authors } = await supabase
-    .from('authors')
-    .select('slug, updated_at')
-    .not('slug', 'is', null)
+  if (error) {
+    console.error('[sitemap-news.xml] Supabase error:', error.message)
+    return new NextResponse('Internal Server Error', { status: 500 })
+  }
 
-  // ── Static pages ──────────────────────────────────────────────────────────
-  const staticPages: MetadataRoute.Sitemap = [
-    {
-      url: BASE_URL,
-      lastModified: new Date(),
-      changeFrequency: 'hourly',
-      priority: 1.0,
-    },
-    {
-      url: `${BASE_URL}/en`,
-      lastModified: new Date(),
-      changeFrequency: 'hourly',
-      priority: 0.9,
-    },
-    // Category hubs
-    ...['news','politics','technology','business','culture','travel','education','sports','health','opinion'].map(cat => ({
-      url: `${BASE_URL}/categorie/${cat}`,
-      lastModified: new Date(),
-      changeFrequency: 'hourly' as const,
-      priority: 0.8,
-    })),
-    // Editorial pages (added in Batch A)
-    {
-      url: `${BASE_URL}/despre`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly' as const,
-      priority: 0.6,
-    },
-    {
-      url: `${BASE_URL}/standarde-editoriale`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly' as const,
-      priority: 0.5,
-    },
-    // Legal
-    {
-      url: `${BASE_URL}/politica-confidentialitate`,
-      lastModified: new Date(),
-      changeFrequency: 'yearly' as const,
-      priority: 0.3,
-    },
-    {
-      url: `${BASE_URL}/termeni-si-conditii`,
-      lastModified: new Date(),
-      changeFrequency: 'yearly' as const,
-      priority: 0.3,
-    },
-    {
-      url: `${BASE_URL}/contact`,
-      lastModified: new Date(),
-      changeFrequency: 'yearly' as const,
-      priority: 0.4,
-    },
-  ]
+  const urls = (posts ?? []).map(post => {
+    const loc      = `${SITE_URL}/blog/${post.slug}`
+    const title    = esc(post.title_ro || '')
+    const pubDate  = toIso(post.published_at)
+    const keywords = sanitizeKeywords(post.tags_ro, post.category)
 
-  // ── Author profile pages ──────────────────────────────────────────────────
-  const authorPages: MetadataRoute.Sitemap = (authors ?? []).map(author => ({
-    url: `${BASE_URL}/autor/${author.slug}`,
-    lastModified: author.updated_at ? new Date(author.updated_at) : new Date(),
-    changeFrequency: 'weekly' as const,
-    priority: 0.6,
-  }))
+    return `  <url>
+    <loc>${loc}</loc>
+    <news:news>
+      <news:publication>
+        <news:name>${esc(PUBLICATION_NAME)}</news:name>
+        <news:language>${PUBLICATION_LANG}</news:language>
+      </news:publication>
+      <news:publication_date>${pubDate}</news:publication_date>
+      <news:title>${title}</news:title>
+      ${keywords ? `<news:keywords>${esc(keywords)}</news:keywords>` : ''}
+    </news:news>
+  </url>`
+  }).join('\n')
 
-  // ── Article pages (RO canonical only — EN served via ?lang=en) ───────────
-  const articlePages: MetadataRoute.Sitemap = (posts ?? []).map(post => ({
-    url: `${BASE_URL}/blog/${post.slug}`,
-    lastModified: new Date(post.updated_at),
-    changeFrequency: 'weekly' as const,
-    priority: 0.8,
-  }))
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+${urls}
+</urlset>`
 
-  return [...staticPages, ...authorPages, ...articlePages]
+  return new NextResponse(xml, {
+    headers: {
+      'Content-Type':  'application/xml; charset=utf-8',
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  })
 }
