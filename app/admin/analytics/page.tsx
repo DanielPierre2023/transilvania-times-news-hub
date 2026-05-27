@@ -35,7 +35,6 @@ const fmt = (n: number) => {
 
 const periodLabel: Record<Period, string> = { '24h': 'Ultimele 24h', '7d': 'Ultima săptămână', '30d': 'Ultima lună' }
 
-// Initialize outside the component to prevent infinite recreation loops
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 
@@ -119,17 +118,16 @@ export default function AnalyticsPage() {
   const [daily, setDaily] = useState<DailyRow[]>([])
 
   const load = useCallback(async () => {
-    if (!supabase) return // Prevent executing if environment variables are missing at build time
+    if (!supabase) return
     
     setLoading(true)
     const nowTs = Date.now()
     const since = new Date(nowTs - (
       period === '24h' ? 86400000 : period === '7d' ? 604800000 : 2592000000
     )).toISOString()
-    const 30DaysAgo = new Date(nowTs - 2592000000).toISOString()
+    const thirtyDaysAgo = new Date(nowTs - 2592000000).toISOString()
 
     try {
-      // Execute all Supabase network calls in parallel to resolve the waterfall bug
       const [
         { data: allRows },
         { data: pageData },
@@ -139,7 +137,7 @@ export default function AnalyticsPage() {
         { data: brData },
         { data: tsData }
       ] = await Promise.all([
-        supabase.from('site_analytics').select('visitor_id, created_at').eq('is_bot', false).gte('created_at', 30DaysAgo),
+        supabase.from('site_analytics').select('visitor_id, created_at').eq('is_bot', false).gte('created_at', thirtyDaysAgo),
         supabase.from('site_analytics').select('page_path, visitor_id').eq('is_bot', false).gte('created_at', since),
         supabase.from('site_analytics').select('referrer, visitor_id').eq('is_bot', false).not('referrer', 'is', null).gte('created_at', since),
         supabase.from('site_analytics').select('country, visitor_id').eq('is_bot', false).not('country', 'is', null).gte('created_at', since),
@@ -257,7 +255,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [period]) // Removed 'supabase' dependency because it's static outside the component now
+  }, [period])
 
   useEffect(() => { 
     load() 
