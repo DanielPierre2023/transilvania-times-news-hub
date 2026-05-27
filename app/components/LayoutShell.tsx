@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, X, Search, MapPin, Mail, Phone } from 'lucide-react'
+import TrafficStats from './TrafficStats'
 
 // ── Inline newsletter form for footer (no external dependency) ────────────────
 function FooterNewsletter() {
@@ -344,6 +345,11 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
             </div>
           </div>
 
+          {/* Traffic Stats */}
+          <div className="border-t border-foreground/10 pt-6 mb-6">
+            <TrafficStats />
+          </div>
+          
           {/* Bottom bar */}
           <div className="border-t border-foreground/10 pt-6 flex flex-col md:flex-row items-center justify-between gap-3">
             <p className="font-sans text-[11px] text-muted-foreground">
