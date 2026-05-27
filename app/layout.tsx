@@ -10,6 +10,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import LayoutShell from './components/LayoutShell'
 import { CookieConsentProvider } from './components/CookieConsentContext'
 import './globals.css'
+import { Suspense } from 'react'
+import PageTracker from './components/PageTracker'
 
 const lora = Lora({
   subsets: ['latin', 'latin-ext'],
@@ -88,6 +90,9 @@ export default async function RootLayout({
             {children}
           </LayoutShell>
         </CookieConsentProvider>
+        <Suspense fallback={null}>
+          <PageTracker />
+        </Suspense>
       </body>
     </html>
   )
