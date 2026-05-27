@@ -34,11 +34,7 @@ const fmt = (n: number) => {
 }
 
 const periodLabel: Record<Period, string> = { '24h': 'Ultimele 24h', '7d': 'Ultima săptămână', '30d': 'Ultima lună' }
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
-
-const supabase = supabaseUrl && supabaseAnonKey ? createBrowserClient(supabaseUrl, supabaseAnonKey) : null
+const periodInterval: Record<Period, string> = { '24h': '24 hours', '7d': '7 days', '30d': '30 days' }
 
 function Card({ icon: Icon, label, value, sub }: { icon: typeof Eye; label: string; value: string; sub?: string }) {
   return (
@@ -84,6 +80,7 @@ function BarChart({ data, labelKey, valueKey, maxItems = 10 }: { data: Record<st
 function SimpleTimeSeries({ data }: { data: DailyRow[] }) {
   if (!data.length) return <p className="text-xs text-zinc-400 text-center py-8">Nu există date.</p>
   const max = Math.max(...data.map(d => d.views), 1)
+  const barW = Math.max(4, Math.floor(600 / data.length) - 2)
   return (
     <div className="flex items-end gap-[2px] h-40 px-2">
       {data.map((d, i) => (
@@ -117,162 +114,178 @@ export default function AnalyticsPage() {
   const [browsers, setBrowsers] = useState<BrowserRow[]>([])
   const [daily, setDaily] = useState<DailyRow[]>([])
 
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   const load = useCallback(async () => {
-    if (!supabase) return
-    
     setLoading(true)
-    const nowTs = Date.now()
-    const since = new Date(nowTs - (
+    const since = new Date(Date.now() - (
       period === '24h' ? 86400000 : period === '7d' ? 604800000 : 2592000000
     )).toISOString()
-    const thirtyDaysAgo = new Date(nowTs - 2592000000).toISOString()
 
-    try {
-      const [
-        { data: allRows },
-        { data: pageData },
-        { data: refData },
-        { data: geoData },
-        { data: devData },
-        { data: brData },
-        { data: tsData }
-      ] = await Promise.all([
-        supabase.from('site_analytics').select('visitor_id, created_at').eq('is_bot', false).gte('created_at', thirtyDaysAgo),
-        supabase.from('site_analytics').select('page_path, visitor_id').eq('is_bot', false).gte('created_at', since),
-        supabase.from('site_analytics').select('referrer, visitor_id').eq('is_bot', false).not('referrer', 'is', null).gte('created_at', since),
-        supabase.from('site_analytics').select('country, visitor_id').eq('is_bot', false).not('country', 'is', null).gte('created_at', since),
-        supabase.from('site_analytics').select('device_type').eq('is_bot', false).gte('created_at', since),
-        supabase.from('site_analytics').select('browser').eq('is_bot', false).gte('created_at', since),
-        supabase.from('site_analytics').select('created_at, visitor_id').eq('is_bot', false).gte('created_at', since)
-      ])
+    // Overview counts
+    const { data: allRows } = await supabase
+      .from('site_analytics')
+      .select('visitor_id, created_at')
+      .eq('is_bot', false)
+      .gte('created_at', new Date(Date.now() - 2592000000).toISOString())
 
-      // 1. Overview Process
-      if (allRows) {
-        const h24 = allRows.filter(r => new Date(r.created_at).getTime() > nowTs - 86400000)
-        const d7  = allRows.filter(r => new Date(r.created_at).getTime() > nowTs - 604800000)
-        const m5  = allRows.filter(r => new Date(r.created_at).getTime() > nowTs - 300000)
-        setOverview({
-          views_24h:    h24.length,
-          visitors_24h: new Set(h24.map(r => r.visitor_id)).size,
-          views_7d:      d7.length,
-          visitors_7d:  new Set(d7.map(r => r.visitor_id)).size,
-          views_30d:    allRows.length,
-          visitors_30d: new Set(allRows.map(r => r.visitor_id)).size,
-          live_5min:    new Set(m5.map(r => r.visitor_id)).size,
-        })
-      }
-
-      // 2. Top Pages Process
-      if (pageData) {
-        const map = new Map<string, { views: number; uniques: Set<string> }>()
-        for (const r of pageData) {
-          const e = map.get(r.page_path) || { views: 0, uniques: new Set<string>() }
-          e.views++
-          if (r.visitor_id) e.uniques.add(r.visitor_id)
-          map.set(r.page_path, e)
-        }
-        setPages(
-          Array.from(map.entries())
-            .map(([page_path, v]) => ({ page_path, views: v.views, uniques: v.uniques.size }))
-            .sort((a, b) => b.views - a.views)
-            .slice(0, 15)
-        )
-      }
-
-      // 3. Referrers Process
-      if (refData) {
-        const map = new Map<string, { views: number; uniques: Set<string> }>()
-        for (const r of refData) {
-          const key = r.referrer || 'direct'
-          const e = map.get(key) || { views: 0, uniques: new Set<string>() }
-          e.views++
-          if (r.visitor_id) e.uniques.add(r.visitor_id)
-          map.set(key, e)
-        }
-        setRefs(
-          Array.from(map.entries())
-            .map(([referrer, v]) => ({ referrer, views: v.views, uniques: v.uniques.size }))
-            .sort((a, b) => b.views - a.views)
-            .slice(0, 10)
-        )
-      }
-
-      // 4. Countries Process
-      if (geoData) {
-        const map = new Map<string, { views: number; uniques: Set<string> }>()
-        for (const r of geoData) {
-          const key = r.country || 'Unknown'
-          const e = map.get(key) || { views: 0, uniques: new Set<string>() }
-          e.views++
-          if (r.visitor_id) e.uniques.add(r.visitor_id)
-          map.set(key, e)
-        }
-        setCountries(
-          Array.from(map.entries())
-            .map(([country, v]) => ({ country, views: v.views, uniques: v.uniques.size }))
-            .sort((a, b) => b.views - a.views)
-        )
-      }
-
-      // 5. Devices Process
-      if (devData) {
-        const map = new Map<string, number>()
-        for (const r of devData) { map.set(r.device_type || 'unknown', (map.get(r.device_type || 'unknown') || 0) + 1) }
-        setDevices(Array.from(map.entries()).map(([device_type, views]) => ({ device_type, views })).sort((a, b) => b.views - a.views))
-      }
-
-      // 6. Browsers Process
-      if (brData) {
-        const map = new Map<string, number>()
-        for (const r of brData) { map.set(r.browser || 'Other', (map.get(r.browser || 'Other') || 0) + 1) }
-        setBrowsers(Array.from(map.entries()).map(([browser, views]) => ({ browser, views })).sort((a, b) => b.views - a.views))
-      }
-
-      // 7. Daily Process
-      const daysBack = period === '24h' ? 1 : period === '7d' ? 7 : 30
-      if (tsData) {
-        const map = new Map<string, { views: number; uniques: Set<string> }>()
-        for (let i = daysBack - 1; i >= 0; i--) {
-          const d = new Date(nowTs - i * 86400000)
-          const key = d.toISOString().substring(0, 10)
-          map.set(key, { views: 0, uniques: new Set() })
-        }
-        for (const r of tsData) {
-          const key = r.created_at.substring(0, 10)
-          const e = map.get(key) || { views: 0, uniques: new Set<string>() }
-          e.views++
-          if (r.visitor_id) e.uniques.add(r.visitor_id)
-          map.set(key, e)
-        }
-        setDaily(
-          Array.from(map.entries())
-            .map(([day, v]) => ({ day, views: v.views, uniques: v.uniques.size }))
-            .sort((a, b) => a.day.localeCompare(b.day))
-        )
-      }
-    } catch (err) {
-      console.error("Error loading analytics data:", err)
-    } finally {
-      setLoading(false)
+    if (allRows) {
+      const now = Date.now()
+      const h24 = allRows.filter(r => new Date(r.created_at).getTime() > now - 86400000)
+      const d7  = allRows.filter(r => new Date(r.created_at).getTime() > now - 604800000)
+      const d30 = allRows
+      const m5  = allRows.filter(r => new Date(r.created_at).getTime() > now - 300000)
+      setOverview({
+        views_24h:    h24.length,
+        visitors_24h: new Set(h24.map(r => r.visitor_id)).size,
+        views_7d:     d7.length,
+        visitors_7d:  new Set(d7.map(r => r.visitor_id)).size,
+        views_30d:    d30.length,
+        visitors_30d: new Set(d30.map(r => r.visitor_id)).size,
+        live_5min:    new Set(m5.map(r => r.visitor_id)).size,
+      })
     }
-  }, [period])
 
-  useEffect(() => { 
-    load() 
-  }, [load])
+    // Top pages
+    const { data: pageData } = await supabase
+      .from('site_analytics')
+      .select('page_path, visitor_id')
+      .eq('is_bot', false)
+      .gte('created_at', since)
+
+    if (pageData) {
+      const map = new Map<string, { views: number; uniques: Set<string> }>()
+      for (const r of pageData) {
+        const e = map.get(r.page_path) || { views: 0, uniques: new Set<string>() }
+        e.views++
+        if (r.visitor_id) e.uniques.add(r.visitor_id)
+        map.set(r.page_path, e)
+      }
+      setPages(
+        Array.from(map.entries())
+          .map(([page_path, v]) => ({ page_path, views: v.views, uniques: v.uniques.size }))
+          .sort((a, b) => b.views - a.views)
+          .slice(0, 15)
+      )
+    }
+
+    // Referrers
+    const { data: refData } = await supabase
+      .from('site_analytics')
+      .select('referrer, visitor_id')
+      .eq('is_bot', false)
+      .not('referrer', 'is', null)
+      .gte('created_at', since)
+
+    if (refData) {
+      const map = new Map<string, { views: number; uniques: Set<string> }>()
+      for (const r of refData) {
+        const key = r.referrer || 'direct'
+        const e = map.get(key) || { views: 0, uniques: new Set<string>() }
+        e.views++
+        if (r.visitor_id) e.uniques.add(r.visitor_id)
+        map.set(key, e)
+      }
+      setRefs(
+        Array.from(map.entries())
+          .map(([referrer, v]) => ({ referrer, views: v.views, uniques: v.uniques.size }))
+          .sort((a, b) => b.views - a.views)
+          .slice(0, 10)
+      )
+    }
+
+    // Countries
+    const { data: geoData } = await supabase
+      .from('site_analytics')
+      .select('country, visitor_id')
+      .eq('is_bot', false)
+      .not('country', 'is', null)
+      .gte('created_at', since)
+
+    if (geoData) {
+      const map = new Map<string, { views: number; uniques: Set<string> }>()
+      for (const r of geoData) {
+        const key = r.country || 'Unknown'
+        const e = map.get(key) || { views: 0, uniques: new Set<string>() }
+        e.views++
+        if (r.visitor_id) e.uniques.add(r.visitor_id)
+        map.set(key, e)
+      }
+      setCountries(
+        Array.from(map.entries())
+          .map(([country, v]) => ({ country, views: v.views, uniques: v.uniques.size }))
+          .sort((a, b) => b.views - a.views)
+      )
+    }
+
+    // Devices
+    const { data: devData } = await supabase
+      .from('site_analytics')
+      .select('device_type')
+      .eq('is_bot', false)
+      .gte('created_at', since)
+
+    if (devData) {
+      const map = new Map<string, number>()
+      for (const r of devData) { map.set(r.device_type || 'unknown', (map.get(r.device_type || 'unknown') || 0) + 1) }
+      setDevices(Array.from(map.entries()).map(([device_type, views]) => ({ device_type, views })).sort((a, b) => b.views - a.views))
+    }
+
+    // Browsers
+    const { data: brData } = await supabase
+      .from('site_analytics')
+      .select('browser')
+      .eq('is_bot', false)
+      .gte('created_at', since)
+
+    if (brData) {
+      const map = new Map<string, number>()
+      for (const r of brData) { map.set(r.browser || 'Other', (map.get(r.browser || 'Other') || 0) + 1) }
+      setBrowsers(Array.from(map.entries()).map(([browser, views]) => ({ browser, views })).sort((a, b) => b.views - a.views))
+    }
+
+    // Daily time series
+    const daysBack = period === '24h' ? 1 : period === '7d' ? 7 : 30
+    const { data: tsData } = await supabase
+      .from('site_analytics')
+      .select('created_at, visitor_id')
+      .eq('is_bot', false)
+      .gte('created_at', since)
+
+    if (tsData) {
+      const map = new Map<string, { views: number; uniques: Set<string> }>()
+      // Pre-fill all days
+      for (let i = daysBack - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000)
+        const key = d.toISOString().substring(0, 10)
+        map.set(key, { views: 0, uniques: new Set() })
+      }
+      for (const r of tsData) {
+        const key = r.created_at.substring(0, 10)
+        const e = map.get(key) || { views: 0, uniques: new Set<string>() }
+        e.views++
+        if (r.visitor_id) e.uniques.add(r.visitor_id)
+        map.set(key, e)
+      }
+      setDaily(
+        Array.from(map.entries())
+          .map(([day, v]) => ({ day, views: v.views, uniques: v.uniques.size }))
+          .sort((a, b) => a.day.localeCompare(b.day))
+      )
+    }
+
+    setLoading(false)
+  }, [period, supabase])
+
+  useEffect(() => { load() }, [load])
 
   const DevIcon = ({ type }: { type: string }) => {
     if (type === 'mobile') return <Smartphone className="w-3.5 h-3.5" />
     if (type === 'tablet') return <Tablet className="w-3.5 h-3.5" />
     return <Monitor className="w-3.5 h-3.5" />
-  }
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return (
-      <div className="p-6 text-center text-red-500">
-        Missing configuration: Please set up your Supabase environment variables on Netlify.
-      </div>
-    )
   }
 
   return (
