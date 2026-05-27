@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Mail, Phone, Facebook, Twitter, Instagram, Github } from 'lucide-react'
+import TrafficStats from './TrafficStats'
 
 const CATEGORIES = [
   { label: 'Știri', href: '/categorie/news' },
@@ -95,7 +96,7 @@ export default function SiteFooter() {
               </div>
             </div>
           </div>
-
+      <TrafficStats />
           {/* Newsletter */}
           <div className="col-span-1">
             <div className="bg-brand-red p-5">
