@@ -21,7 +21,7 @@ const NAV = [
   { label: 'Publicitate', href: '/admin/sponsors',    icon: BarChart2 },
   { label: 'Inbox',       href: '/admin/inbox',       icon: Inbox },
   { label: 'Setări',      href: '/admin/settings',    icon: Settings },
-  { label: 'Observabilitate', href: '/admin/analytics', icon: BarChart3 },
+  { label: 'Observabilitate', href: '/admin/analytics', icon: BarChart2 },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
