@@ -39,10 +39,10 @@ export default function PrivacyPolicyPage() {
             1. Operatorul de date / Data Controller
           </h3>
           <p className="text-muted-foreground leading-relaxed">
-            Operatorul de date cu caracter personal este <strong className="text-foreground">ADD Individual Solutions Ltd.</strong>, proprietarul platformei Transilvania Times (transilvaniatimes.com). Pentru orice solicitare legată de datele dumneavoastră personale, ne puteți contacta la adresa de email indicată în secțiunea Contact.
+            Operatorul de date cu caracter personal este <strong className="text-foreground">ADD Individual Solutions Ltd.</strong>, administratorul platformei Transilvania Times (transilvaniatimes.com). Pentru orice solicitare legată de datele dumneavoastră personale, ne puteți contacta la adresa de email indicată în secțiunea Contact.
           </p>
           <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
-            The data controller is <strong className="text-foreground">ADD Individual Solutions Ltd.</strong>, owner of the Transilvania Times platform. For any requests related to your personal data, please contact us at the email address indicated in the Contact section.
+            The data controller is <strong className="text-foreground">ADD Individual Solutions Ltd.</strong>, administrator of the Transilvania Times platform. For any requests related to your personal data, please contact us at the email address indicated in the Contact section.
           </p>
         </section>
 
@@ -167,10 +167,10 @@ export default function PrivacyPolicyPage() {
             8. Conținut generat cu inteligență artificială / AI-Generated Content
           </h3>
           <p className="text-muted-foreground leading-relaxed">
-            Unele articole publicate pe Transilvania Times sunt generate sau prelucrate parțial cu ajutorul inteligenței artificiale (OpenAI GPT-4o-mini). Articolele AI sunt marcate cu mențiunea autorului jurnalistului AI. Datele personale ale utilizatorilor nu sunt transmise sistemelor AI.
+            Unele articole publicate pe Transilvania Times sunt generate sau prelucrate parțial (fact checks) cu ajutorul inteligenței artificiale (OpenAI products). Articolele asistate cu AI sunt marcate cu mențiunea autorului jurnalistului AI. Datele personale ale utilizatorilor nu sunt transmise sistemelor AI.
           </p>
           <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
-            Some articles are partially generated or processed using artificial intelligence. AI-assisted articles are labelled with the AI journalist persona name. No user personal data is transmitted to AI systems.
+            Some articles are partially generated or processed (fact checks) using artificial intelligence. AI-assisted articles are labelled with the AI journalist persona name. No user personal data is transmitted to AI systems.
           </p>
         </section>
 
