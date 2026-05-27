@@ -51,22 +51,22 @@ function Card({ icon: Icon, label, value, sub }: { icon: typeof Eye; label: stri
 
 function BarChart<T extends object>({ data, labelKey, valueKey, maxItems = 10 }: { data: T[]; labelKey: keyof T; valueKey: keyof T; maxItems?: number }) {
   const items = data.slice(0, maxItems)
-  const max = Math.max(...items.map(d => Number(d[valueKey]) || 0), 1)
+  const max = Math.max(...items.map(d => Number(d[valueKey as string]) || 0), 1)
   return (
     <div className="space-y-2">
       {items.map((row, i) => (
         <div key={i} className="flex items-center gap-3">
           <span className="text-xs text-zinc-600 dark:text-zinc-400 w-32 truncate text-right font-mono">
-            {String(row[labelKey])}
+            {String(row[labelKey as string])}
           </span>
           <div className="flex-1 h-5 bg-zinc-100 dark:bg-zinc-800 rounded overflow-hidden">
             <div
               className="h-full bg-red-600 rounded transition-all"
-              style={{ width: `${(Number(row[valueKey]) / max) * 100}%` }}
+              style={{ width: `${(Number(row[valueKey as string]) / max) * 100}%` }}
             />
           </div>
           <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 w-12 text-right">
-            {fmt(Number(row[valueKey]))}
+            {fmt(Number(row[valueKey as string]))}
           </span>
         </div>
       ))}
