@@ -94,9 +94,8 @@ export default function SiteFooter() {
                 </a>
               </div>
             </div>
-          </div>
-
-          {/* Newsletter */}
+         
+            {/* Newsletter */}
           <div className="col-span-1">
             <div className="bg-brand-red p-5">
               <h3 className="font-serif text-xl font-bold text-white mb-1">
