@@ -13,7 +13,7 @@ export const revalidate = 300 // 5 minutes
 const SITE_URL    = 'https://transilvaniatimes.com'
 const SITE_TITLE  = 'Transilvania Times'
 const SITE_DESCR  = 'Jurnalism independent din inima Transilvaniei.'
-const SITE_EMAIL  = 'contact@add-individual-solutions.com'
+const SITE_EMAIL  = 'contact@transilvaniatimes.com'
 
 function esc(text: string): string {
   return text
