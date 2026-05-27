@@ -39,10 +39,10 @@ export default function PrivacyPolicyPage() {
             1. Operatorul de date / Data Controller
           </h3>
           <p className="text-muted-foreground leading-relaxed">
-            Operatorul de date cu caracter personal este <strong className="text-foreground">ADD Individual Solutions Ltd.</strong>, administratorul platformei Transilvania Times (transilvaniatimes.com). Pentru orice solicitare legată de datele dumneavoastră personale, ne puteți contacta la adresa de email indicată în secțiunea Contact.
+            Operatorul de date cu caracter personal este <strong className="text-foreground">Transilvania Times</strong> (transilvaniatimes.com). Pentru orice solicitare legată de datele dumneavoastră personale, ne puteți contacta la adresa de email indicată în secțiunea Contact.
           </p>
           <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
-            The data controller is <strong className="text-foreground">ADD Individual Solutions Ltd.</strong>, administrator of the Transilvania Times platform. For any requests related to your personal data, please contact us at the email address indicated in the Contact section.
+            The data controller is <strong className="text-foreground">Transilvania Times</strong>. For any requests related to your personal data, please contact us at the email address indicated in the Contact section.
           </p>
         </section>
 
