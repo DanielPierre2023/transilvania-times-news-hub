@@ -49,7 +49,7 @@ function Card({ icon: Icon, label, value, sub }: { icon: typeof Eye; label: stri
   )
 }
 
-function BarChart({ data, labelKey, valueKey, maxItems = 10 }: { data: Record<string, unknown>[]; labelKey: string; valueKey: string; maxItems?: number }) {
+function BarChart({ data, labelKey, valueKey, maxItems = 10 }: { data: Record<string, string | number>[]; labelKey: string; valueKey: string; maxItems?: number }) {
   const items = data.slice(0, maxItems)
   const max = Math.max(...items.map(d => Number(d[valueKey]) || 0), 1)
   return (
