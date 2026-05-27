@@ -36,7 +36,7 @@ export default function SiteFooter() {
         setEmail('')
       }
     } catch {
-      // silent fail for now
+      // silent fail
     } finally {
       setLoading(false)
     }
@@ -81,7 +81,7 @@ export default function SiteFooter() {
               Contactează-ne
             </h3>
             <div className="space-y-3 text-[13px] font-sans text-muted-foreground">
-               <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Mail className="w-3.5 h-3.5 shrink-0 text-brand-red" />
                 <a href="mailto:contact@transilvaniatimes.com" className="hover:text-brand-red transition-colors">
                   contact@transilvaniatimes.com
@@ -89,13 +89,14 @@ export default function SiteFooter() {
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="w-3.5 h-3.5 shrink-0 text-brand-red" />
-                <a href="mailto:+40771040611" className="hover:text-brand-red transition-colors">
+                <a href="tel:+40771040611" className="hover:text-brand-red transition-colors">
                   +40 771 040 611
                 </a>
               </div>
             </div>
-         
-            {/* Newsletter */}
+          </div>
+
+          {/* Newsletter */}
           <div className="col-span-1">
             <div className="bg-brand-red p-5">
               <h3 className="font-serif text-xl font-bold text-white mb-1">
@@ -127,6 +128,7 @@ export default function SiteFooter() {
               )}
             </div>
           </div>
+
         </div>
 
         {/* Bottom bar */}
