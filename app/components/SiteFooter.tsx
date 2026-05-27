@@ -83,8 +83,8 @@ export default function SiteFooter() {
             </h3>
             <div className="flex items-center gap-2">
                 <Mail className="w-3.5 h-3.5 shrink-0 text-brand-red" />
-                <a href="mailto:contact@add-individual-solutions.com" className="hover:text-brand-red transition-colors">
-                  contact@add-individual-solutions.com
+                <a href="mailto:contact@transilvaniatimes.com" className="hover:text-brand-red transition-colors">
+                  contact@transilvaniatimes.com
                 </a>
               </div>
               <div className="flex items-center gap-2">
