@@ -96,7 +96,12 @@ export default function SiteFooter() {
               </div>
             </div>
           </div>
-      <TrafficStats />
+      
+          /* Traffic Stats - visible to all readers */}
+          <div className="col-span-1 lg:hidden xl:block">
+            <TrafficStats />
+          </div>
+          
           {/* Newsletter */}
           <div className="col-span-1">
             <div className="bg-brand-red p-5">
