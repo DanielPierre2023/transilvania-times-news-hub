@@ -34,7 +34,6 @@ const fmt = (n: number) => {
 }
 
 const periodLabel: Record<Period, string> = { '24h': 'Ultimele 24h', '7d': 'Ultima săptămână', '30d': 'Ultima lună' }
-const periodInterval: Record<Period, string> = { '24h': '24 hours', '7d': '7 days', '30d': '30 days' }
 
 function Card({ icon: Icon, label, value, sub }: { icon: typeof Eye; label: string; value: string; sub?: string }) {
   return (
@@ -49,13 +48,12 @@ function Card({ icon: Icon, label, value, sub }: { icon: typeof Eye; label: stri
   )
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function BarChart({ data, labelKey, valueKey, maxItems = 10 }: { data: any[]; labelKey: string; valueKey: string; maxItems?: number }) {
+function BarChart({ data, labelKey, valueKey, maxItems = 10 }: { data: { [k: string]: string | number }[]; labelKey: string; valueKey: string; maxItems?: number }) {
   const items = data.slice(0, maxItems)
-  const max = Math.max(...items.map((d: any) => Number(d[valueKey]) || 0), 1)
+  const max = Math.max(...items.map(d => Number(d[valueKey]) || 0), 1)
   return (
     <div className="space-y-2">
-      {items.map((row: any, i: number) => (
+      {items.map((row, i) => (
         <div key={i} className="flex items-center gap-3">
           <span className="text-xs text-zinc-600 dark:text-zinc-400 w-32 truncate text-right font-mono">
             {String(row[labelKey])}
