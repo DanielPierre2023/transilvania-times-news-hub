@@ -81,6 +81,7 @@ export default function SiteFooter() {
               Contactează-ne
             </h3>
             <div className="space-y-3 text-[13px] font-sans text-muted-foreground">
+              <div className="space-y-3 text-[13px] font-sans text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Mail className="w-3.5 h-3.5 shrink-0 text-brand-red" />
                 <a href="mailto:contact@transilvaniatimes.com" className="hover:text-brand-red transition-colors">
