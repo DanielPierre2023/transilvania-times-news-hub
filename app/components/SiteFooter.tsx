@@ -97,11 +97,7 @@ export default function SiteFooter() {
             </div>
           </div>
       
-          /* Traffic Stats - visible to all readers */}
-          <div className="col-span-1 lg:hidden xl:block">
-            <TrafficStats />
-          </div>
-          
+               
           {/* Newsletter */}
           <div className="col-span-1">
             <div className="bg-brand-red p-5">
@@ -137,6 +133,11 @@ export default function SiteFooter() {
 
         </div>
 
+  {/* Public traffic stats */}
+        <div className="mb-6">
+          <TrafficStats />
+        </div>
+        
         {/* Bottom bar */}
         <div className="border-t border-foreground/10 pt-5 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-[12px] font-sans text-muted-foreground">
