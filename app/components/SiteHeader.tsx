@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { MapPin, Mail, Phone, Facebook, Twitter, Instagram, Github } from 'lucide-react'
+import { Mail, Phone, Facebook, Twitter, Instagram, Github } from 'lucide-react'
 
 const CATEGORIES = [
   { label: 'Știri', href: '/categorie/news' },
