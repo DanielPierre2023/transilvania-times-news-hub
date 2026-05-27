@@ -115,7 +115,7 @@ export default function EditorialStandardsPage() {
             Scrie redacției
           </Link>
           <p className="font-sans text-[11px] text-muted-foreground mt-3">
-            contact@add-individual-solutions.com
+            contact@transilvaniatimes.com
           </p>
         </div>
 
