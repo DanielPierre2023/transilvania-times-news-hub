@@ -49,10 +49,10 @@ export default function TermsPage() {
             2. Proprietarul platformei / Platform Owner
           </h3>
           <p className="text-muted-foreground leading-relaxed">
-            Transilvania Times este deținut și operat de <strong className="text-foreground">ADD Individual Solutions Ltd.</strong> Platforma este o publicație de știri regionale cu sediul în România.
+            Transilvania Times este operat de redacția <strong className="text-foreground">Transilvania Times</strong>, o publicație de știri regionale cu sediul în Cluj-Napoca, România.
           </p>
           <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
-            Transilvania Times is owned and operated by <strong className="text-foreground">ADD Individual Solutions Ltd.</strong>, a regional news publication based in Romania.
+            Transilvania Times is operated by the <strong className="text-foreground">Transilvania Times</strong> newsroom, a regional news publication based in Cluj-Napoca, Romania.
           </p>
         </section>
 
@@ -61,10 +61,10 @@ export default function TermsPage() {
             3. Proprietatea intelectuală / Intellectual Property
           </h3>
           <p className="text-muted-foreground leading-relaxed">
-            Toate conținuturile publicate pe Transilvania Times — articole, fotografii, grafice, logo-uri și design — sunt protejate prin drepturile de autor și aparțin ADD Individual Solutions Ltd. sau sunt utilizate cu permisiunea deținătorilor de drepturi. Reproducerea, distribuirea sau modificarea oricărui conținut fără acordul scris prealabil este interzisă.
+            Toate conținuturile publicate pe Transilvania Times — articole, fotografii, grafice, logo-uri și design — sunt protejate prin drepturile de autor și aparțin Transilvania Times sau sunt utilizate cu permisiunea deținătorilor de drepturi. Reproducerea, distribuirea sau modificarea oricărui conținut fără acordul scris prealabil este interzisă.
           </p>
           <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
-            All content published on Transilvania Times is protected by copyright and belongs to ADD Individual Solutions Ltd. or is used with the permission of rights holders. Reproduction, distribution or modification of any content without prior written consent is prohibited.
+            All content published on Transilvania Times is protected by copyright and belongs to Transilvania Times or is used with the permission of rights holders. Reproduction, distribution or modification of any content without prior written consent is prohibited.
           </p>
         </section>
 
