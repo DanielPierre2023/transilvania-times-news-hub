@@ -195,7 +195,7 @@ function mediaKitHtml(
     <!-- Footer -->
     <tr><td style="background:#f5f4f0;padding:24px 48px;border-top:1px solid #e5e2d9;text-align:center;">
       <p style="font-family:Arial,sans-serif;font-size:11px;color:#bbb;margin:0;">
-        &copy; ${new Date().getFullYear()} Transilvania Times &mdash; ADD Individual Solutions Ltd.
+        &copy; ${new Date().getFullYear()} Transilvania Times &mdash; Transilvania Times
         &nbsp;·&nbsp;
         <a href="${SITE_URL}" style="color:#bbb;">${SITE_URL}</a>
       </p>
