@@ -133,8 +133,7 @@ export default function SiteFooter() {
 
         </div>
 
-  {/* Public traffic stats */}
-        <div className="mb-6">
+  <div className="border-t border-foreground/10 pt-6 mb-6">
           <TrafficStats />
         </div>
         
