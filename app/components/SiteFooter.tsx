@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { MapPin, Mail, Phone, Facebook, Twitter, Instagram, Github } from 'lucide-react'
+import { Mail, Phone, Facebook, Twitter, Instagram, Github } from 'lucide-react'
 
 const CATEGORIES = [
   { label: 'Știri', href: '/categorie/news' },
@@ -36,7 +36,7 @@ export default function SiteFooter() {
         setEmail('')
       }
     } catch {
-      // silent fail for now
+      // silent fail
     } finally {
       setLoading(false)
     }
@@ -56,7 +56,6 @@ export default function SiteFooter() {
               Transilvania Times — Jurnalism independent din Transilvania
             </p>
           </div>
-
 
           {/* Categories */}
           <div className="col-span-1">
@@ -81,7 +80,8 @@ export default function SiteFooter() {
             <h3 className="font-sans text-[11px] font-bold uppercase tracking-widest text-foreground mb-4">
               Contactează-ne
             </h3>
-            <div className="flex items-center gap-2">
+            <div className="space-y-3 text-[13px] font-sans text-muted-foreground">
+              <div className="flex items-center gap-2">
                 <Mail className="w-3.5 h-3.5 shrink-0 text-brand-red" />
                 <a href="mailto:contact@transilvaniatimes.com" className="hover:text-brand-red transition-colors">
                   contact@transilvaniatimes.com
@@ -128,6 +128,7 @@ export default function SiteFooter() {
               )}
             </div>
           </div>
+
         </div>
 
         {/* Bottom bar */}
