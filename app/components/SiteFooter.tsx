@@ -53,9 +53,10 @@ export default function SiteFooter() {
               Transilvania Times
             </Link>
             <p className="mt-2 text-[11px] font-sans uppercase tracking-widest text-muted-foreground">
-              Un proiect media al ADD Individual Solutions Ltd.
+              Transilvania Times — Jurnalism independent din Transilvania
             </p>
           </div>
+
 
           {/* Categories */}
           <div className="col-span-1">
@@ -80,24 +81,7 @@ export default function SiteFooter() {
             <h3 className="font-sans text-[11px] font-bold uppercase tracking-widest text-foreground mb-4">
               Contactează-ne
             </h3>
-            <div className="space-y-3 text-[13px] font-sans text-muted-foreground">
-              <div className="flex items-start gap-2">
-                <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand-red" />
-                <div>
-                  <p className="font-semibold text-foreground">Redacția Editorială</p>
-                  <p>str. Frunzișului nr. 89</p>
-                  <p>Cluj-Napoca, Transilvania</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand-red" />
-                <div>
-                  <p className="font-semibold text-foreground">Sediul Social</p>
-                  <p>Sunset Valley, 7081 Pyla</p>
-                  <p>Cyprus</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
                 <Mail className="w-3.5 h-3.5 shrink-0 text-brand-red" />
                 <a href="mailto:contact@add-individual-solutions.com" className="hover:text-brand-red transition-colors">
                   contact@add-individual-solutions.com
@@ -105,8 +89,8 @@ export default function SiteFooter() {
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="w-3.5 h-3.5 shrink-0 text-brand-red" />
-                <a href="tel:+35796919606" className="hover:text-brand-red transition-colors">
-                  +357 96 919 606
+                <a href="tel:+40771040611" className="hover:text-brand-red transition-colors">
+                  +40 771 040 611
                 </a>
               </div>
             </div>
