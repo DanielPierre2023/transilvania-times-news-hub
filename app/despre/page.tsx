@@ -115,7 +115,7 @@ export default async function DesprePage() {
           <div className="mb-10 border-t border-foreground/10 pt-8">
             <h2 className="font-serif text-xl font-bold text-foreground mb-4">Proprietate și independență editorială</h2>
             <p className="font-serif text-[17px] leading-[1.8] text-foreground text-justify mb-5">
-              Transilvania Times este un proiect media al ADD Individual Solutions Ltd., companie înregistrată în Cipru, cu activitate operațională în România (Cluj-Napoca). Redacția funcționează independent de orice afiliere politică, partid sau grup de interese.
+              Transilvania Times este o publicație de știri regionale din Transilvania, România. Redacția funcționează independent de orice afiliere politică, partid sau grup de interese.
             </p>
             <p className="font-serif text-[17px] leading-[1.8] text-foreground text-justify">
               Finanțarea publicației provine din publicitate, parteneriate editoriale și servicii digitale. Niciun sponsor, niciun client și niciun partener comercial nu influențează conținutul editorial. Articolele sponsorizate sunt marcate vizibil și separat de conținutul editorial.
