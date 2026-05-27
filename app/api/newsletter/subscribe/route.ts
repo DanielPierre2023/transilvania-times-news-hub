@@ -116,7 +116,7 @@ function welcomeEmailRo(email: string): string {
             &nbsp;·&nbsp;
             <a href="${SITE_URL}" style="color:#999;text-decoration:underline;">transilvaniatimes.com</a>
             &nbsp;·&nbsp;
-            ADD Individual Solutions Ltd.
+            Transilvania Times
           </p>
         </td>
       </tr>
@@ -240,7 +240,7 @@ function welcomeEmailEn(email: string): string {
             &nbsp;·&nbsp;
             <a href="${SITE_URL}" style="color:#999;text-decoration:underline;">transilvaniatimes.com</a>
             &nbsp;·&nbsp;
-            ADD Individual Solutions Ltd.
+            Transilvania Times
           </p>
         </td>
       </tr>
