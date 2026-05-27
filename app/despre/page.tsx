@@ -69,8 +69,8 @@ export default async function DesprePage() {
     ],
     parentOrganization: {
       '@type': 'Organization',
-      name: 'ADD Individual Solutions Ltd.',
-      url: 'https://add-individual-solutions.com',
+      name: 'Transilvania Times',
+      url: 'https://transilvaniatimes.com',
     },
   }
 
