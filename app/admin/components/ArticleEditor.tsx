@@ -211,8 +211,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
         summary_en:  d.summary_en  ?? prev.summary_en,
         title_ro:    d.title_ro    ?? prev.title_ro,
         title_en:    d.title_en    ?? prev.title_en,
-        seo_title_ro:       d.seo_title_ro       ?? prev.seo_title_ro,
-        seo_title_en:       d.seo_title_en       ?? prev.seo_title_en,
         seo_description_ro: d.seo_description_ro ?? prev.seo_description_ro,
         seo_description_en: d.seo_description_en ?? prev.seo_description_en,
         tags_ro:     d.tags_ro     ?? prev.tags_ro,
