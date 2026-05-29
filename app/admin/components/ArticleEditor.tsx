@@ -211,10 +211,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
         summary_en:  d.summary_en  ?? prev.summary_en,
         title_ro:    d.title_ro    ?? prev.title_ro,
         title_en:    d.title_en    ?? prev.title_en,
-        tags_ro:     d.tags_ro     ?? prev.tags_ro,
-        tags_en:     d.tags_en     ?? prev.tags_en,
-        ai_editor:   d.ai_editor   ?? prev.ai_editor,
-        author_name: d.author_name ?? prev.author_name,
       }))
       flash(`✓ Rescris de ${result.editor || 'redactor'}`)
     } catch (err) {
