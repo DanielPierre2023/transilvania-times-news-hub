@@ -184,28 +184,50 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
     setGen(false)
   }
 
-  // ── AI REWRITE ────────────────────────────────────────────────────────────
+// ── AI REWRITE — v6 ───────────────────────────────────────────────────────
+  // Calls tt-rewrite-blog-post which re-runs the v6 pipeline in rewrite
+  // mode against the linked scraped_article and UPDATEs this post in place.
+  // Slug, cover_image, status, and published_at are preserved.
   async function aiRewrite() {
     if (!articleId) { flash('Salvați mai întâi articolul.'); return }
     setGen(true)
-    flash('AI rescrie articolul...')
-    await supabase.functions.invoke('ai-rewrite-article', { body: { post_id: articleId } })
-    const { data: d } = await supabase.from('blog_posts').select('*').eq('id', articleId).single()
-    if (d) setData(prev => ({
-      ...prev,
-      content_ro: d.content_ro ?? prev.content_ro,
-      content_en: d.content_en ?? prev.content_en,
-      excerpt_ro: d.excerpt_ro ?? prev.excerpt_ro,
-      excerpt_en: d.excerpt_en ?? prev.excerpt_en,
-      summary_ro: d.summary_ro ?? prev.summary_ro,
-      summary_en: d.summary_en ?? prev.summary_en,
-      title_ro: d.title_ro ?? prev.title_ro,
-      title_en: d.title_en ?? prev.title_en,
-    }))
-    setGen(false)
-    flash('✓ Rescris de AI')
+    flash('AI rescrie articolul (v6 pipeline)...')
+    try {
+      const { data: result, error } = await supabase.functions.invoke('tt-rewrite-blog-post', {
+        body: { blog_post_id: articleId },
+      })
+      if (error) throw error
+      if (!result?.ok) throw new Error(result?.error || 'Rescriere eșuată')
+ 
+      // Reload the freshly-rewritten row from blog_posts
+      const { data: d } = await supabase.from('blog_posts').select('*').eq('id', articleId).single()
+      if (d) setData(prev => ({
+        ...prev,
+        content_ro:  d.content_ro  ?? prev.content_ro,
+        content_en:  d.content_en  ?? prev.content_en,
+        excerpt_ro:  d.excerpt_ro  ?? prev.excerpt_ro,
+        excerpt_en:  d.excerpt_en  ?? prev.excerpt_en,
+        summary_ro:  d.summary_ro  ?? prev.summary_ro,
+        summary_en:  d.summary_en  ?? prev.summary_en,
+        title_ro:    d.title_ro    ?? prev.title_ro,
+        title_en:    d.title_en    ?? prev.title_en,
+        seo_title_ro:       d.seo_title_ro       ?? prev.seo_title_ro,
+        seo_title_en:       d.seo_title_en       ?? prev.seo_title_en,
+        seo_description_ro: d.seo_description_ro ?? prev.seo_description_ro,
+        seo_description_en: d.seo_description_en ?? prev.seo_description_en,
+        tags_ro:     d.tags_ro     ?? prev.tags_ro,
+        tags_en:     d.tags_en     ?? prev.tags_en,
+        ai_editor:   d.ai_editor   ?? prev.ai_editor,
+        author_name: d.author_name ?? prev.author_name,
+      }))
+      flash(`✓ Rescris de ${result.editor || 'redactor'}`)
+    } catch (err) {
+      flash('Eroare rescriere: ' + (err as Error).message)
+    } finally {
+      setGen(false)
+    }
   }
-
+ 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
