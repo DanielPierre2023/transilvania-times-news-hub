@@ -185,9 +185,11 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
   }
 
 // ── AI REWRITE — v6 ───────────────────────────────────────────────────────
-  // Calls tt-rewrite-blog-post which re-runs the v6 pipeline in rewrite
-  // mode against the linked scraped_article and UPDATEs this post in place.
-  // Slug, cover_image, status, and published_at are preserved.
+  // Calls tt-rewrite-blog-post which re-runs the v6 pipeline. The function
+  // updates blog_posts in place (writing seo_*, tags_*, ai_editor, author_name
+  // server-side). This handler only refreshes the fields exposed in the
+  // local ArticleData state — the editor's other fields are
+  // backend-managed and shown read-only when this page reloads.
   async function aiRewrite() {
     if (!articleId) { flash('Salvați mai întâi articolul.'); return }
     setGen(true)
@@ -199,18 +201,19 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
       if (error) throw error
       if (!result?.ok) throw new Error(result?.error || 'Rescriere eșuată')
  
-      // Reload the freshly-rewritten row from blog_posts
+      // Reload only the fields ArticleData declares
       const { data: d } = await supabase.from('blog_posts').select('*').eq('id', articleId).single()
       if (d) setData(prev => ({
         ...prev,
+        title_ro:    d.title_ro    ?? prev.title_ro,
+        title_en:    d.title_en    ?? prev.title_en,
         content_ro:  d.content_ro  ?? prev.content_ro,
         content_en:  d.content_en  ?? prev.content_en,
         excerpt_ro:  d.excerpt_ro  ?? prev.excerpt_ro,
         excerpt_en:  d.excerpt_en  ?? prev.excerpt_en,
         summary_ro:  d.summary_ro  ?? prev.summary_ro,
         summary_en:  d.summary_en  ?? prev.summary_en,
-        title_ro:    d.title_ro    ?? prev.title_ro,
-        title_en:    d.title_en    ?? prev.title_en,
+        author_name: d.author_name ?? prev.author_name,
       }))
       flash(`✓ Rescris de ${result.editor || 'redactor'}`)
     } catch (err) {
