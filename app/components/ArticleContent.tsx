@@ -20,19 +20,104 @@ interface ArticleContentProps {
   defaultLang: 'ro' | 'en'
 }
 
-// Detects plain text and converts to HTML paragraphs.
-// HTML content (AI-generated) passes through unchanged.
-function formatContent(raw: string): string {
-  // If content already contains HTML tags — return as-is (AI generated)
-  if (/<[a-z][\s\S]*>/i.test(raw)) return raw
+// Converts article body text into clean, separated <p> paragraphs.
+//
+// Robust to every shape the generator has produced:
+//   • Blank-line-separated paragraphs (the normal, well-formed case)
+//   • Single-newline-separated paragraphs (some outputs use one \n)
+//   • ONE unbroken block with no newlines at all (the failure mode that made
+//     articles render as a single wall of text) — grouped into paragraphs by
+//     sentence so the article still reads as structured prose
+//   • Real HTML (already containing <p>/<h*> block tags) — passed through after
+//     a light cleanup
+//   • Text with stray inline tags but no block structure — tags are stripped
+//     and the text is paragraphed, instead of being dumped raw
+//
+// The goal: the reader ALWAYS gets separated paragraphs, regardless of how the
+// upstream writer formatted (or failed to format) the content.
 
-  // Plain text — convert double newlines to <p> paragraphs
-  // Single newlines within a paragraph become <br />
-  return raw
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+// Group a run of sentences into paragraphs of ~2-4 sentences each, so a
+// newline-less block becomes readable separated paragraphs rather than one wall.
+function paragraphsFromSentences(text: string): string[] {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (!clean) return []
+
+  // Protect periods that are NOT sentence ends so we don't split mid-number
+  // (Romanian thousands separator: "5.000") or after an initial. Replace those
+  // dots with a placeholder, split on real sentence boundaries, then restore.
+  const DOT = '\u0001'
+  const guarded = clean
+    .replace(/(\d)\.(\d)/g, `$1${DOT}$2`)        // 5.000 → keep together
+    .replace(/\b([A-ZĂÂÎȘȚ])\.\s/g, `$1${DOT} `)  // initials "A. " → keep
+
+  const sentences = guarded.match(/[^.!?]+[.!?]+(?:["”»)\]]+)?\s*|[^.!?]+$/g) || [guarded]
+
+  const paras: string[] = []
+  let bucket: string[] = []
+  const PER_PARA = 3
+  for (const s of sentences) {
+    bucket.push(s.trim())
+    if (bucket.length >= PER_PARA) {
+      paras.push(bucket.join(' ').trim())
+      bucket = []
+    }
+  }
+  if (bucket.length) paras.push(bucket.join(' ').trim())
+
+  // Restore the protected periods.
+  const restore = new RegExp(DOT, 'g')
+  return paras.map(p => p.replace(restore, '.')).filter(Boolean)
+}
+
+function formatContent(raw: string): string {
+  if (!raw) return ''
+
+  // CASE 1 — real HTML with block-level structure already present.
+  // Only treat as pre-formatted HTML if it actually contains block tags;
+  // a stray inline <b>/<i>/<span> should NOT trigger raw passthrough.
+  const hasBlockHtml = /<(p|h[1-6]|ul|ol|li|blockquote|figure|div)\b/i.test(raw)
+  if (hasBlockHtml) {
+    // Light cleanup: drop markdown headings that slipped in, normalize breaks.
+    return raw.trim()
+  }
+
+  // From here down we treat the input as text (possibly with stray inline tags,
+  // which we strip so they never render or break the layout).
+  const stripped = raw.replace(/<[^>]+>/g, '').trim()
+
+  // CASE 2 — blank-line-separated paragraphs (well-formed text).
+  let chunks = stripped
     .split(/\n\s*\n/)
-    .map(para => para.trim())
+    .map(p => p.trim())
     .filter(Boolean)
-    .map(para => `<p>${para.replace(/\n/g, '<br />')}</p>`)
+
+  // CASE 3 — no blank lines, but single newlines exist → each line a paragraph.
+  if (chunks.length <= 1) {
+    const lineChunks = stripped
+      .split(/\n+/)
+      .map(p => p.trim())
+      .filter(Boolean)
+    if (lineChunks.length > 1) chunks = lineChunks
+  }
+
+  // CASE 4 — still one block (no newlines at all) → group by sentences so the
+  // article renders as separated paragraphs instead of one wall of text.
+  if (chunks.length <= 1) {
+    chunks = paragraphsFromSentences(stripped)
+  }
+
+  if (chunks.length === 0) return ''
+
+  // Within a paragraph, any remaining single newline becomes a soft break.
+  return chunks
+    .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br />')}</p>`)
     .join('\n')
 }
 
