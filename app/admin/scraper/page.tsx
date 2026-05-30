@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
   RefreshCw, CheckCircle2, XCircle, Clock,
-  ExternalLink, AlertCircle, Loader2, Rss, Sparkles, Trash2,
+  ExternalLink, AlertCircle, Loader2, Rss, Sparkles, Trash2, Plus,
 } from 'lucide-react'
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -29,7 +29,21 @@ interface RssSource {
   is_active: boolean
   output_limit: number
   last_scraped_at: string | null
+  category: string | null
+  source_language: string | null
 }
+
+// Categories matching the editorial pipeline taxonomy. 'auto-detect' lets the
+// processor classify the article from its content rather than locking it in.
+const SOURCE_CATEGORIES = [
+  'auto-detect', 'news', 'politics', 'technology', 'business',
+  'culture', 'travel', 'education', 'sports', 'health', 'opinion',
+] as const
+
+const SOURCE_LANGUAGES = [
+  { code: 'ro', label: 'Română' },
+  { code: 'en', label: 'English' },
+] as const
 
 type Tab = 'queue' | 'sources'
 
@@ -76,6 +90,13 @@ export default function ScraperFinal() {
   const [selectedSources,  setSelectedSources]  = useState<Set<string>>(new Set())
   const [deletingArticles, setDeletingArticles] = useState(false)
   const [deletingSources,  setDeletingSources]  = useState(false)
+
+  // ── Add-source form state ─────────────────────────────────────────────────
+  const [newUrl,      setNewUrl]      = useState('')
+  const [newName,     setNewName]     = useState('')
+  const [newCategory, setNewCategory] = useState<string>('auto-detect')
+  const [newLang,     setNewLang]     = useState<string>('ro')
+  const [adding,      setAdding]      = useState(false)
 
   const showToast = (msg: string, type: 'ok' | 'err' = 'ok') => {
     setToast({ msg, type })
@@ -226,6 +247,55 @@ export default function ScraperFinal() {
       showToast(`Eroare ștergere: ${err instanceof Error ? err.message : String(err)}`, 'err')
     } finally {
       setDeletingArticles(false)
+    }
+  }
+
+  // ── add new RSS source ────────────────────────────────────────────────────
+  // URL is required. If name is empty, derive it from the URL hostname
+  // (matches the legacy behavior so a user can paste a URL and click Add).
+  const addSource = async () => {
+    const url = newUrl.trim()
+    if (!url) {
+      showToast('Adaugă mai întâi un URL de feed RSS.', 'err')
+      return
+    }
+    // Validate URL shape
+    let derivedName = newName.trim()
+    try {
+      const parsed = new URL(url)
+      if (!derivedName) derivedName = parsed.hostname.replace(/^www\./, '')
+    } catch {
+      showToast('URL invalid. Exemplu: https://example.com/feed/', 'err')
+      return
+    }
+
+    setAdding(true)
+    try {
+      // Reject duplicates client-side for a cleaner error than a 23505.
+      const dup = sources.find(s => s.url.trim().toLowerCase() === url.toLowerCase())
+      if (dup) {
+        showToast(`Sursa există deja: ${dup.name}`, 'err')
+        return
+      }
+
+      const { error } = await supabase.from('rss_sources').insert({
+        name:             derivedName,
+        url,
+        category:         newCategory,
+        source_language:  newLang,
+        is_active:        true,
+      })
+      if (error) throw error
+
+      showToast(`Sursă adăugată: ${derivedName} ✓`, 'ok')
+      // Reset form (keep category/lang so consecutive adds of similar sources are fast)
+      setNewUrl('')
+      setNewName('')
+      await fetchSources()
+    } catch (err: unknown) {
+      showToast(`Eroare adăugare: ${err instanceof Error ? err.message : String(err)}`, 'err')
+    } finally {
+      setAdding(false)
     }
   }
 
@@ -434,6 +504,72 @@ export default function ScraperFinal() {
         {/* ── Sources Tab ── */}
         {tab === 'sources' && (
           <div className="space-y-2">
+
+            {/* Add-source form */}
+            <div className="bg-white border border-[#e5e2d9] p-4 mb-3">
+              <div className="flex items-center gap-2 mb-3">
+                <Plus className="w-4 h-4 text-[#666]" />
+                <h3 className="text-sm font-medium text-[#333]">Adaugă sursă RSS</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2">
+                <input
+                  type="url"
+                  placeholder="URL feed RSS (ex. https://example.com/feed/)"
+                  value={newUrl}
+                  onChange={e => setNewUrl(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && newUrl.trim()) addSource() }}
+                  disabled={adding}
+                  className="px-3 py-2 text-sm border border-[#e5e2d9] bg-white text-[#222]
+                    focus:outline-none focus:border-[#c41e3a] disabled:opacity-50"
+                />
+                <input
+                  type="text"
+                  placeholder="Nume (opțional)"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && newUrl.trim()) addSource() }}
+                  disabled={adding}
+                  className="px-3 py-2 text-sm border border-[#e5e2d9] bg-white text-[#222]
+                    focus:outline-none focus:border-[#c41e3a] disabled:opacity-50"
+                />
+                <select
+                  value={newCategory}
+                  onChange={e => setNewCategory(e.target.value)}
+                  disabled={adding}
+                  className="px-3 py-2 text-sm border border-[#e5e2d9] bg-white text-[#222]
+                    focus:outline-none focus:border-[#c41e3a] disabled:opacity-50"
+                >
+                  {SOURCE_CATEGORIES.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <select
+                  value={newLang}
+                  onChange={e => setNewLang(e.target.value)}
+                  disabled={adding}
+                  className="px-3 py-2 text-sm border border-[#e5e2d9] bg-white text-[#222]
+                    focus:outline-none focus:border-[#c41e3a] disabled:opacity-50"
+                >
+                  {SOURCE_LANGUAGES.map(l => (
+                    <option key={l.code} value={l.code}>{l.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={addSource}
+                  disabled={adding || !newUrl.trim()}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#c41e3a] text-white text-sm font-medium
+                    hover:bg-[#a01830] transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
+                >
+                  {adding
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Plus className="w-4 h-4" />}
+                  Adaugă
+                </button>
+              </div>
+              <p className="text-[11px] text-[#888] mt-2">
+                Categoria <code>auto-detect</code> lasă procesorul să clasifice articolul după conținut.
+              </p>
+            </div>
 
             {/* Selection toolbar */}
             {sources.length > 0 && (
