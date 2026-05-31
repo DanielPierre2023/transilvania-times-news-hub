@@ -307,7 +307,7 @@ export default function EditorPage() {
 
     try {
       const { data, error } = await supabase.functions.invoke('tt-generate-article', {
-        body: { prompt: buildPrompt(articleType, topic, wordCount), word_count: wordCount, category }
+        body: { prompt: buildPrompt(articleType, topic, wordCount), word_count: wordCount, category, article_type: articleType }
       })
       if (error) throw new Error(error.message)
       if (!data)  throw new Error('Niciun răspuns de la AI.')
