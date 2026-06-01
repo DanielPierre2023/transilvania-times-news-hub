@@ -282,6 +282,11 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                   {link.label}
                 </Link>
               ))}
+              {NAV_LINKS.map(link => (
+                <Link ... > ... </Link>
+              ))}
+              <CountyNavDropdown pathname={pathname} />
+            </nav>
             </nav>
 
             {/* Mobile menu button */}
@@ -310,6 +315,26 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 {link.label}
               </Link>
             ))}
+            {/* Județe — Phase 2 mobile section */}
+            <div className="pt-3 mt-2 border-t border-foreground/10">
+              <p className="font-sans text-[10px] font-bold uppercase tracking-widest text-foreground/40 mb-2">
+                Județe
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                {COUNTIES.map(c => (
+                  <Link
+                    key={c.slug}
+                    href={`/judet/${c.slug}`}
+                    onClick={() => setMobileOpen(false)}
+                    className={`block font-sans text-[12px] py-1 transition-colors ${
+                      pathname === `/judet/${c.slug}` ? 'text-brand-red font-bold' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {c.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
             <div className="pt-2">
               <WeatherWidget />
             </div>
