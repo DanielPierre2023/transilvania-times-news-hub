@@ -16,6 +16,7 @@ import type { Metadata } from 'next'
 import ShareButtons from '@/app/components/ShareButtons'
 import CommentSection from '@/app/components/CommentSection'
 import ArticleContent from '@/app/components/ArticleContent'
+import { getCounty } from '@/lib/counties'
 
 export const revalidate = 60
 
@@ -74,6 +75,7 @@ interface Post {
   summary_en: string | null
   category: string | null
   subcategory: string | null
+  county: string | null
   cover_image: string | null
   cover_image_credit: string | null
   author_name: string | null
@@ -197,7 +199,7 @@ export default async function ArticlePage({
     .select(`
       id, slug, title_ro, title_en, content_ro, content_en,
       excerpt_ro, excerpt_en, summary_ro, summary_en,
-      category, subcategory, cover_image, cover_image_credit,
+      category, subcategory, county, cover_image, cover_image_credit,
       author_name, published_at, updated_at,
       tags_ro, tags_en, is_breaking, source_url,
       sources, word_count,
@@ -314,9 +316,25 @@ export default async function ArticlePage({
                 {catLabel}
               </Link>
             )}
-            {post.subcategory && (
-              <span className="text-[10px] font-sans text-muted-foreground">· {post.subcategory}</span>
-            )}
+            {(() => {
+              const countyData = post.county ? getCounty(post.county) : null
+              if (countyData) {
+                return (
+                  <Link
+                    href={'/judet/' + post.county}
+                    className="font-sans text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-brand-red transition-colors"
+                  >
+                    · {countyData.label}
+                  </Link>
+                )
+              }
+              if (post.subcategory) {
+                return (
+                  <span className="text-[10px] font-sans text-muted-foreground">· {post.subcategory}</span>
+                )
+              }
+              return null
+            })()}
           </div>
 
           <ArticleContent
