@@ -4,6 +4,8 @@ import { ro } from 'date-fns/locale'
 import Link from 'next/link'
 import ArticleCard from './components/ArticleCard'
 import SponsorBanner from './components/SponsorBanner'
+import CountyStrip from './components/CountyStrip'
+import { getCountyShortLabel } from '@/lib/counties'
 
 export const revalidate = 0
 
@@ -14,6 +16,7 @@ interface Post {
   title_en: string | null
   category: string | null
   subcategory: string | null
+  county: string | null
   cover_image: string | null
   excerpt_ro: string | null
   excerpt_en: string | null
@@ -34,6 +37,14 @@ function getLabel(cat: string | null) {
   return (CAT_LABELS[cat] || cat).toUpperCase()
 }
 
+// Phase 2: county takes priority over subcategory in inline headers.
+// More specific local information wins. Returns empty string if neither set.
+function getSecondaryLabel(post: Post): string {
+  const c = post.county ? getCountyShortLabel(post.county) : ''
+  if (c) return c
+  return post.subcategory || ''
+}
+
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return ''
   try { return formatDistanceToNow(parseISO(dateStr), { addSuffix: true, locale: ro }) }
@@ -50,7 +61,7 @@ export default async function HomePage() {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, category, subcategory, cover_image, excerpt_ro, excerpt_en, summary_ro, summary_en, author_name, published_at')
+    .select('id, slug, title_ro, title_en, category, subcategory, county, cover_image, excerpt_ro, excerpt_en, summary_ro, summary_en, author_name, published_at')
     .eq('status', 'published')
     .order('published_at', { ascending: false })
     .limit(50)
@@ -120,8 +131,8 @@ export default async function HomePage() {
               <div className="w-2 h-2 bg-brand-red" />
               <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">
                 {getLabel(heroMain.category)}
-                {heroMain.subcategory && (
-                  <span className="text-muted-foreground ml-1.5">· {heroMain.subcategory}</span>
+                {getSecondaryLabel(heroMain) && (
+                  <span className="text-muted-foreground ml-1.5">· {getSecondaryLabel(heroMain)}</span>
                 )}
               </span>
             </div>
@@ -162,8 +173,8 @@ export default async function HomePage() {
                     <div className="w-2 h-2 bg-brand-red" />
                     <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">
                       {getLabel(heroRight.category)}
-                      {heroRight.subcategory && (
-                        <span className="text-muted-foreground ml-1.5">· {heroRight.subcategory}</span>
+                      {getSecondaryLabel(heroRight) && (
+                        <span className="text-muted-foreground ml-1.5">· {getSecondaryLabel(heroRight)}</span>
                       )}
                     </span>
                   </div>
@@ -207,8 +218,8 @@ export default async function HomePage() {
                   <div className="w-2 h-2 bg-brand-red" />
                   <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">
                     {getLabel(secondaryText.category)}
-                    {secondaryText.subcategory && (
-                      <span className="text-muted-foreground ml-1.5">· {secondaryText.subcategory}</span>
+                    {getSecondaryLabel(secondaryText) && (
+                      <span className="text-muted-foreground ml-1.5">· {getSecondaryLabel(secondaryText)}</span>
                     )}
                   </span>
                 </div>
@@ -250,8 +261,8 @@ export default async function HomePage() {
                     <div className="w-2 h-2 bg-brand-red" />
                     <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">
                       {getLabel(secondaryImage.category)}
-                      {secondaryImage.subcategory && (
-                        <span className="text-muted-foreground ml-1.5">· {secondaryImage.subcategory}</span>
+                      {getSecondaryLabel(secondaryImage) && (
+                        <span className="text-muted-foreground ml-1.5">· {getSecondaryLabel(secondaryImage)}</span>
                       )}
                     </span>
                   </div>
@@ -283,6 +294,9 @@ export default async function HomePage() {
         </section>
       )}
 
+      {/* ═══ COUNTY STRIP — Phase 2.4: "Astăzi în județul tău" ═══ */}
+      <CountyStrip />
+
       {/* ═══ 4-COLUMN ARTICLE GRID ═══ */}
       {gridArticles.length > 0 && (
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 border-b border-foreground/10">
@@ -292,6 +306,7 @@ export default async function HomePage() {
               slug={post.slug}
               category={post.category}
               subcategory={post.subcategory}
+              county={post.county}
               title={getTitle(post)}
               timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
               image={post.cover_image}
@@ -308,90 +323,64 @@ export default async function HomePage() {
         {/* LEFT — 2-col grid of text snippets */}
         <div className="lg:col-span-4 lg:border-r border-foreground/10 p-6">
           <div className="grid grid-cols-2 gap-x-4 gap-y-5">
-            {editorialLeft.map(post => (
+            {editorialLeft.map((post) => (
               <Link key={post.id} href={'/blog/' + post.slug} className="group">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <div className="w-1.5 h-1.5 bg-brand-red" />
-                  <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-brand-red">
-                    {getLabel(post.category)}
-                  </span>
+                <div className="text-[9px] font-sans font-bold text-brand-red uppercase tracking-widest mb-1">
+                  {getLabel(post.category)}
                 </div>
-                <h4 className="font-serif font-bold text-sm leading-snug text-foreground group-hover:text-brand-red transition-colors line-clamp-3">
+                <h4 className="font-serif font-semibold text-sm leading-snug text-foreground group-hover:text-brand-red transition-colors line-clamp-3">
                   {getTitle(post)}
                 </h4>
-                <span className="text-[9px] font-sans text-muted-foreground mt-1 block">
-                  {timeAgo(post.published_at)}
-                </span>
+                {post.published_at && (
+                  <p className="text-[10px] font-sans text-muted-foreground mt-1">{timeAgo(post.published_at)}</p>
+                )}
               </Link>
             ))}
           </div>
         </div>
 
-        {/* CENTER — Horizontal mini-cards with thumbnails */}
-        <div className="lg:col-span-4 lg:border-r border-foreground/10 p-6">
-          <div className="flex flex-col">
-            {editorialCenter.map((post, i) => (
-              <Link
-                key={post.id}
-                href={'/blog/' + post.slug}
-                className={'flex gap-4 py-4 group cursor-pointer' + (i < editorialCenter.length - 1 ? ' border-b border-dotted border-foreground/15' : '')}
-              >
-                <div className="w-[120px] shrink-0 aspect-[4/3] overflow-hidden">
-                  {post.cover_image ? (
-                    <img
-                      src={post.cover_image}
-                      alt={getTitle(post)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-foreground/10" />
-                  )}
+        {/* CENTER — List of articles with thumbnail */}
+        <div className="lg:col-span-4 lg:border-r border-foreground/10">
+          {editorialCenter.map((post) => (
+            <Link key={post.id} href={'/blog/' + post.slug} className="group flex gap-3 p-4 border-b border-foreground/10 last:border-0">
+              {post.cover_image && (
+                <div className="w-24 h-20 shrink-0 overflow-hidden">
+                  <img
+                    src={post.cover_image}
+                    alt={getTitle(post)}
+                    className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+                  />
                 </div>
-                <div className="flex flex-col justify-center min-w-0">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <div className="w-1.5 h-1.5 bg-brand-red" />
-                    <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-brand-red">
-                      {getLabel(post.category)}
-                    </span>
-                  </div>
-                  <h4 className="font-serif font-bold text-sm leading-snug text-foreground group-hover:text-brand-red transition-colors line-clamp-2">
-                    {getTitle(post)}
-                  </h4>
-                  <span className="text-[9px] font-sans text-muted-foreground mt-1">
-                    {timeAgo(post.published_at)}
-                  </span>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-[9px] font-sans font-bold text-brand-red uppercase tracking-widest mb-1">
+                  {getLabel(post.category)}
                 </div>
-              </Link>
-            ))}
-          </div>
+                <h4 className="font-serif font-semibold text-sm leading-snug text-foreground group-hover:text-brand-red transition-colors line-clamp-3">
+                  {getTitle(post)}
+                </h4>
+              </div>
+            </Link>
+          ))}
         </div>
 
-        {/* RIGHT — Avatar + title list + sponsor banner */}
-        <div className="lg:col-span-4 p-6 flex flex-col">
-          <div className="flex flex-col flex-1">
-            {editorialRight.map((post, i) => (
-              <Link
-                key={post.id}
-                href={'/blog/' + post.slug}
-                className={'flex items-start gap-3 py-3 group' + (i < editorialRight.length - 1 ? ' border-b border-foreground/10' : '')}
-              >
-                <div className="w-8 h-8 rounded-full bg-brand-red/10 shrink-0 flex items-center justify-center text-[10px] font-bold text-brand-red">
-                  {(post.author_name || 'T')[0].toUpperCase()}
+        {/* RIGHT — Sponsor banner + Latest 3 with author */}
+        <div className="lg:col-span-4 p-6 space-y-4">
+          <SponsorBanner placement="sidebar" />
+          <div className="space-y-3">
+            {editorialRight.map((post) => (
+              <Link key={post.id} href={'/blog/' + post.slug} className="group block p-3 border border-foreground/10 hover:border-brand-red transition-colors">
+                <div className="text-[9px] font-sans font-bold text-brand-red uppercase tracking-widest mb-1">
+                  {getLabel(post.category)}
                 </div>
-                <div className="min-w-0">
-                  <h4 className="font-serif font-bold text-sm leading-snug text-foreground group-hover:text-brand-red transition-colors line-clamp-2">
-                    {getTitle(post)}
-                  </h4>
-                  <span className="text-[9px] font-sans text-muted-foreground mt-0.5 block">
-                    {timeAgo(post.published_at)}
-                  </span>
-                </div>
+                <h4 className="font-serif font-semibold text-sm leading-snug text-foreground group-hover:text-brand-red transition-colors line-clamp-2">
+                  {getTitle(post)}
+                </h4>
+                {post.author_name && (
+                  <p className="text-[10px] font-sans text-muted-foreground mt-2 italic">de {post.author_name}</p>
+                )}
               </Link>
             ))}
-          </div>
-          {/* Sponsor banner */}
-          <div className="mt-4">
-            <SponsorBanner />
           </div>
         </div>
       </section>
@@ -416,6 +405,7 @@ export default async function HomePage() {
                 slug={post.slug}
                 category={post.category}
                 subcategory={post.subcategory}
+                county={post.county}
                 title={getTitle(post)}
                 timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
                 image={post.cover_image}
