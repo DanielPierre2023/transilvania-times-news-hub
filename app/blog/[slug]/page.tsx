@@ -1,753 +1,411 @@
-'use client'
+// app/blog/[slug]/page.tsx
+//
+// B4: hreflang — both ro and en alternates now correctly declared:
+//     ro  → /blog/[slug]
+//     en  → /blog/[slug]?lang=en
+//     x-default → /blog/[slug]
+//
+// B5: OG article namespace — added publishedTime, modifiedTime,
+//     authors, section, and tags. MetaPost query expanded accordingly.
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
-import { Wand2, Save, Globe, RefreshCw, Upload, X, Loader2 } from 'lucide-react'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { formatDistanceToNow, parseISO } from 'date-fns'
+import { ro } from 'date-fns/locale'
+import Link from 'next/link'
+import type { Metadata } from 'next'
+import ShareButtons from '@/app/components/ShareButtons'
+import CommentSection from '@/app/components/CommentSection'
+import ArticleContent from '@/app/components/ArticleContent'
 
-// ─── ARTICLE TYPES ───────────────────────────────────────────────────────────
+export const revalidate = 60
 
-const ARTICLE_TYPES = [
-  { value: 'editorial',  label: 'Editorial',  emoji: '✒️', hint: 'Teză fermă · argumentare stratificată · concluzie memorabilă' },
-  { value: 'analiza',    label: 'Analiză',    emoji: '🔬', hint: 'Multi-perspectival · date concrete · predictiv' },
-  { value: 'pamflet',    label: 'Pamflet',    emoji: '⚡', hint: 'Swift · Voltaire · Caragiale — laudatio ironică → revelație absurdă' },
-  { value: 'blog',       label: 'Blog',       emoji: '📝', hint: 'Voce proprie · poziție clară · ton cald' },
-  { value: 'reportaj',   label: 'Reportaj',   emoji: '📰', hint: 'Scenă de deschidere · voci · tensiune narativă' },
-  { value: 'cultura',    label: 'Cultură',    emoji: '🎭', hint: 'Interpretare · context · valoare actuală' },
-  { value: 'tehnologie', label: 'Tehnologie', emoji: '💻', hint: 'Demistificare · impact real · scepticism sănătos' },
-]
+const SITE_URL = 'https://transilvaniatimes.com'
 
-const WORD_COUNTS = [
-  { value: 800,  label: '800',  desc: 'Scurt' },
-  { value: 1200, label: '1200', desc: 'Standard' },
-  { value: 1800, label: '1800', desc: 'Long-form' },
-]
+const CAT_LABELS: Record<string, string> = {
+  news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
+  business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
+  education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+}
 
-const CATEGORIES = [
-  'news','politics','technology','business',
-  'culture','travel','education','sports','health','opinion',
-]
+// ─────────────────────────────────────────────────────────────────────────────
+// B5: Extended MetaPost interface — includes all article OG namespace fields
+// ─────────────────────────────────────────────────────────────────────────────
 
-const SUBCATEGORIES = ['', 'regional', 'national', 'international']
+interface MetaPost {
+  title_ro:     string | null
+  title_en:     string | null
+  excerpt_ro:   string | null
+  excerpt_en:   string | null
+  cover_image:  string | null
+  slug:         string
+  // B5 additions
+  published_at: string | null
+  updated_at:   string | null
+  category:     string | null
+  tags_ro:      string[] | null
+  tags_en:      string[] | null
+  authors: {
+    slug: string
+  } | null
+}
 
-// v9: 13 Transylvania counties + 'national' for content outside Transylvania.
-// Order: alphabetical Romanian — operator-friendly. Display label is the
-// Romanian county name; the value is the same slug used in blog_posts.county
-// and rss_sources.county (kept consistent so the database has one canonical form).
-const COUNTIES: { value: string; label: string }[] = [
-  { value: 'alba',            label: 'Alba' },
-  { value: 'bihor',           label: 'Bihor' },
-  { value: 'bistrita-nasaud', label: 'Bistrița-Năsăud' },
-  { value: 'brasov',          label: 'Brașov' },
-  { value: 'cluj',            label: 'Cluj' },
-  { value: 'covasna',         label: 'Covasna' },
-  { value: 'harghita',        label: 'Harghita' },
-  { value: 'hunedoara',       label: 'Hunedoara' },
-  { value: 'maramures',       label: 'Maramureș' },
-  { value: 'mures',           label: 'Mureș' },
-  { value: 'salaj',           label: 'Sălaj' },
-  { value: 'satu-mare',       label: 'Satu Mare' },
-  { value: 'sibiu',           label: 'Sibiu' },
-  { value: 'national',        label: 'Național (în afara Transilvaniei)' },
-]
+interface AuthorRecord {
+  slug: string
+  name_ro: string
+  name_en: string
+  title_ro: string
+  title_en: string
+  bio_ro: string
+  bio_en: string
+  avatar_url: string | null
+  avatar_style: string | null
+}
 
-// ─── PROMPTS ─────────────────────────────────────────────────────────────────
+interface Post {
+  id: string
+  slug: string
+  title_ro: string | null
+  title_en: string | null
+  content_ro: string | null
+  content_en: string | null
+  excerpt_ro: string | null
+  excerpt_en: string | null
+  summary_ro: string | null
+  summary_en: string | null
+  category: string | null
+  subcategory: string | null
+  cover_image: string | null
+  cover_image_credit: string | null
+  author_name: string | null
+  published_at: string | null
+  updated_at: string | null
+  tags_ro: string[] | null
+  tags_en: string[] | null
+  is_breaking: boolean | null
+  source_url: string | null
+  sources: string[] | null
+  word_count: number | null
+  authors: AuthorRecord | null
+}
 
-function buildPrompt(type: string, topic: string, wordCount: number): string {
-  const base = `SUBIECT: ${topic}
-LUNGIME: ~${wordCount} cuvinte per limbă.
-LIMBĂ: Generează NATIV în română ȘI nativ în engleză simultan.
+interface RelatedPost {
+  id: string
+  slug: string
+  title_ro: string | null
+  title_en: string | null
+  cover_image: string | null
+  category: string | null
+}
 
-TITLU: psihologic puternic, curiozitate/urgență/emoție. Fără punct final.
-REZUMAT: 3-4 bullet-uri max 15 cuvinte, fiecare adaugă informație nouă.
-SEO: 6-8 taguri lowercase cu cratimă.
-FĂRĂ subtitluri (### sau ##). FĂRĂ cuvinte interzise: crucial, esențial, vital, paradigmă, sinergie.
+// ─────────────────────────────────────────────────────────────────────────────
+// generateMetadata — B4 hreflang + B5 OG article tags
+// ─────────────────────────────────────────────────────────────────────────────
 
-RĂSPUNDE EXCLUSIV JSON (fără backticks, fără text în afara JSON):
-{
-  "title_ro":"...","title_en":"...",
-  "summary_ro":"bullet1\\nbullet2\\nbullet3",
-  "summary_en":"bullet1\\nbullet2\\nbullet3",
-  "excerpt_ro":"1-2 propoziții","excerpt_en":"1-2 sentences",
-  "content_ro":"articol complet în română","content_en":"full article in English",
-  "tags_ro":["tag1","tag2"],"tags_en":["tag1","tag2"],
-  "seo_title_ro":"max 60 car","seo_title_en":"max 60 chars",
-  "seo_description_ro":"max 160 car","seo_description_en":"max 160 chars"
-}`
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Metadata> {
+  const { slug } = await params
+  const supabase  = await createSupabaseServerClient()
 
-  const prompts: Record<string, string> = {
-    editorial: `${base}
+  // B5: expanded select — fetch all fields needed for article OG namespace
+  const { data } = await supabase
+    .from('blog_posts')
+    .select(`
+      title_ro, title_en, excerpt_ro, excerpt_en, cover_image, slug,
+      published_at, updated_at, category, tags_ro, tags_en,
+      authors ( slug )
+    `)
+    .eq('slug', slug)
+    .single()
 
-TIP: EDITORIAL DE ÎNALTĂ CLASĂ
-1. DESCHIDERE PUTERNICĂ: declarație provocatoare, scenă vie sau statistică șocantă
-2. TEZĂ CLARĂ: poziția publicației, fermă și fără echivoc
-3. ARGUMENTARE STRATIFICATĂ: 3-4 argumente cu fapte concrete, precedente, citate — se construiesc progresiv
-4. CONTRAARGUMENT ȘI RESPINGERE: recunoaște perspectiva opusă, demontează-o elegant
-5. CONCLUZIE MEMORABILĂ: propoziție care rămâne în minte, provoacă reflecție sau acțiune
-TON: Autoritar, lucid, angajat.`,
+  if (!data) return { title: 'Article Not Found' }
 
-    analiza: `${base}
+  const post        = data as unknown as MetaPost
+  const title       = post.title_ro || post.title_en || ''
+  const description = post.excerpt_ro || post.excerpt_en || ''
+  const image       = post.cover_image || ''
+  const url         = `${SITE_URL}/blog/${post.slug}`
+  const urlEn       = `${url}?lang=en`
 
-TIP: ANALIZĂ APROFUNDATĂ
-1. CONTEXT ȘI MIZĂ: de ce contează ACUM, tabloul mai larg
-2. ANATOMIA PROBLEMEI: cauze structurale, nu simptome
-3. PERSPECTIVE MULTIPLE: min 3 unghiuri — economic, politic, social, istoric sau geopolitic
-4. DATE ȘI EVIDENȚE: fiecare afirmație ancorată în cifre sau comparații
-5. SCENARII: 2-3 scenarii probabile cu argumente pro/contra
-6. CONCLUZIE ANALITICĂ: sintetică, precisă, cu valoare predictivă
-TON: Expert, nuanțat, fără simplificări.`,
+  // Merge RO + EN tags, deduplicate, cap at 10 for OG
+  const allTags = [
+    ...(post.tags_ro ?? []),
+    ...(post.tags_en ?? []),
+  ].filter((t, i, arr) => t && arr.indexOf(t) === i).slice(0, 10)
 
-    pamflet: `${base}
+  return {
+    title,
+    description,
 
-TIP: PAMFLET — SATIRĂ DE ÎNALTĂ CLASĂ (Swift, Voltaire, Caragiale)
-1. Umor fin, stratificat. Sarcasmul taie ca bisturiul, nu toporul.
-2. Ținta precisă: identifică exact ce/cine e satirizat.
-STRUCTURĂ:
-- LAUDATIO IRONICĂ: compliment fals și exagerat față de țintă
-- DEZMEMBRARE PROGRESIVĂ: demontarea cu exemple concrete și comparații devastatoare
-- REVELAȚIA ABSURDĂ: masca cade complet
-- CONCLUZIE TĂIOASĂ: aparent serioasă, implacabil de sarcastică
-TEHNICI: hiperbolă controlată, ironie socratică, analogii incomode, întrebări retorice ucigătoare
-FĂRĂ vulgaritate. FĂRĂ atacuri la persoană neverificabilă.`,
+    // B4: correct hreflang — ro = canonical URL, en = ?lang=en, x-default = ro
+    alternates: {
+      canonical: url,
+      languages: {
+        ro:          url,
+        en:          urlEn,
+        'x-default': url,
+      },
+    },
 
-    blog: `${base}
+    openGraph: {
+      title,
+      description,
+      url,
+      type: 'article',
+      images: image ? [{ url: image, width: 1200, height: 630 }] : [],
 
-TIP: BLOG — VOCE PERSONALĂ
-1. DESCHIDERE PERSONALĂ: experiență sau observație care conectează imediat
-2. PUNCT DE VEDERE PROPRIU: ia o poziție, spune ce crezi TU și de ce
-3. POVESTIRE + INFORMAȚIE: alternează narațiunea cu insight-uri valoroase
-4. UMOR SAU AUTOIRONIE: blogul bun nu se ia prea în serios
-5. CONCLUZIE PRACTICĂ: ce poate face cititorul cu această informație?
-TON: Cald, direct, inteligent fără a fi pedant.`,
+      // B5: OG article namespace properties
+      publishedTime: post.published_at  ?? undefined,
+      modifiedTime:  post.updated_at    ?? undefined,
+      authors:       post.authors?.slug
+        ? [`${SITE_URL}/autor/${post.authors.slug}`]
+        : undefined,
+      section:       post.category
+        ? (CAT_LABELS[post.category] ?? post.category)
+        : undefined,
+      tags:          allTags.length > 0 ? allTags : undefined,
+    },
 
-    reportaj: `${base}
-
-TIP: REPORTAJ NARATIV
-1. SCENĂ DE DESCHIDERE: plasează cititorul în acțiune — detalii senzoriale, personaje concrete
-2. CONTEXTUL POVEȘTII: cine, ce, unde, când, de ce — ca narațiune
-3. VOCI: min 2-3 perspective diferite, citate directe
-4. TENSIUNEA NARATIVĂ: conflict, problemă nerezolvată
-5. REZOLUȚIE: răspuns sau o întrebare mai mare
-TON: Narativ, uman, long-form journalism.`,
-
-    cultura: `${base}
-
-TIP: CRITICĂ CULTURALĂ
-1. OPERA/FENOMENUL: descrie cu acuratețe și detaliu relevant
-2. CONTEXTUL CULTURAL: situează în curentul artistic, istoric sau social
-3. ANALIZA CRITICĂ: nu rezumat — interpretare. Ce spune opera despre epoca ei?
-4. COMPARAȚII: pune în dialog cu alte opere sau momente culturale
-5. VALOAREA ACTUALĂ: de ce contează azi?
-TON: Cultivat, pasionat, accesibil fără vulgarizare.`,
-
-    tehnologie: `${base}
-
-TIP: JURNALISM TECH
-1. NOUTATEA: ce s-a schimbat? de ce acum?
-2. FUNCȚIONAREA: explică accesibil, analogii clare, fără jargon inutil
-3. IMPLICAȚIILE REALE: impact concret pe oameni, business, societate
-4. VOCEA CRITICĂ: riscuri, limitări, întrebări nerezolvate
-5. PERSPECTIVE GLOBALE: tendințe mai largi
-TON: Informat, scepticism sănătos, accesibil.`,
+    twitter: {
+      card:   'summary_large_image',
+      title,
+      description,
+      images: image ? [image] : [],
+    },
   }
-  return prompts[type] || prompts['editorial']
 }
 
-// ─── F FIELD WRAPPER — module level (fixes author input focus bug) ─────────────
-// IMPORTANT: must stay at module level, NOT inside EditorPage.
-// Defining a component inside another component causes React to unmount/remount
-// it on every render, losing input focus after every keystroke.
-function F({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
-        {label}
-      </label>
-      {children}
-    </div>
-  )
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Page component — unchanged from original
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ─── IMAGE SECTION ────────────────────────────────────────────────────────────
-
-function ImageSection({
-  coverImage, setCoverImage,
-  titleRo, titleEn, summaryRo, summaryEn,
-  onGenerate, generating,
+export default async function ArticlePage({
+  params,
+  searchParams,
 }: {
-  coverImage: string
-  setCoverImage: (v: string) => void
-  titleRo: string; titleEn: string
-  summaryRo: string; summaryEn: string
-  onGenerate: () => void
-  generating: boolean
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ lang?: string }>
 }) {
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState('')
+  const { slug }          = await params
+  const { lang: langParam } = await searchParams
+  const defaultLang: 'ro' | 'en' = langParam === 'en' ? 'en' : 'ro'
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = await createSupabaseServerClient()
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) { setUploadError('Selectați un fișier imagine'); return }
-    if (file.size > 10 * 1024 * 1024) { setUploadError('Imaginea trebuie să fie sub 10MB'); return }
-
-    setUploading(true)
-    setUploadError('')
-    try {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-      const fileName = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { error } = await supabase.storage.from('blog-images').upload(fileName, file, {
-        contentType: file.type, upsert: false
-      })
-      if (error) throw error
-      const { data } = supabase.storage.from('blog-images').getPublicUrl(fileName)
-      setCoverImage(data.publicUrl)
-    } catch (err) {
-      setUploadError(`Eroare upload: ${(err as Error).message}`)
-    }
-    setUploading(false)
-    e.target.value = ''
-  }
-
-  const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
-
-  return (
-    <div className="space-y-3">
-      {coverImage && (
-        <div className="relative">
-          <img src={coverImage} alt="Cover" className="w-full aspect-video object-cover" />
-          <button onClick={() => setCoverImage('')}
-            className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white p-1.5 transition-colors">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      <div>
-        <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">
-          URL imagine
-        </label>
-        <input className={inp} value={coverImage} onChange={e => setCoverImage(e.target.value)}
-          placeholder="https://... sau folosește butoanele de mai jos" />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <label className={
-          'flex items-center justify-center gap-2 py-3 border font-sans text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors ' +
-          (uploading ? 'border-white/10 text-white/30 cursor-not-allowed' : 'border-white/20 text-white/60 hover:text-white hover:border-white/40')
-        }>
-          <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" disabled={uploading} />
-          {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Upload...</> : <><Upload className="w-3.5 h-3.5" /> De pe calculator</>}
-        </label>
-
-        <button onClick={onGenerate} disabled={generating || (!titleRo && !titleEn)}
-          className="flex items-center justify-center gap-2 py-3 bg-blue-600/20 border border-blue-500/30 text-blue-300 font-sans text-[11px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-colors disabled:opacity-50">
-          {generating ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generează...</> : <><Wand2 className="w-3.5 h-3.5" /> Generează AI</>}
-        </button>
-      </div>
-
-      {uploadError && (
-        <p className="font-sans text-[11px] text-red-400 bg-red-400/10 px-3 py-2">{uploadError}</p>
-      )}
-      <p className="font-sans text-[10px] text-white/20">
-        Upload: JPG/PNG/WebP max 10MB. AI: HuggingFace FLUX / Pollinations FLUX / Unsplash.
-      </p>
-    </div>
-  )
-}
-
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
-
-export default function EditorPage() {
-  const router = useRouter()
-
-  const [articleType, setArticleType] = useState('editorial')
-  const [wordCount, setWordCount]     = useState(1200)
-  const [category, setCategory]       = useState('opinion')
-  // v9: county defaults to 'cluj' (largest share in the corpus). Operator can
-  // change before generating. Always set — never NULL from the AI Editor.
-  const [county, setCounty]           = useState('cluj')
-  const [topic, setTopic]             = useState('')
-
-  const [generating, setGenerating] = useState(false)
-  const [generated, setGenerated]   = useState(false)
-  const [genError, setGenError]     = useState('')
-
-  const [titleRo, setTitleRo]     = useState('')
-  const [titleEn, setTitleEn]     = useState('')
-  const [summaryRo, setSummaryRo] = useState('')
-  const [summaryEn, setSummaryEn] = useState('')
-  const [excerptRo, setExcerptRo] = useState('')
-  const [excerptEn, setExcerptEn] = useState('')
-  const [contentRo, setContentRo] = useState('')
-  const [contentEn, setContentEn] = useState('')
-  const [tagsRo, setTagsRo]       = useState('')
-  const [tagsEn, setTagsEn]       = useState('')
-  const [seoTitleRo, setSeoTitleRo]   = useState('')
-  const [seoTitleEn, setSeoTitleEn]   = useState('')
-  const [seoDescRo, setSeoDescRo]     = useState('')
-  const [seoDescEn, setSeoDescEn]     = useState('')
-
-  const [slug, setSlug]               = useState('')
-  const [authorName, setAuthorName]   = useState('')
-  const [subcategory, setSubcategory] = useState('')
-  const [sourceUrl, setSourceUrl]     = useState('')
-  const [isBreaking, setIsBreaking]   = useState(false)
-
-  const [coverImage, setCoverImage]           = useState('')
-  const [coverImageCredit, setCoverImageCredit] = useState('')
-  const [generatingImg, setGeneratingImg]     = useState(false)
-
-  const [contentTab, setContentTab] = useState<'ro' | 'en'>('ro')
-  const [saving, setSaving]         = useState(false)
-  const [msg, setMsg]               = useState('')
-
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-
-  function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 5000) }
-
-  function toSlug(t: string) {
-    return t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 80)
-  }
-
-  // ── GENERATE ARTICLE ───────────────────────────────────────────────────────
-
-  async function generate() {
-    if (!topic.trim()) { setGenError('Introduceți brieful editorial.'); return }
-    setGenerating(true)
-    setGenError('')
-    setGenerated(false)
-    setCoverImage('')
-    setCoverImageCredit('')
-
-    try {
-      const { data, error } = await supabase.functions.invoke('tt-generate-article', {
-        body: { prompt: buildPrompt(articleType, topic, wordCount), word_count: wordCount, category, article_type: articleType, county }
-      })
-      if (error) throw new Error(error.message)
-      if (!data)  throw new Error('Niciun răspuns de la AI.')
-
-      setTitleRo(data.title_ro   || '')
-      setTitleEn(data.title_en   || '')
-      setSummaryRo(data.summary_ro || '')
-      setSummaryEn(data.summary_en || '')
-      setExcerptRo(data.excerpt_ro || '')
-      setExcerptEn(data.excerpt_en || '')
-      setContentRo(data.content_ro || '')
-      setContentEn(data.content_en || '')
-      setTagsRo(Array.isArray(data.tags_ro) ? data.tags_ro.join(', ') : '')
-      setTagsEn(Array.isArray(data.tags_en) ? data.tags_en.join(', ') : (Array.isArray(data.tags) ? data.tags.join(', ') : ''))
-      setSeoTitleRo(data.seo_title_ro || '')
-      setSeoTitleEn(data.seo_title_en || '')
-      setSeoDescRo(data.seo_description_ro || '')
-      setSeoDescEn(data.seo_description_en || '')
-      setSlug(data.slug || toSlug(data.title_ro || data.title_en || ''))
-      setGenerated(true)
-      setContentTab('ro')
-      flash('✓ Articol generat — generez imaginea...')
-
-      // Auto-generate cover in background — fire and forget, no await.
-      // Pass data directly to avoid React async state update timing issue.
-      generateCoverImage(
-        data.title_ro || data.title_en,
-        data.summary_ro || data.summary_en || data.excerpt_ro
+  const { data, error } = await supabase
+    .from('blog_posts')
+    .select(`
+      id, slug, title_ro, title_en, content_ro, content_en,
+      excerpt_ro, excerpt_en, summary_ro, summary_en,
+      category, subcategory, cover_image, cover_image_credit,
+      author_name, published_at, updated_at,
+      tags_ro, tags_en, is_breaking, source_url,
+      sources, word_count,
+      authors (
+        slug, name_ro, name_en, title_ro, title_en,
+        bio_ro, bio_en, avatar_url, avatar_style
       )
-    } catch (e) {
-      setGenError(`Eroare: ${(e as Error).message}`)
-    }
-    setGenerating(false)
+    `)
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .single()
+
+  if (error || !data) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-20 text-center">
+        <h1 className="font-serif text-3xl font-bold text-foreground mb-4">Articol negăsit</h1>
+        <p className="font-sans text-muted-foreground mb-8">Articolul nu există sau a fost eliminat.</p>
+        <Link href="/" className="text-brand-red hover:underline font-sans text-sm">
+          ← Înapoi la pagina principală
+        </Link>
+      </div>
+    )
   }
 
-  // ── GENERATE COVER IMAGE ───────────────────────────────────────────────────
-  // Accepts optional overrides to avoid React async state timing issues
-  // when called immediately after setting state in generate().
+  const post       = data as unknown as Post
+  const articleUrl = `${SITE_URL}/blog/${post.slug}`
+  const catLabel   = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
+  const tags       = (post.tags_ro || post.tags_en || []) as string[]
 
-  async function generateCoverImage(overrideTitle?: string, overrideSummary?: string) {
-    const imgTitle   = overrideTitle   || titleRo || titleEn
-    const imgSummary = overrideSummary || summaryRo || summaryEn || excerptRo
-    if (!imgTitle) { flash('Generați articolul mai întâi sau completați titlul.'); return }
+  const author = post.authors ?? null
 
-    setGeneratingImg(true)
+  let timeAgoStr = ''
+  if (post.published_at) {
     try {
-      const { data, error } = await supabase.functions.invoke('tt-generate-cover', {
-        body: { title: imgTitle, summary: imgSummary, category }
-      })
-      if (error) throw new Error(error.message)
-      if (data?.publicUrl) {
-        setCoverImage(data.publicUrl)
-        if (data.isAiGenerated !== false) {
-          setCoverImageCredit('Imagine generată cu inteligență artificială')
-        }
-        flash('✓ Imagine generată')
-      } else {
-        throw new Error(data?.error || 'Eroare generare imagine.')
-      }
-    } catch (e) {
-      flash(`Eroare imagine: ${(e as Error).message}`)
-    }
-    setGeneratingImg(false)
+      timeAgoStr = formatDistanceToNow(parseISO(post.published_at), { addSuffix: true, locale: ro })
+    } catch { /* noop */ }
   }
 
-  // ── SAVE ───────────────────────────────────────────────────────────────────
+  const { data: related } = await supabase
+    .from('blog_posts')
+    .select('id, slug, title_ro, title_en, cover_image, category')
+    .eq('status', 'published')
+    .eq('category', post.category || 'news')
+    .neq('slug', slug)
+    .order('published_at', { ascending: false })
+    .limit(4)
 
-  async function saveArticle(newStatus: 'draft' | 'published') {
-    setSaving(true)
-    const finalSlug = (slug || toSlug(titleRo || titleEn)) + '-' + Date.now().toString(36)
-    const payload = {
-      title_ro: titleRo || null, title_en: titleEn || null,
-      summary_ro: summaryRo || null, summary_en: summaryEn || null,
-      excerpt_ro: excerptRo || null, excerpt_en: excerptEn || null,
-      content_ro: contentRo || null, content_en: contentEn || null,
-      tags_ro: tagsRo.split(',').map(t => t.trim()).filter(Boolean),
-      tags_en: tagsEn.split(',').map(t => t.trim()).filter(Boolean),
-      cover_image: coverImage || null,
-      cover_image_credit: coverImageCredit || null,
-      category, subcategory: subcategory || null,
-      county,  // v9: persisted alongside category, so /judet/[slug] pages find this post
-      author_name: authorName || null,
-      source_url: sourceUrl || null,
-      is_breaking: isBreaking,
-      slug: finalSlug, status: newStatus,
-      published_at: newStatus === 'published' ? new Date().toISOString() : null,
-    }
-    const { data: saved, error } = await supabase.from('blog_posts').insert(payload as never).select('id, slug').single()
-    if (error || !saved) { flash(`Eroare: ${error?.message}`); setSaving(false); return }
-    if (newStatus === 'published') {
-      await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${saved.slug}`, { method: 'POST' })
-      flash('✓ Publicat și live pe site')
-    } else {
-      flash('✓ Salvat ca ciornă')
-    }
-    setSaving(false)
-    setTimeout(() => router.push(`/admin/articles/${saved.id}/edit`), 1500)
+  const authorName = author
+    ? (defaultLang === 'en' ? author.name_en : author.name_ro)
+    : (post.author_name || 'Transilvania Times')
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'NewsArticle',
+    headline: post.title_ro || post.title_en || '',
+    description: post.excerpt_ro || post.excerpt_en || '',
+    image: post.cover_image || '',
+    datePublished: post.published_at || '',
+    dateModified: post.updated_at || post.published_at || '',
+    articleSection: post.category || 'news',
+    wordCount: post.word_count || undefined,
+    keywords: tags.join(', ') || undefined,
+    author: {
+      '@type': 'Person',
+      name: authorName,
+      ...(author?.slug ? { url: `${SITE_URL}/autor/${author.slug}` } : {}),
+      ...(author ? { description: defaultLang === 'en' ? author.bio_en : author.bio_ro } : {}),
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'Transilvania Times',
+      url: SITE_URL,
+      logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.png` },
+    },
+    url: articleUrl,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': articleUrl },
   }
 
-  // ── STYLES ─────────────────────────────────────────────────────────────────
-
-  const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
-  const ta  = inp + " resize-none leading-relaxed"
-  const sec = "bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4"
-  const sh  = "font-sans text-[11px] uppercase tracking-widest text-white/40 border-b border-white/[0.07] pb-3 mb-1"
-
-  function Pills({ value, cls }: { value: string; cls: string }) {
-    const tags = value.split(',').map(t => t.trim()).filter(Boolean)
-    if (!tags.length) return null
-    return <div className="flex flex-wrap gap-1.5 mt-2">
-      {tags.map(t => <span key={t} className={`font-sans text-[10px] px-2 py-0.5 border ${cls}`}>{t}</span>)}
-    </div>
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Acasă', item: SITE_URL },
+      ...(post.category
+        ? [{ '@type': 'ListItem', position: 2, name: CAT_LABELS[post.category] || post.category, item: `${SITE_URL}/categorie/${post.category}` }]
+        : []),
+      {
+        '@type': 'ListItem',
+        position: post.category ? 3 : 2,
+        name: post.title_ro || post.title_en || '',
+        item: articleUrl,
+      },
+    ],
   }
 
   return (
-    <div className="max-w-7xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-white">Editor AI</h1>
-          <p className="font-sans text-[13px] text-white/40 mt-1">Generează articole editoriale de înaltă calitate</p>
-        </div>
-        {msg && (
-          <span className={`font-sans text-[12px] px-3 py-1.5 border ${
-            msg.startsWith('Eroare') ? 'text-red-400 bg-red-400/10 border-red-400/20'
-            : 'text-green-400 bg-green-400/10 border-green-400/20'
-          }`}>{msg}</span>
-        )}
-      </div>
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
+      <article className="max-w-7xl mx-auto border-x border-foreground/10">
+        <div className="max-w-3xl mx-auto px-6 pt-10 pb-4">
 
-      <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-6">
-
-        {/* ── LEFT ─────────────────────────────────────────────────────── */}
-        <div className="space-y-4">
-
-          <div className={sec}>
-            <p className={sh}>Tip articol</p>
-            <div className="grid grid-cols-2 gap-2">
-              {ARTICLE_TYPES.map(t => (
-                <button key={t.value} onClick={() => setArticleType(t.value)}
-                  className={
-                    'flex items-center gap-2 px-3 py-2.5 border font-sans text-[12px] transition-colors ' +
-                    (articleType === t.value
-                      ? 'bg-brand-red border-brand-red text-white'
-                      : 'border-white/[0.07] text-white/50 hover:text-white hover:border-white/20')
-                  }
-                ><span>{t.emoji}</span>{t.label}</button>
-              ))}
-            </div>
-            <p className="font-sans text-[10px] text-white/20 italic">
-              {ARTICLE_TYPES.find(t => t.value === articleType)?.hint}
-            </p>
-          </div>
-
-          <div className={sec}>
-            <p className={sh}>Lungime</p>
-            <div className="flex gap-2">
-              {WORD_COUNTS.map(wc => (
-                <button key={wc.value} onClick={() => setWordCount(wc.value)}
-                  className={
-                    'flex-1 flex flex-col items-center py-2.5 border transition-colors ' +
-                    (wordCount === wc.value ? 'bg-brand-red border-brand-red text-white' : 'border-white/[0.07] text-white/50 hover:text-white')
-                  }
-                >
-                  <span className="font-sans text-[14px] font-bold">{wc.label}</span>
-                  <span className="font-sans text-[10px] text-white/40">{wc.desc}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className={sec}>
-            <p className={sh}>Categorie</p>
-            <select className={inp} value={category} onChange={e => setCategory(e.target.value)}>
-              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-
-          <div className={sec}>
-            <p className={sh}>Județ</p>
-            <select className={inp} value={county} onChange={e => setCounty(e.target.value)}>
-              {COUNTIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-            <p className="font-sans text-[11px] text-white/40 mt-1">
-              Articolul va apărea pe pagina județului ales. Folosește „Național" pentru subiecte din afara Transilvaniei.
-            </p>
-          </div>
-
-          <div className={sec}>
-            <p className={sh}>Brief editorial</p>
-            <textarea className={ta} rows={7} value={topic} onChange={e => setTopic(e.target.value)}
-              placeholder={
-                articleType === 'pamflet'
-                  ? 'Ex: Un politician promite transparență totală la exact o lună după ce dosarul lui a fost clasat...'
-                  : 'Descrie subiectul, unghiul, contextul dorit...'
-              }
-            />
-            {genError && (
-              <p className="font-sans text-[12px] text-red-400 bg-red-400/10 border border-red-400/20 px-3 py-2">{genError}</p>
+          <div className="flex items-center gap-2 mb-4">
+            {post.is_breaking && (
+              <span className="inline-flex items-center gap-1 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-widest px-3 py-1">
+                <span className="text-yellow-300">⚡</span> ULTIMA ORĂ
+              </span>
+            )}
+            {post.category && (
+              <Link
+                href={'/categorie/' + post.category}
+                className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red hover:underline"
+              >
+                {catLabel}
+              </Link>
+            )}
+            {post.subcategory && (
+              <span className="text-[10px] font-sans text-muted-foreground">· {post.subcategory}</span>
             )}
           </div>
 
-          <button onClick={generate} disabled={generating || !topic.trim()}
-            className="w-full flex items-center justify-center gap-3 py-4 bg-brand-red text-white font-sans text-[13px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            {generating
-              ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generează articol...</>
-              : <><Wand2 className="w-4 h-4" /> Generează cu AI</>
-            }
-          </button>
+          <ArticleContent
+            titleRo={post.title_ro}
+            titleEn={post.title_en}
+            summaryRo={post.summary_ro}
+            summaryEn={post.summary_en}
+            contentRo={post.content_ro}
+            contentEn={post.content_en}
+            coverImage={post.cover_image}
+            coverImageCredit={post.cover_image_credit}
+            authorName={post.author_name}
+            author={author}
+            publishedAt={post.published_at}
+            timeAgoStr={timeAgoStr}
+            defaultLang={defaultLang}
+          />
 
-          {generating && (
-            <div className="bg-[#1a1a1a] border border-purple-500/20 p-4 text-center space-y-1">
-              <p className="font-sans text-[12px] text-purple-300">
-                AI scrie {ARTICLE_TYPES.find(t => t.value === articleType)?.label}...
+          <ShareButtons
+            url={articleUrl}
+            title={post.title_ro || post.title_en || ''}
+            summary={post.excerpt_ro || post.excerpt_en || ''}
+          />
+
+          {tags.length > 0 && (
+            <div className="mt-6 flex flex-wrap gap-2">
+              {tags.map((tag: string) => (
+                <span key={tag} className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {post.sources && post.sources.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-foreground/[0.06]">
+              <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+                Surse
               </p>
-              <p className="font-sans text-[11px] text-purple-300/40">
-                {wordCount} cuvinte · RO + EN · titlu psihologic · SEO complet
+              <div className="space-y-1">
+                {post.sources.map((src: string, i: number) => (
+                  <p key={i} className="font-sans text-[11px] text-muted-foreground">
+                    <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
+                      {(() => { try { return new URL(src).hostname } catch { return src } })()}
+                    </a>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {post.source_url && (!post.sources || post.sources.length === 0) && (
+            <div className="mt-4">
+              <p className="font-sans text-[11px] text-muted-foreground">
+                Sursă:{' '}
+                <a href={post.source_url} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
+                  {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
+                </a>
               </p>
             </div>
           )}
+
+          <CommentSection articleId={post.id} />
         </div>
 
-        {/* ── RIGHT ────────────────────────────────────────────────────── */}
-        {!generated ? (
-          <div className="bg-[#1a1a1a] border border-white/[0.07] border-dashed flex flex-col items-center justify-center min-h-[600px] p-8 text-center">
-            <Wand2 className="w-16 h-16 text-white/[0.05] mb-5" />
-            <p className="font-serif text-xl text-white/20 mb-2">Articolul generat va apărea aici</p>
-            <p className="font-sans text-[12px] text-white/10 max-w-xs">
-              Selectează tipul · lungimea · categoria · scrie brieful · apasă Generează
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-
-            <div className="flex items-center justify-between">
-              <p className="font-sans text-[12px] text-white/30">Editează orice câmp înainte de publicare</p>
-              <div className="flex gap-2">
-                <button onClick={() => saveArticle('draft')} disabled={saving}
-                  className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-[#1a1a1a] border border-white/10 text-white hover:border-white/30 transition-colors disabled:opacity-50">
-                  <Save className="w-3.5 h-3.5" /> Ciornă
-                </button>
-                <button onClick={() => saveArticle('published')} disabled={saving}
-                  className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-brand-red text-white hover:bg-red-700 transition-colors disabled:opacity-50">
-                  <Globe className="w-3.5 h-3.5" /> Publică acum
-                </button>
-              </div>
+        {related && related.length > 0 && (
+          <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-foreground/10 pb-12">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-2 h-2 bg-brand-red" />
+              <h3 className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">Articole similare</h3>
+              <div className="flex-1 h-px bg-foreground/10" />
             </div>
-
-            {/* ① TITLURI */}
-            <div className={sec}>
-              <p className={sh}>① Titluri</p>
-              <div className="grid md:grid-cols-2 gap-4">
-                <F label="Titlu principal (RO)">
-                  <input className={inp} value={titleRo}
-                    onChange={e => { setTitleRo(e.target.value); if (!slug) setSlug(toSlug(e.target.value)) }} />
-                </F>
-                <F label="Title (EN)">
-                  <input className={inp} value={titleEn} onChange={e => setTitleEn(e.target.value)} />
-                </F>
-              </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {(related as unknown as RelatedPost[]).map(rel => (
+                <Link key={rel.id} href={'/blog/' + rel.slug + (defaultLang === 'en' ? '?lang=en' : '')} className="group">
+                  {rel.cover_image && (
+                    <div className="overflow-hidden mb-3 aspect-[4/3]">
+                      <img src={rel.cover_image} alt={rel.title_ro || rel.title_en || ''} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
+                    </div>
+                  )}
+                  <h4 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-3">
+                    {defaultLang === 'en' ? (rel.title_en || rel.title_ro) : (rel.title_ro || rel.title_en)}
+                  </h4>
+                </Link>
+              ))}
             </div>
-
-            {/* ② REZUMAT */}
-            <div className={sec}>
-              <p className={sh}>② Rezumat & Introducere</p>
-              <p className="font-sans text-[10px] text-white/20 -mt-2 mb-1">Rezumatul apare pe articol înainte de imagine. Este folosit și pentru generarea imaginii copertă.</p>
-              <div className="grid md:grid-cols-2 gap-4">
-                <F label="Rezumat bullets (RO)">
-                  <textarea rows={5} className={ta} value={summaryRo} onChange={e => setSummaryRo(e.target.value)} placeholder="• Punct 1&#10;• Punct 2&#10;• Punct 3" />
-                </F>
-                <F label="Summary (EN)">
-                  <textarea rows={5} className={ta} value={summaryEn} onChange={e => setSummaryEn(e.target.value)} />
-                </F>
-                <F label="Excerpt / Introducere (RO)">
-                  <textarea rows={3} className={ta} value={excerptRo} onChange={e => setExcerptRo(e.target.value)} />
-                </F>
-                <F label="Excerpt / Introduction (EN)">
-                  <textarea rows={3} className={ta} value={excerptEn} onChange={e => setExcerptEn(e.target.value)} />
-                </F>
-              </div>
-            </div>
-
-            {/* ③ IMAGINE */}
-            <div className={sec}>
-              <p className={sh}>③ Imagine copertă</p>
-              <ImageSection
-                coverImage={coverImage}
-                setCoverImage={setCoverImage}
-                titleRo={titleRo} titleEn={titleEn}
-                summaryRo={summaryRo} summaryEn={summaryEn}
-                onGenerate={() => generateCoverImage()}
-                generating={generatingImg}
-              />
-              {/* Credit / sursa fotografie */}
-              <F label="Sursă / creditare fotografie">
-                <input
-                  className={inp}
-                  value={coverImageCredit}
-                  onChange={e => setCoverImageCredit(e.target.value)}
-                  placeholder="Imagine generată cu inteligență artificială / © Reuters / Arhivă"
-                />
-              </F>
-              {coverImageCredit && (
-                <p className="font-sans text-[10px] text-blue-400/60">
-                  {coverImageCredit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: &bdquo;{coverImageCredit}&rdquo;
-                </p>
-              )}
-            </div>
-
-            {/* ④ SEO TAGS */}
-            <div className={sec}>
-              <p className={sh}>④ SEO Tags</p>
-              <div className="grid md:grid-cols-2 gap-4">
-                <F label="Tags (RO) — separate prin virgulă">
-                  <input className={inp} value={tagsRo} onChange={e => setTagsRo(e.target.value)} placeholder="tag-ro-1, tag-ro-2..." />
-                  <Pills value={tagsRo} cls="text-brand-red bg-brand-red/10 border-brand-red/20" />
-                </F>
-                <F label="Tags (EN) — comma separated">
-                  <input className={inp} value={tagsEn} onChange={e => setTagsEn(e.target.value)} placeholder="tag-en-1, tag-en-2..." />
-                  <Pills value={tagsEn} cls="text-blue-300 bg-blue-500/10 border-blue-500/20" />
-                </F>
-              </div>
-            </div>
-
-            {/* ⑤ SEO META */}
-            <div className={sec}>
-              <p className={sh}>⑤ SEO Meta</p>
-              <div className="grid md:grid-cols-2 gap-4">
-                <F label="SEO Title (RO) — max 60 caractere">
-                  <input className={inp} value={seoTitleRo} onChange={e => setSeoTitleRo(e.target.value)} />
-                  <span className={`font-sans text-[10px] mt-1 block ${seoTitleRo.length > 60 ? 'text-red-400' : 'text-white/20'}`}>{seoTitleRo.length}/60</span>
-                </F>
-                <F label="SEO Title (EN) — max 60 chars">
-                  <input className={inp} value={seoTitleEn} onChange={e => setSeoTitleEn(e.target.value)} />
-                  <span className={`font-sans text-[10px] mt-1 block ${seoTitleEn.length > 60 ? 'text-red-400' : 'text-white/20'}`}>{seoTitleEn.length}/60</span>
-                </F>
-                <F label="Meta Description (RO) — max 160">
-                  <textarea rows={2} className={ta} value={seoDescRo} onChange={e => setSeoDescRo(e.target.value)} />
-                  <span className={`font-sans text-[10px] mt-1 block ${seoDescRo.length > 160 ? 'text-red-400' : 'text-white/20'}`}>{seoDescRo.length}/160</span>
-                </F>
-                <F label="Meta Description (EN) — max 160">
-                  <textarea rows={2} className={ta} value={seoDescEn} onChange={e => setSeoDescEn(e.target.value)} />
-                  <span className={`font-sans text-[10px] mt-1 block ${seoDescEn.length > 160 ? 'text-red-400' : 'text-white/20'}`}>{seoDescEn.length}/160</span>
-                </F>
-              </div>
-            </div>
-
-            {/* ⑥ CONȚINUT */}
-            <div className={sec}>
-              <div className="flex items-center justify-between mb-3">
-                <p className={sh} style={{marginBottom:0}}>⑥ Conținut complet</p>
-                <div className="flex gap-1">
-                  {(['ro','en'] as const).map(l => (
-                    <button key={l} onClick={() => setContentTab(l)}
-                      className={
-                        'font-sans text-[11px] uppercase tracking-wider px-3 py-1.5 border transition-colors ' +
-                        (contentTab === l ? 'bg-brand-red border-brand-red text-white' : 'border-white/[0.07] text-white/40 hover:text-white')
-                      }
-                    >{l === 'ro' ? '🇷🇴 RO' : '🇬🇧 EN'}</button>
-                  ))}
-                </div>
-              </div>
-              {contentTab === 'ro'
-                ? <textarea rows={26} className={ta} value={contentRo} onChange={e => setContentRo(e.target.value)} placeholder="Conținut în română..." />
-                : <textarea rows={26} className={ta} value={contentEn} onChange={e => setContentEn(e.target.value)} placeholder="Content in English..." />
-              }
-            </div>
-
-            {/* ⑦ METADATE */}
-            <div className={sec}>
-              <p className={sh}>⑦ Metadate & Publicare</p>
-              <div className="grid md:grid-cols-2 gap-4">
-                <F label="Slug URL">
-                  <input className={inp} value={slug} onChange={e => setSlug(e.target.value)} />
-                </F>
-                <F label="Autor — introdu manual">
-                  <input
-                    className={inp}
-                    value={authorName}
-                    onChange={e => setAuthorName(e.target.value)}
-                    placeholder="Numele autorului"
-                    autoComplete="off"
-                  />
-                </F>
-                <F label="Subcategorie">
-                  <select className={inp} value={subcategory} onChange={e => setSubcategory(e.target.value)}>
-                    {SUBCATEGORIES.map(s => <option key={s} value={s}>{s || '—'}</option>)}
-                  </select>
-                </F>
-                <F label="URL sursă / referință">
-                  <input className={inp} value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder="https://..." />
-                </F>
-              </div>
-              <label className="flex items-center gap-3 cursor-pointer pt-2">
-                <input type="checkbox" checked={isBreaking} onChange={e => setIsBreaking(e.target.checked)} className="accent-brand-red w-4 h-4" />
-                <div>
-                  <p className="font-sans text-[13px] text-white">⚡ Ultima Oră</p>
-                  <p className="font-sans text-[11px] text-white/30">Apare în ticker-ul roșu din header</p>
-                </div>
-              </label>
-            </div>
-
-            {/* Bottom actions */}
-            <div className="flex gap-3 pb-8">
-              <button onClick={() => saveArticle('draft')} disabled={saving}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-[#1a1a1a] border border-white/10 text-white font-sans text-[13px] font-bold hover:border-white/30 transition-colors disabled:opacity-50">
-                <Save className="w-4 h-4" /> Salvează ciornă
-              </button>
-              <button onClick={() => saveArticle('published')} disabled={saving}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-brand-red text-white font-sans text-[13px] font-bold hover:bg-red-700 transition-colors disabled:opacity-50">
-                <Globe className="w-4 h-4" /> Publică pe site
-              </button>
-            </div>
-
           </div>
         )}
-      </div>
-    </div>
+      </article>
+    </>
   )
 }
