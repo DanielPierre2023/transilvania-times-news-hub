@@ -29,6 +29,7 @@ interface Post {
   cover_image: string | null
   category: string | null
   subcategory: string | null
+  county: string | null
   excerpt_ro: string | null
   published_at: string | null
   author_name: string | null
@@ -57,14 +58,12 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
   const to = from + PAGE_SIZE - 1
 
   const catLabel = CAT_LABELS[category] || category
-  const subcatLabel = sub ? SUBCAT_LABELS[sub] || sub : null
 
   const supabase = await createSupabaseServerClient()
 
-  // Build query
   let query = supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, cover_image, category, subcategory, excerpt_ro, published_at, author_name', { count: 'exact' })
+    .select('id, slug, title_ro, title_en, cover_image, category, subcategory, county, excerpt_ro, published_at, author_name', { count: 'exact' })
     .eq('status', 'published')
     .eq('category', category)
     .order('published_at', { ascending: false })
@@ -158,6 +157,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
               slug={post.slug}
               category={post.category}
               subcategory={post.subcategory}
+              county={post.county}
               title={post.title_ro || post.title_en || ''}
               image={post.cover_image}
               excerpt={post.excerpt_ro}
