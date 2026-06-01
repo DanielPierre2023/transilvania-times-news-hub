@@ -282,11 +282,8 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                   {link.label}
                 </Link>
               ))}
-              {NAV_LINKS.map(link => (
-                <Link ... > ... </Link>
-              ))}
+              {/* Județe — Phase 2 county dropdown */}
               <CountyNavDropdown pathname={pathname} />
-            </nav>
             </nav>
 
             {/* Mobile menu button */}
