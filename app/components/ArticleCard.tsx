@@ -1,9 +1,11 @@
 import Link from 'next/link'
+import { getCountyShortLabel } from '@/lib/counties'
 
 interface ArticleCardProps {
   slug: string
   category: string | null
   subcategory?: string | null
+  county?: string | null
   title: string
   timeAgo?: string
   image?: string | null
@@ -31,12 +33,13 @@ const SUBCAT_LABELS: Record<string, string> = {
 }
 
 export default function ArticleCard({
-  slug, category, subcategory, title, timeAgo, image, excerpt,
+  slug, category, subcategory, county, title, timeAgo, image, excerpt,
   variant = 'grid', className = '', lang = 'ro',
 }: ArticleCardProps) {
   const labels = lang === 'en' ? CAT_LABELS_EN : CAT_LABELS_RO
   const catLabel = (category ? labels[category] || category : '').toUpperCase()
-  const subcatLabel = subcategory ? SUBCAT_LABELS[subcategory] || subcategory : null
+  const countyLabel = county ? getCountyShortLabel(county) : ''
+  const secondaryLabel = countyLabel || (subcategory ? SUBCAT_LABELS[subcategory] || subcategory : '')
   const href = `/blog/${slug}`
 
   if (variant === 'hero') {
@@ -59,9 +62,9 @@ export default function ArticleCard({
               <span className="w-2 h-2 bg-brand-red inline-block" />
               {catLabel}
             </span>
-            {subcatLabel && (
+            {secondaryLabel && (
               <span className="text-[10px] font-sans text-muted-foreground uppercase tracking-widest">
-                · {subcatLabel}
+                · {secondaryLabel}
               </span>
             )}
           </div>
@@ -84,8 +87,15 @@ export default function ArticleCard({
     return (
       <div className={`group flex gap-3 py-3 border-b border-foreground/10 last:border-0 ${className}`}>
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-sans font-bold text-brand-red uppercase tracking-widest mb-1">
-            {catLabel}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-sans font-bold text-brand-red uppercase tracking-widest">
+              {catLabel}
+            </span>
+            {secondaryLabel && (
+              <span className="text-[10px] font-sans text-muted-foreground uppercase tracking-widest">
+                · {secondaryLabel}
+              </span>
+            )}
           </div>
           <Link href={href}>
             <h3 className="font-serif text-base font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-2">
@@ -112,8 +122,15 @@ export default function ArticleCard({
   if (variant === 'compact') {
     return (
       <div className={`group py-2.5 border-b border-foreground/10 last:border-0 ${className}`}>
-        <div className="text-[10px] font-sans font-bold text-brand-red uppercase tracking-widest mb-1">
-          {catLabel}
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-[10px] font-sans font-bold text-brand-red uppercase tracking-widest">
+            {catLabel}
+          </span>
+          {secondaryLabel && (
+            <span className="text-[10px] font-sans text-muted-foreground uppercase tracking-widest">
+              · {secondaryLabel}
+            </span>
+          )}
         </div>
         <Link href={href}>
           <h3 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-2">
@@ -150,11 +167,16 @@ export default function ArticleCard({
             <span className="text-[10px] font-sans font-bold text-brand-red uppercase tracking-widest">
               <span className="w-2 h-2 bg-brand-red inline-block mr-1.5" />{catLabel}
             </span>
-            {subcatLabel && (
+            {secondaryLabel && (
               <span className="text-[10px] font-sans text-muted-foreground uppercase tracking-widest">
-                · {subcatLabel}
+                · {secondaryLabel}
               </span>
             )}
+          </div>
+        )}
+        {image && secondaryLabel && (
+          <div className="text-[10px] font-sans text-muted-foreground uppercase tracking-widest mb-1.5">
+            {secondaryLabel}
           </div>
         )}
         <Link href={href}>
