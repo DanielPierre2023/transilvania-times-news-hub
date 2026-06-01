@@ -65,6 +65,7 @@ export type Database = {
           content_en: string | null
           content_ro: string | null
           cover_image: string | null
+          county: string | null
           created_at: string
           excerpt_en: string | null
           excerpt_ro: string | null
@@ -100,6 +101,7 @@ export type Database = {
           content_en?: string | null
           content_ro?: string | null
           cover_image?: string | null
+          county?: string | null
           created_at?: string
           excerpt_en?: string | null
           excerpt_ro?: string | null
@@ -135,6 +137,7 @@ export type Database = {
           content_en?: string | null
           content_ro?: string | null
           cover_image?: string | null
+          county?: string | null
           created_at?: string
           excerpt_en?: string | null
           excerpt_ro?: string | null
