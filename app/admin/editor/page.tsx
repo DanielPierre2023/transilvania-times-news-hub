@@ -30,6 +30,27 @@ const CATEGORIES = [
 
 const SUBCATEGORIES = ['', 'regional', 'national', 'international']
 
+// v9: 13 Transylvania counties + 'national' for content outside Transylvania.
+// Order: alphabetical Romanian — operator-friendly. Display label is the
+// Romanian county name; the value is the same slug used in blog_posts.county
+// and rss_sources.county (kept consistent so the database has one canonical form).
+const COUNTIES: { value: string; label: string }[] = [
+  { value: 'alba',            label: 'Alba' },
+  { value: 'bihor',           label: 'Bihor' },
+  { value: 'bistrita-nasaud', label: 'Bistrița-Năsăud' },
+  { value: 'brasov',          label: 'Brașov' },
+  { value: 'cluj',            label: 'Cluj' },
+  { value: 'covasna',         label: 'Covasna' },
+  { value: 'harghita',        label: 'Harghita' },
+  { value: 'hunedoara',       label: 'Hunedoara' },
+  { value: 'maramures',       label: 'Maramureș' },
+  { value: 'mures',           label: 'Mureș' },
+  { value: 'salaj',           label: 'Sălaj' },
+  { value: 'satu-mare',       label: 'Satu Mare' },
+  { value: 'sibiu',           label: 'Sibiu' },
+  { value: 'national',        label: 'Național (în afara Transilvaniei)' },
+]
+
 // ─── PROMPTS ─────────────────────────────────────────────────────────────────
 
 function buildPrompt(type: string, topic: string, wordCount: number): string {
@@ -248,6 +269,9 @@ export default function EditorPage() {
   const [articleType, setArticleType] = useState('editorial')
   const [wordCount, setWordCount]     = useState(1200)
   const [category, setCategory]       = useState('opinion')
+  // v9: county defaults to 'cluj' (largest share in the corpus). Operator can
+  // change before generating. Always set — never NULL from the AI Editor.
+  const [county, setCounty]           = useState('cluj')
   const [topic, setTopic]             = useState('')
 
   const [generating, setGenerating] = useState(false)
@@ -307,7 +331,7 @@ export default function EditorPage() {
 
     try {
       const { data, error } = await supabase.functions.invoke('tt-generate-article', {
-        body: { prompt: buildPrompt(articleType, topic, wordCount), word_count: wordCount, category, article_type: articleType }
+        body: { prompt: buildPrompt(articleType, topic, wordCount), word_count: wordCount, category, article_type: articleType, county }
       })
       if (error) throw new Error(error.message)
       if (!data)  throw new Error('Niciun răspuns de la AI.')
@@ -388,6 +412,7 @@ export default function EditorPage() {
       cover_image: coverImage || null,
       cover_image_credit: coverImageCredit || null,
       category, subcategory: subcategory || null,
+      county,  // v9: persisted alongside category, so /judet/[slug] pages find this post
       author_name: authorName || null,
       source_url: sourceUrl || null,
       is_breaking: isBreaking,
@@ -482,6 +507,16 @@ export default function EditorPage() {
             <select className={inp} value={category} onChange={e => setCategory(e.target.value)}>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
+          </div>
+
+          <div className={sec}>
+            <p className={sh}>Județ</p>
+            <select className={inp} value={county} onChange={e => setCounty(e.target.value)}>
+              {COUNTIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+            <p className="font-sans text-[11px] text-white/40 mt-1">
+              Articolul va apărea pe pagina județului ales. Folosește {'„Național"'} pentru subiecte din afara Transilvaniei.
+            </p>
           </div>
 
           <div className={sec}>
