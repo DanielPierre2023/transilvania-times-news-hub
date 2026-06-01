@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, Search, MapPin, Mail, Phone } from 'lucide-react'
+import { Menu, X, Search, MapPin, Mail, Phone, ChevronDown } from 'lucide-react'
 import TrafficStats from './TrafficStats'
+import { COUNTIES } from '@/lib/counties'
 
 // ── Inline newsletter form for footer (no external dependency) ────────────────
 function FooterNewsletter() {
@@ -59,6 +60,51 @@ function FooterNewsletter() {
 }
 import WeatherWidget from './WeatherWidget'
 import CookieBanner from './CookieBanner'
+
+// ── Județe nav dropdown — hover to reveal county list (desktop) ──────────────
+function CountyNavDropdown({ pathname }: { pathname: string | null }) {
+  const [open, setOpen] = useState(false)
+  const isActive = pathname?.startsWith('/judet')
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`font-sans text-[12px] font-medium px-4 py-3 transition-colors inline-flex items-center gap-1 ${
+          isActive
+            ? 'text-brand-red font-bold'
+            : 'text-foreground/70 hover:text-foreground'
+        }`}
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        Județe
+        <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 z-50 bg-background border border-foreground/10 shadow-lg min-w-[200px] py-2">
+          {COUNTIES.map(c => (
+            <Link
+              key={c.slug}
+              href={`/judet/${c.slug}`}
+              className={`block font-sans text-[12px] px-4 py-2 transition-colors hover:bg-foreground/5 ${
+                pathname === `/judet/${c.slug}`
+                  ? 'text-brand-red font-bold'
+                  : 'text-foreground/80 hover:text-foreground'
+              }`}
+            >
+              {c.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const NAV_LINKS = [
   { href: '/categorie/news',       label: 'Știri',       labelEn: 'News' },
