@@ -366,7 +366,7 @@ export default async function HomePage() {
 
         {/* RIGHT — Sponsor banner + Latest 3 with author */}
         <div className="lg:col-span-4 p-6 space-y-4">
-          <SponsorBanner placement="sidebar" />
+          <SponsorBanner />
           <div className="space-y-3">
             {editorialRight.map((post) => (
               <Link key={post.id} href={'/blog/' + post.slug} className="group block p-3 border border-foreground/10 hover:border-brand-red transition-colors">
