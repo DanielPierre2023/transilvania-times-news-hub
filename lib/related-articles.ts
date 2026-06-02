@@ -26,16 +26,20 @@ const FIELDS =
  *   each tag overlap = +1
  *   tiebreak         = newest published_at
  *
- * Fallback when no matches: most recent published articles.
+ * Fallback when matches are thin: most recent published articles.
+ *
+ * Typed as `SupabaseClient<any, any, any>` to accept both a generic client
+ * and a `SupabaseClient<Database>` from your server helper without a generic
+ * mismatch at the call site.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getRelatedArticles(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<any, any, any>,
   currentPostId: string,
   county: string | null,
   tagsRo: string[] | null,
   limit = 6,
 ): Promise<RelatedArticle[]> {
-  // Two parallel queries — by county, by tag overlap.
   const countyQuery = county
     ? supabase
         .from('blog_posts')
