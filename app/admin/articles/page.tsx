@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import Link from 'next/link'
-import { Plus, Search, Eye, Edit, Trash2, Globe, EyeOff, Image } from 'lucide-react'
+import { Plus, Search, Eye, Edit, Trash2, Globe, EyeOff, Image as ImageIcon } from 'lucide-react'
 
 interface Article {
   id: string
@@ -34,9 +33,14 @@ export default function ArticlesPage() {
   const [total, setTotal] = useState(0)
   const PAGE_SIZE = 20
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  // useMemo so the client is stable across renders — fixes the
+  // react-hooks/exhaustive-deps warning on the load() useCallback below.
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
   )
 
   const load = useCallback(async () => {
@@ -54,7 +58,7 @@ export default function ArticlesPage() {
     setArticles((data ?? []) as Article[])
     setTotal(count ?? 0)
     setLoading(false)
-  }, [status, search, page])
+  }, [status, search, page, supabase])
 
   useEffect(() => { load() }, [load])
 
@@ -163,7 +167,7 @@ export default function ArticlesPage() {
                 {article.cover_image
                   ? <img src={article.cover_image} alt="" className="w-full h-full object-cover grayscale" />
                   : <div className="w-full h-full flex items-center justify-center text-white/10">
-                      <Image className="w-4 h-4" />
+                      <ImageIcon className="w-4 h-4" />
                     </div>
                 }
               </div>
@@ -231,7 +235,7 @@ export default function ArticlesPage() {
                     title="Generează imagine"
                     className="p-2 text-white/30 hover:text-blue-400 transition-colors"
                   >
-                    <Image className="w-4 h-4" />
+                    <ImageIcon className="w-4 h-4" />
                   </button>
                 )}
                 <button
