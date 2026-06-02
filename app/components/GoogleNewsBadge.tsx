@@ -24,10 +24,10 @@ export default function GoogleNewsBadge({ locale = 'ro', variant = 'inline' }: P
       href={URL}
       target="_blank"
       rel="noopener noreferrer"
-      className={`group not-prose flex items-center gap-3 rounded-md border px-4 py-3 my-6 no-underline transition-colors ${
+      className={`group not-prose flex items-center gap-3 border px-4 py-3 my-6 no-underline transition-colors ${
         isTop
-          ? 'border-[#C41E3A]/30 bg-[#C41E3A]/5 hover:bg-[#C41E3A]/10'
-          : 'border-gray-300 bg-gray-50 hover:bg-gray-100'
+          ? 'border-brand-red/30 bg-brand-red/5 hover:bg-brand-red/10'
+          : 'border-foreground/10 bg-foreground/[0.02] hover:bg-foreground/[0.05]'
       }`}
     >
       <svg width="24" height="24" viewBox="0 0 24 24" className="shrink-0" aria-hidden="true">
@@ -37,17 +37,17 @@ export default function GoogleNewsBadge({ locale = 'ro', variant = 'inline' }: P
         <path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.6l3.1-3.1C17.4 2.1 14.9 1 12 1 7.6 1 3.8 3.5 2 7l3.7 2.8C6.6 7.2 9.1 5.4 12 5.4z" />
       </svg>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold text-gray-900 group-hover:text-[#C41E3A] leading-snug">
+        <div className="font-sans text-sm font-semibold text-foreground group-hover:text-brand-red leading-snug">
           {label}
         </div>
-        <div className="text-xs text-gray-600 mt-0.5">{subtitle}</div>
+        <div className="font-sans text-xs text-muted-foreground mt-0.5">{subtitle}</div>
       </div>
       <svg
         width="20"
         height="20"
         viewBox="0 0 20 20"
         fill="currentColor"
-        className="text-gray-400 group-hover:text-[#C41E3A] shrink-0"
+        className="text-muted-foreground group-hover:text-brand-red shrink-0"
         aria-hidden="true"
       >
         <path
