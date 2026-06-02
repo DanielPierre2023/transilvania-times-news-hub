@@ -22,6 +22,7 @@ import MostRead from '@/app/components/MostRead'
 import { getCounty } from '@/lib/counties'
 import { getRelatedArticles, type RelatedArticle } from '@/lib/related-articles'
 import { getMostRead } from '@/lib/most-read'
+import ViewTracker from '@/app/components/ViewTracker'
 
 export const revalidate = 60
 
@@ -286,6 +287,7 @@ export default async function ArticlePage({
 
   return (
     <>
+      <ViewTracker slug={post.slug} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
       <article className="max-w-7xl mx-auto border-x border-foreground/10">
