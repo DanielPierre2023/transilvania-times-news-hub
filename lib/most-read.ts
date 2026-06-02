@@ -1,3 +1,4 @@
+// lib/most-read.ts
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface MostReadArticle {
@@ -8,14 +9,14 @@ export interface MostReadArticle {
   county: string | null
   category: string | null
   published_at: string | null
+  view_count: number | null
 }
 
 /**
- * Most-read sidebar feed.
+ * Most-read sidebar feed. Ordered by view_count DESC, tiebreak by recency.
  *
- * Currently uses "most recent published" as a proxy for popularity, since
- * the platform doesn't yet track view counts. When view tracking is added,
- * change the order clause to `order('view_count', { ascending: false })`.
+ * For new posts with zero views, recency takes over naturally because of
+ * the tiebreak — so the sidebar never goes empty as new content rolls in.
  */
 export async function getMostRead(
   supabase: SupabaseClient,
@@ -24,9 +25,10 @@ export async function getMostRead(
 ): Promise<MostReadArticle[]> {
   const { data } = await supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, county, category, published_at')
+    .select('id, slug, title_ro, title_en, county, category, published_at, view_count')
     .eq('status', 'published')
     .neq('id', currentPostId)
+    .order('view_count', { ascending: false })
     .order('published_at', { ascending: false })
     .limit(limit)
 
