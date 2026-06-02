@@ -12,6 +12,7 @@ import { formatDistanceToNow, parseISO } from 'date-fns'
 import { ro } from 'date-fns/locale'
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import ShareButtons from '@/app/components/ShareButtons'
 import CommentSection from '@/app/components/CommentSection'
 import ArticleContent from '@/app/components/ArticleContent'
@@ -28,10 +29,6 @@ const CAT_LABELS: Record<string, string> = {
   business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// B5: Extended MetaPost interface — includes all article OG namespace fields
-// ─────────────────────────────────────────────────────────────────────────────
 
 interface MetaPost {
   title_ro:     string | null
@@ -89,10 +86,6 @@ interface Post {
   word_count: number | null
   authors: AuthorRecord | null
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// generateMetadata — B4 hreflang + B5 OG article tags
-// ─────────────────────────────────────────────────────────────────────────────
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
@@ -160,10 +153,6 @@ export async function generateMetadata(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Page component
-// ─────────────────────────────────────────────────────────────────────────────
-
 export default async function ArticlePage({
   params,
   searchParams,
@@ -223,8 +212,9 @@ export default async function ArticlePage({
 
   // Tier 2: smart related fetch — county match (+3) + tag overlap (+1 each),
   // tiebreak by recency. Falls back to recent published articles if matches thin.
+  // Cast strips the Database generic so it matches the helper's plain SupabaseClient param.
   const related: RelatedArticle[] = await getRelatedArticles(
-    supabase,
+    supabase as unknown as SupabaseClient,
     post.id,
     post.county,
     post.tags_ro,
@@ -337,7 +327,6 @@ export default async function ArticlePage({
             defaultLang={defaultLang}
           />
 
-          {/* Tier 2: Google News follow badge — after the article body */}
           <GoogleNewsBadge locale={defaultLang} variant="top" />
 
           <ShareButtons
