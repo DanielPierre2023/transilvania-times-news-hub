@@ -2,13 +2,6 @@
 //
 // View tracking endpoint. POST { slug } → increments view_count atomically
 // via the increment_view_count() Postgres RPC.
-//
-// Anti-bot guards:
-//   - Slug shape validation (no SQL injection surface — RPC also parameterizes)
-//   - Reject obvious bot user-agents
-//   - No body? No slug? 400.
-//
-// Returns 204 on success. The client doesn't care about the result — fire and forget.
 
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -50,7 +43,6 @@ export async function POST(request: Request) {
     return new NextResponse('Invalid slug', { status: 400 })
   }
 
-  // Drop bots silently — return 204 so they don't retry, but don't increment.
   const userAgent = request.headers.get('user-agent')
   if (isBot(userAgent)) {
     return new NextResponse(null, { status: 204 })
@@ -59,16 +51,20 @@ export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient()
     // SECURITY DEFINER RPC — anon role has EXECUTE grant from the migration.
-    await supabase.rpc('increment_view_count', { post_slug: slug })
+    // The generated Database types don't know about this RPC yet (added in a
+    // later migration), so cast to a loose-typed rpc to bypass the param check.
+    // Runtime is unaffected; Supabase forwards { post_slug } to the function.
+    await (supabase.rpc as (
+      fn: string,
+      params: Record<string, unknown>,
+    ) => Promise<unknown>)('increment_view_count', { post_slug: slug })
   } catch {
-    // Don't fail the page if tracking fails — just log on the server.
-    // (Intentionally swallow — tracking is best-effort, not load-bearing.)
+    // Best-effort tracking: never fail the page if this fails.
   }
 
   return new NextResponse(null, { status: 204 })
 }
 
-// Reject everything else
 export async function GET()    { return new NextResponse('Method Not Allowed', { status: 405 }) }
 export async function PUT()    { return new NextResponse('Method Not Allowed', { status: 405 }) }
 export async function DELETE() { return new NextResponse('Method Not Allowed', { status: 405 }) }
