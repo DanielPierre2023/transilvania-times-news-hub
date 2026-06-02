@@ -20,7 +20,7 @@ export default function GoogleNewsBadge({ locale = 'ro', variant = 'inline' }: P
   const isTop = variant === 'top'
 
   return (
-    
+    <a
       href={URL}
       target="_blank"
       rel="noopener noreferrer"
