@@ -1,12 +1,11 @@
 // app/blog/[slug]/page.tsx
 //
-// B4: hreflang — both ro and en alternates now correctly declared:
-//     ro  → /blog/[slug]
-//     en  → /blog/[slug]?lang=en
-//     x-default → /blog/[slug]
-//
-// B5: OG article namespace — added publishedTime, modifiedTime,
-//     authors, section, and tags. MetaPost query expanded accordingly.
+// B4: hreflang — both ro and en alternates correctly declared
+// B5: OG article namespace — publishedTime, modifiedTime, authors, section, tags
+// Tier 2 (June 2026):
+//   - GoogleNewsBadge placed after the article body
+//   - Related articles use county + tag overlap scoring (via getRelatedArticles)
+//   - Related cards show county chip when applicable
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
@@ -16,7 +15,9 @@ import type { Metadata } from 'next'
 import ShareButtons from '@/app/components/ShareButtons'
 import CommentSection from '@/app/components/CommentSection'
 import ArticleContent from '@/app/components/ArticleContent'
+import GoogleNewsBadge from '@/app/components/GoogleNewsBadge'
 import { getCounty } from '@/lib/counties'
+import { getRelatedArticles, type RelatedArticle } from '@/lib/related-articles'
 
 export const revalidate = 60
 
@@ -39,7 +40,6 @@ interface MetaPost {
   excerpt_en:   string | null
   cover_image:  string | null
   slug:         string
-  // B5 additions
   published_at: string | null
   updated_at:   string | null
   category:     string | null
@@ -90,15 +90,6 @@ interface Post {
   authors: AuthorRecord | null
 }
 
-interface RelatedPost {
-  id: string
-  slug: string
-  title_ro: string | null
-  title_en: string | null
-  cover_image: string | null
-  category: string | null
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // generateMetadata — B4 hreflang + B5 OG article tags
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,7 +100,6 @@ export async function generateMetadata(
   const { slug } = await params
   const supabase  = await createSupabaseServerClient()
 
-  // B5: expanded select — fetch all fields needed for article OG namespace
   const { data } = await supabase
     .from('blog_posts')
     .select(`
@@ -129,7 +119,6 @@ export async function generateMetadata(
   const url         = `${SITE_URL}/blog/${post.slug}`
   const urlEn       = `${url}?lang=en`
 
-  // Merge RO + EN tags, deduplicate, cap at 10 for OG
   const allTags = [
     ...(post.tags_ro ?? []),
     ...(post.tags_en ?? []),
@@ -138,8 +127,6 @@ export async function generateMetadata(
   return {
     title,
     description,
-
-    // B4: correct hreflang — ro = canonical URL, en = ?lang=en, x-default = ro
     alternates: {
       canonical: url,
       languages: {
@@ -148,15 +135,12 @@ export async function generateMetadata(
         'x-default': url,
       },
     },
-
     openGraph: {
       title,
       description,
       url,
       type: 'article',
       images: image ? [{ url: image, width: 1200, height: 630 }] : [],
-
-      // B5: OG article namespace properties
       publishedTime: post.published_at  ?? undefined,
       modifiedTime:  post.updated_at    ?? undefined,
       authors:       post.authors?.slug
@@ -167,7 +151,6 @@ export async function generateMetadata(
         : undefined,
       tags:          allTags.length > 0 ? allTags : undefined,
     },
-
     twitter: {
       card:   'summary_large_image',
       title,
@@ -178,7 +161,7 @@ export async function generateMetadata(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Page component — unchanged from original
+// Page component
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function ArticlePage({
@@ -238,14 +221,15 @@ export default async function ArticlePage({
     } catch { /* noop */ }
   }
 
-  const { data: related } = await supabase
-    .from('blog_posts')
-    .select('id, slug, title_ro, title_en, cover_image, category')
-    .eq('status', 'published')
-    .eq('category', post.category || 'news')
-    .neq('slug', slug)
-    .order('published_at', { ascending: false })
-    .limit(4)
+  // Tier 2: smart related fetch — county match (+3) + tag overlap (+1 each),
+  // tiebreak by recency. Falls back to recent published articles if matches thin.
+  const related: RelatedArticle[] = await getRelatedArticles(
+    supabase,
+    post.id,
+    post.county,
+    post.tags_ro,
+    4,
+  )
 
   const authorName = author
     ? (defaultLang === 'en' ? author.name_en : author.name_ro)
@@ -353,6 +337,9 @@ export default async function ArticlePage({
             defaultLang={defaultLang}
           />
 
+          {/* Tier 2: Google News follow badge — after the article body */}
+          <GoogleNewsBadge locale={defaultLang} variant="top" />
+
           <ShareButtons
             url={articleUrl}
             title={post.title_ro || post.title_en || ''}
@@ -408,18 +395,34 @@ export default async function ArticlePage({
               <div className="flex-1 h-px bg-foreground/10" />
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              {(related as unknown as RelatedPost[]).map(rel => (
-                <Link key={rel.id} href={'/blog/' + rel.slug + (defaultLang === 'en' ? '?lang=en' : '')} className="group">
-                  {rel.cover_image && (
-                    <div className="overflow-hidden mb-3 aspect-[4/3]">
-                      <img src={rel.cover_image} alt={rel.title_ro || rel.title_en || ''} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
-                    </div>
-                  )}
-                  <h4 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-3">
-                    {defaultLang === 'en' ? (rel.title_en || rel.title_ro) : (rel.title_ro || rel.title_en)}
-                  </h4>
-                </Link>
-              ))}
+              {related.map((rel) => {
+                const countyData = rel.county ? getCounty(rel.county) : null
+                return (
+                  <Link
+                    key={rel.id}
+                    href={'/blog/' + rel.slug + (defaultLang === 'en' ? '?lang=en' : '')}
+                    className="group"
+                  >
+                    {rel.cover_image && (
+                      <div className="overflow-hidden mb-3 aspect-[4/3]">
+                        <img
+                          src={rel.cover_image}
+                          alt={rel.title_ro || rel.title_en || ''}
+                          className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                        />
+                      </div>
+                    )}
+                    {countyData && (
+                      <div className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-brand-red mb-1">
+                        {countyData.label}
+                      </div>
+                    )}
+                    <h4 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-3">
+                      {defaultLang === 'en' ? (rel.title_en || rel.title_ro) : (rel.title_ro || rel.title_en)}
+                    </h4>
+                  </Link>
+                )
+              })}
             </div>
           </div>
         )}
