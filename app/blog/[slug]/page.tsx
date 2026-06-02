@@ -3,9 +3,10 @@
 // B4: hreflang — both ro and en alternates correctly declared
 // B5: OG article namespace — publishedTime, modifiedTime, authors, section, tags
 // Tier 2 (June 2026):
-//   - GoogleNewsBadge placed after the article body
+//   - GoogleNewsBadge placed after article body + a second one mid-content (inside ArticleContent)
 //   - Related articles use county + tag overlap scoring (via getRelatedArticles)
-//   - Related cards show county chip when applicable
+//   - Inline "Citește și" cards injected at 1/3 and 2/3 through the body
+//   - Two-column layout on desktop with "Cele mai citite" sidebar
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
@@ -15,10 +16,12 @@ import type { Metadata } from 'next'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import ShareButtons from '@/app/components/ShareButtons'
 import CommentSection from '@/app/components/CommentSection'
-import ArticleContent from '@/app/components/ArticleContent'
+import ArticleContent, { type InlineRelatedItem } from '@/app/components/ArticleContent'
 import GoogleNewsBadge from '@/app/components/GoogleNewsBadge'
+import MostRead from '@/app/components/MostRead'
 import { getCounty } from '@/lib/counties'
 import { getRelatedArticles, type RelatedArticle } from '@/lib/related-articles'
+import { getMostRead } from '@/lib/most-read'
 
 export const revalidate = 60
 
@@ -210,16 +213,28 @@ export default async function ArticlePage({
     } catch { /* noop */ }
   }
 
-  // Tier 2: smart related fetch — county match (+3) + tag overlap (+1 each),
-  // tiebreak by recency. Falls back to recent published articles if matches thin.
-  // Cast strips the Database generic so it matches the helper's plain SupabaseClient param.
-  const related: RelatedArticle[] = await getRelatedArticles(
-    supabase as unknown as SupabaseClient,
-    post.id,
-    post.county,
-    post.tags_ro,
-    4,
-  )
+  const typedSupabase = supabase as unknown as SupabaseClient
+
+  // Tier 2: fetch related (county+tag scored) and most-read (recent published)
+  // in parallel to keep page TTFB low.
+  const [related, mostRead] = await Promise.all([
+    getRelatedArticles(typedSupabase, post.id, post.county, post.tags_ro, 4),
+    getMostRead(typedSupabase, post.id, 6),
+  ])
+
+  // Inline cards = first 2 related, rendered mid-stream by ArticleContent.
+  // End-of-article block = remaining related.
+  const inlineRelatedRaw = related.slice(0, 2)
+  const endBlockRelated: RelatedArticle[] = related.slice(2)
+
+  const inlineRelated: InlineRelatedItem[] = inlineRelatedRaw.map((a) => ({
+    id: a.id,
+    slug: a.slug,
+    title_ro: a.title_ro,
+    title_en: a.title_en,
+    county: a.county,
+    category: a.category,
+  }))
 
   const authorName = author
     ? (defaultLang === 'en' ? author.name_en : author.name_ro)
@@ -274,109 +289,122 @@ export default async function ArticlePage({
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
       <article className="max-w-7xl mx-auto border-x border-foreground/10">
-        <div className="max-w-3xl mx-auto px-6 pt-10 pb-4">
 
-          <div className="flex items-center gap-2 mb-4">
-            {post.is_breaking && (
-              <span className="inline-flex items-center gap-1 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-widest px-3 py-1">
-                <span className="text-yellow-300">⚡</span> ULTIMA ORĂ
-              </span>
-            )}
-            {post.category && (
-              <Link
-                href={'/categorie/' + post.category}
-                className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red hover:underline"
-              >
-                {catLabel}
-              </Link>
-            )}
-            {(() => {
-              const countyData = post.county ? getCounty(post.county) : null
-              if (countyData) {
-                return (
-                  <Link
-                    href={'/judet/' + post.county}
-                    className="font-sans text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-brand-red transition-colors"
-                  >
-                    · {countyData.label}
-                  </Link>
-                )
-              }
-              if (post.subcategory) {
-                return (
-                  <span className="text-[10px] font-sans text-muted-foreground">· {post.subcategory}</span>
-                )
-              }
-              return null
-            })()}
-          </div>
+        {/* Two-column layout: 8/12 article + 4/12 sidebar on desktop, single-column on mobile */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 px-6 pt-10 pb-4">
 
-          <ArticleContent
-            titleRo={post.title_ro}
-            titleEn={post.title_en}
-            summaryRo={post.summary_ro}
-            summaryEn={post.summary_en}
-            contentRo={post.content_ro}
-            contentEn={post.content_en}
-            coverImage={post.cover_image}
-            coverImageCredit={post.cover_image_credit}
-            authorName={post.author_name}
-            author={author}
-            publishedAt={post.published_at}
-            timeAgoStr={timeAgoStr}
-            defaultLang={defaultLang}
-          />
+          {/* LEFT: article body */}
+          <div className="lg:col-span-8 max-w-3xl">
 
-          <GoogleNewsBadge locale={defaultLang} variant="top" />
-
-          <ShareButtons
-            url={articleUrl}
-            title={post.title_ro || post.title_en || ''}
-            summary={post.excerpt_ro || post.excerpt_en || ''}
-          />
-
-          {tags.length > 0 && (
-            <div className="mt-6 flex flex-wrap gap-2">
-              {tags.map((tag: string) => (
-                <span key={tag} className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1">
-                  {tag}
+            <div className="flex items-center gap-2 mb-4">
+              {post.is_breaking && (
+                <span className="inline-flex items-center gap-1 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-widest px-3 py-1">
+                  <span className="text-yellow-300">⚡</span> ULTIMA ORĂ
                 </span>
-              ))}
+              )}
+              {post.category && (
+                <Link
+                  href={'/categorie/' + post.category}
+                  className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red hover:underline"
+                >
+                  {catLabel}
+                </Link>
+              )}
+              {(() => {
+                const countyData = post.county ? getCounty(post.county) : null
+                if (countyData) {
+                  return (
+                    <Link
+                      href={'/judet/' + post.county}
+                      className="font-sans text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-brand-red transition-colors"
+                    >
+                      · {countyData.label}
+                    </Link>
+                  )
+                }
+                if (post.subcategory) {
+                  return (
+                    <span className="text-[10px] font-sans text-muted-foreground">· {post.subcategory}</span>
+                  )
+                }
+                return null
+              })()}
             </div>
-          )}
 
-          {post.sources && post.sources.length > 0 && (
-            <div className="mt-6 pt-4 border-t border-foreground/[0.06]">
-              <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-2">
-                Surse
-              </p>
-              <div className="space-y-1">
-                {post.sources.map((src: string, i: number) => (
-                  <p key={i} className="font-sans text-[11px] text-muted-foreground">
-                    <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
-                      {(() => { try { return new URL(src).hostname } catch { return src } })()}
-                    </a>
-                  </p>
+            <ArticleContent
+              titleRo={post.title_ro}
+              titleEn={post.title_en}
+              summaryRo={post.summary_ro}
+              summaryEn={post.summary_en}
+              contentRo={post.content_ro}
+              contentEn={post.content_en}
+              coverImage={post.cover_image}
+              coverImageCredit={post.cover_image_credit}
+              authorName={post.author_name}
+              author={author}
+              publishedAt={post.published_at}
+              timeAgoStr={timeAgoStr}
+              defaultLang={defaultLang}
+              inlineRelated={inlineRelated}
+            />
+
+            <GoogleNewsBadge locale={defaultLang} variant="top" />
+
+            <ShareButtons
+              url={articleUrl}
+              title={post.title_ro || post.title_en || ''}
+              summary={post.excerpt_ro || post.excerpt_en || ''}
+            />
+
+            {tags.length > 0 && (
+              <div className="mt-6 flex flex-wrap gap-2">
+                {tags.map((tag: string) => (
+                  <span key={tag} className="text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/20 px-3 py-1">
+                    {tag}
+                  </span>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {post.source_url && (!post.sources || post.sources.length === 0) && (
-            <div className="mt-4">
-              <p className="font-sans text-[11px] text-muted-foreground">
-                Sursă:{' '}
-                <a href={post.source_url} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
-                  {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
-                </a>
-              </p>
-            </div>
-          )}
+            {post.sources && post.sources.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-foreground/[0.06]">
+                <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+                  Surse
+                </p>
+                <div className="space-y-1">
+                  {post.sources.map((src: string, i: number) => (
+                    <p key={i} className="font-sans text-[11px] text-muted-foreground">
+                      <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
+                        {(() => { try { return new URL(src).hostname } catch { return src } })()}
+                      </a>
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
 
-          <CommentSection articleId={post.id} />
+            {post.source_url && (!post.sources || post.sources.length === 0) && (
+              <div className="mt-4">
+                <p className="font-sans text-[11px] text-muted-foreground">
+                  Sursă:{' '}
+                  <a href={post.source_url} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
+                    {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
+                  </a>
+                </p>
+              </div>
+            )}
+
+            <CommentSection articleId={post.id} />
+          </div>
+
+          {/* RIGHT: sidebar with most-read */}
+          <div className="lg:col-span-4">
+            <MostRead articles={mostRead} locale={defaultLang} />
+          </div>
         </div>
 
-        {related && related.length > 0 && (
+        {/* End-of-article related (the 4-up grid below the body, full width) */}
+        {endBlockRelated && endBlockRelated.length > 0 && (
           <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-foreground/10 pb-12">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-2 h-2 bg-brand-red" />
@@ -384,7 +412,7 @@ export default async function ArticlePage({
               <div className="flex-1 h-px bg-foreground/10" />
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              {related.map((rel) => {
+              {endBlockRelated.map((rel) => {
                 const countyData = rel.county ? getCounty(rel.county) : null
                 return (
                   <Link
