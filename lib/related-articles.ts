@@ -27,14 +27,9 @@ const FIELDS =
  *   tiebreak         = newest published_at
  *
  * Fallback when matches are thin: most recent published articles.
- *
- * Typed as `SupabaseClient<any, any, any>` to accept both a generic client
- * and a `SupabaseClient<Database>` from your server helper without a generic
- * mismatch at the call site.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getRelatedArticles(
-  supabase: SupabaseClient<any, any, any>,
+  supabase: SupabaseClient,
   currentPostId: string,
   county: string | null,
   tagsRo: string[] | null,
@@ -82,7 +77,6 @@ export async function getRelatedArticles(
     scored.push({ article: a, score })
   }
 
-  // Fallback: top up with recent published articles if matches are thin.
   if (scored.length < limit) {
     const { data: recent } = await supabase
       .from('blog_posts')
