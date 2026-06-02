@@ -30,6 +30,11 @@ function isBot(userAgent: string | null): boolean {
   return BOT_PATTERNS.some((re) => re.test(userAgent))
 }
 
+// Loose-typed RPC caller. The generated Database types don't yet know about
+// the increment_view_count() function (added in a later migration), so the
+// strict rpc() signature rejects our params. We bypass via `unknown` cast.
+type LooseRpc = (fn: string, params: Record<string, unknown>) => Promise<unknown>
+
 export async function POST(request: Request) {
   let body: { slug?: string }
   try {
@@ -51,13 +56,10 @@ export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient()
     // SECURITY DEFINER RPC — anon role has EXECUTE grant from the migration.
-    // The generated Database types don't know about this RPC yet (added in a
-    // later migration), so cast to a loose-typed rpc to bypass the param check.
-    // Runtime is unaffected; Supabase forwards { post_slug } to the function.
-    await (supabase.rpc as (
-      fn: string,
-      params: Record<string, unknown>,
-    ) => Promise<unknown>)('increment_view_count', { post_slug: slug })
+    // Two-step `as unknown as` cast bypasses the strict rpc() param signature
+    // generated from Database types. Runtime is unaffected.
+    const rpc = supabase.rpc as unknown as LooseRpc
+    await rpc('increment_view_count', { post_slug: slug })
   } catch {
     // Best-effort tracking: never fail the page if this fails.
   }
