@@ -9,14 +9,12 @@ export interface MostReadArticle {
   county: string | null
   category: string | null
   published_at: string | null
+  cover_image: string | null
   view_count: number | null
 }
 
 /**
  * Most-read sidebar feed. Ordered by view_count DESC, tiebreak by recency.
- *
- * For new posts with zero views, recency takes over naturally because of
- * the tiebreak — so the sidebar never goes empty as new content rolls in.
  */
 export async function getMostRead(
   supabase: SupabaseClient,
@@ -25,7 +23,7 @@ export async function getMostRead(
 ): Promise<MostReadArticle[]> {
   const { data } = await supabase
     .from('blog_posts')
-    .select('id, slug, title_ro, title_en, county, category, published_at, view_count')
+    .select('id, slug, title_ro, title_en, county, category, published_at, cover_image, view_count')
     .eq('status', 'published')
     .neq('id', currentPostId)
     .order('view_count', { ascending: false })
