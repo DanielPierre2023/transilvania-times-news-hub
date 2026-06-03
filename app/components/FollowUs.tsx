@@ -8,7 +8,7 @@ interface Props {
 
 // EDIT THESE URLs to match your actual social accounts.
 const SOCIAL = {
-  facebook:   'https://www.facebook.com/transilvaniatimes',
+  facebook:   'https://www.facebook.com/profile.php?id=61590215500569',
   twitter:    'https://twitter.com/TransilvaniaTms',
   linkedin:   'https://www.linkedin.com/company/transilvania-times',
   rss:        '/rss.xml',
