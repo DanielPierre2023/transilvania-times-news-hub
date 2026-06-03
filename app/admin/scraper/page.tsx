@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
   RefreshCw, CheckCircle2, XCircle, Clock,
-  ExternalLink, AlertCircle, Loader2, Rss, Sparkles, Trash2, Plus,
+  ExternalLink, AlertCircle, Loader2, Rss, Sparkles, Trash2, Plus, ListOrdered,
 } from 'lucide-react'
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -70,6 +70,32 @@ function StatusBadge({ status, score }: { status: ScrapedArticle['status']; scor
 }
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+//
+// v2 (June 3, 2026) — SEQUENTIAL PROCESSING QUEUE
+//
+// THE BUG WE FIXED:
+//   The previous implementation tracked `processing` as a single string (the
+//   id of the article currently being processed). When the user clicked "AI
+//   Rescrie" on multiple articles in quick succession:
+//     1. setProcessing(A.id) — button A disabled, fetch A starts
+//     2. setProcessing(B.id) — button A re-enables (state no longer === A),
+//        fetch B starts CONCURRENTLY
+//     3. etc.
+//   Each tt-process-scraped-article call takes 70-90 seconds. Browsers cap
+//   concurrent HTTP connections to the same origin at 6. The 7th click sat
+//   queued in the browser stack; the Supabase JS fetch eventually timed out
+//   and returned an error to the UI.
+//
+// THE FIX:
+//   - A real FIFO queue (queueRef + queueState). Click "AI Rescrie" enqueues
+//     the article. A worker loop drains the queue one article at a time.
+//   - Only ONE fetch is ever in flight, so the 6-connection limit is never hit.
+//   - The button state for each article reflects its position: queued (with
+//     position number), currently processing (spinner), or available.
+//   - The bulk button enqueues ALL scraped articles into the local queue, so
+//     they get processed sequentially over time instead of relying on the
+//     server's process_all mode (which only handles one article per call).
+//
 export default function ScraperFinal() {
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -81,9 +107,16 @@ export default function ScraperFinal() {
   const [sources,          setSources]          = useState<RssSource[]>([])
   const [loading,          setLoading]          = useState(false)
   const [scraping,         setScraping]         = useState(false)
-  const [processing,       setProcessing]       = useState<string | null>(null)
-  const [bulkRunning,      setBulkRunning]      = useState(false)
   const [toast,            setToast]            = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
+
+  // ── Sequential queue state ───────────────────────────────────────────────
+  // queueRef is the source of truth (mutable, stable across renders);
+  // queueState mirrors it for UI rendering. processingId is the article
+  // currently being processed (if any).
+  const queueRef                                = useRef<string[]>([])
+  const workerRunningRef                        = useRef<boolean>(false)
+  const [queueState,       setQueueState]       = useState<string[]>([])
+  const [processingId,     setProcessingId]     = useState<string | null>(null)
 
   // ── Selection state ───────────────────────────────────────────────────────
   const [selectedArticles, setSelectedArticles] = useState<Set<string>>(new Set())
@@ -172,48 +205,100 @@ export default function ScraperFinal() {
     }
   }
 
-  // ── process single article ────────────────────────────────────────────────
-  const processArticle = async (article: ScrapedArticle) => {
-    setProcessing(article.id)
+  // ── process a SINGLE article (called only by the worker, never directly) ─
+  const processSingleArticle = useCallback(async (articleId: string): Promise<boolean> => {
     try {
       const { data, error } = await supabase.functions.invoke('tt-process-scraped-article', {
-        body: { article_id: article.id, mode: 'manual' },
+        body: { article_id: articleId, mode: 'manual' },
       })
       if (error) throw error
       const result = data?.results?.[0]
       if (!result?.post_id) {
         throw new Error(result?.error ?? `Răspuns neașteptat: ${JSON.stringify(data)}`)
       }
-      showToast('Articol procesat — ciornă creată ✓', 'ok')
-      await fetchArticles()
+      return true
     } catch (err: unknown) {
       showToast(`Eroare procesare: ${err instanceof Error ? err.message : String(err)}`, 'err')
-    } finally {
-      setProcessing(null)
+      return false
     }
-  }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── bulk process all scraped ──────────────────────────────────────────────
-  const bulkProcess = async () => {
-    const count = articles.filter(a => a.status === 'scraped').length
-    if (count === 0) { showToast('Niciun articol neprocesat în coadă', 'err'); return }
-    setBulkRunning(true)
+  // ── Worker loop — drains the queue one article at a time ─────────────────
+  // Started by enqueueArticle/enqueueAll if not already running. Runs until
+  // queue is empty, then exits. Only ONE worker instance ever runs at a time
+  // (guarded by workerRunningRef).
+  const startWorker = useCallback(async () => {
+    if (workerRunningRef.current) return
+    workerRunningRef.current = true
+
+    let processedCount = 0
+    let failedCount = 0
+
     try {
-      const { data, error } = await supabase.functions.invoke('tt-process-scraped-article', {
-        body: { process_all: true, mode: 'manual' },
-      })
-      if (error) throw error
-      showToast(
-        `Procesate: ${data?.processed ?? 0} ✓   Eșuate: ${data?.failed ?? 0}`,
-        data?.failed > 0 ? 'err' : 'ok'
-      )
-      await fetchArticles()
-    } catch (err: unknown) {
-      showToast(`Eroare bulk: ${err instanceof Error ? err.message : String(err)}`, 'err')
+      while (queueRef.current.length > 0) {
+        const articleId = queueRef.current[0]
+        setProcessingId(articleId)
+
+        const ok = await processSingleArticle(articleId)
+        if (ok) processedCount++
+        else failedCount++
+
+        // Remove from queue (head) regardless of success — failed articles
+        // get their failure logged but don't block the queue
+        queueRef.current = queueRef.current.slice(1)
+        setQueueState([...queueRef.current])
+      }
+
+      if (processedCount > 0 || failedCount > 0) {
+        const msg = failedCount > 0
+          ? `Lot finalizat: ${processedCount} reușite, ${failedCount} eșuate`
+          : `Lot finalizat: ${processedCount} articole procesate ✓`
+        showToast(msg, failedCount > 0 ? 'err' : 'ok')
+      }
     } finally {
-      setBulkRunning(false)
+      setProcessingId(null)
+      workerRunningRef.current = false
+      // Refresh the article list to reflect new statuses
+      await fetchArticles()
     }
-  }
+  }, [processSingleArticle, fetchArticles])
+
+  // ── Enqueue ONE article (user clicked "AI Rescrie" on a single row) ──────
+  const enqueueArticle = useCallback((article: ScrapedArticle) => {
+    // Reject if already queued or being processed
+    if (queueRef.current.includes(article.id) || processingId === article.id) return
+    queueRef.current = [...queueRef.current, article.id]
+    setQueueState([...queueRef.current])
+    // Kick off worker if idle (safe — startWorker guards against double-start)
+    startWorker()
+  }, [processingId, startWorker])
+
+  // ── Enqueue ALL scraped articles (the bulk button) ───────────────────────
+  // Replaces the old bulkProcess that called the server's process_all mode.
+  // The server only processes ONE article per call, so the old button was
+  // misleading (clicked = 1 article processed). This enqueues every pending
+  // article locally; the worker drains them sequentially.
+  const enqueueAllScraped = useCallback(() => {
+    const ids = articles
+      .filter(a => a.status === 'scraped')
+      .map(a => a.id)
+      .filter(id => !queueRef.current.includes(id) && processingId !== id)
+
+    if (ids.length === 0) {
+      showToast('Nimic nou de adăugat în coadă', 'err')
+      return
+    }
+    queueRef.current = [...queueRef.current, ...ids]
+    setQueueState([...queueRef.current])
+    showToast(`${ids.length} articole adăugate în coadă`, 'ok')
+    startWorker()
+  }, [articles, processingId, startWorker])
+
+  // ── Cancel queued article (NOT one in progress) ──────────────────────────
+  const dequeueArticle = useCallback((articleId: string) => {
+    queueRef.current = queueRef.current.filter(id => id !== articleId)
+    setQueueState([...queueRef.current])
+  }, [])
 
   // ── toggle source active ──────────────────────────────────────────────────
   const toggleSource = async (id: string, current: boolean) => {
@@ -251,15 +336,12 @@ export default function ScraperFinal() {
   }
 
   // ── add new RSS source ────────────────────────────────────────────────────
-  // URL is required. If name is empty, derive it from the URL hostname
-  // (matches the legacy behavior so a user can paste a URL and click Add).
   const addSource = async () => {
     const url = newUrl.trim()
     if (!url) {
       showToast('Adaugă mai întâi un URL de feed RSS.', 'err')
       return
     }
-    // Validate URL shape
     let derivedName = newName.trim()
     try {
       const parsed = new URL(url)
@@ -271,7 +353,6 @@ export default function ScraperFinal() {
 
     setAdding(true)
     try {
-      // Reject duplicates client-side for a cleaner error than a 23505.
       const dup = sources.find(s => s.url.trim().toLowerCase() === url.toLowerCase())
       if (dup) {
         showToast(`Sursa există deja: ${dup.name}`, 'err')
@@ -288,7 +369,6 @@ export default function ScraperFinal() {
       if (error) throw error
 
       showToast(`Sursă adăugată: ${derivedName} ✓`, 'ok')
-      // Reset form (keep category/lang so consecutive adds of similar sources are fast)
       setNewUrl('')
       setNewName('')
       await fetchSources()
@@ -342,7 +422,8 @@ export default function ScraperFinal() {
   const toggleArticle = (id: string) => {
     setSelectedArticles(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -350,7 +431,8 @@ export default function ScraperFinal() {
   const toggleSource2 = (id: string) => {
     setSelectedSources(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -360,6 +442,15 @@ export default function ScraperFinal() {
   const countProcessed = articles.filter(a => a.status === 'processed').length
   const countFailed    = articles.filter(a => a.status === 'failed').length
   const activeSources  = sources.filter(s => s.is_active).length
+  const queueLength    = queueState.length + (processingId ? 1 : 0)
+
+  // Build a quick lookup of an article's position in queue (1-indexed)
+  // so the row can show "Pe lista de așteptare (poziția 3)"
+  const queuePosition = (id: string): number | null => {
+    if (processingId === id) return 0  // currently processing
+    const idx = queueState.indexOf(id)
+    return idx === -1 ? null : idx + 1
+  }
 
   // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
@@ -383,6 +474,11 @@ export default function ScraperFinal() {
             <h1 className="font-serif text-2xl text-[#1a1a1a]">Scraper RSS</h1>
             <p className="text-xs text-[#666] mt-0.5">
               {activeSources} surse active · {countScraped} neprocesate · {countProcessed} procesate
+              {queueLength > 0 && (
+                <span className="ml-2 text-violet-700 font-medium">
+                  · {queueLength} în coadă
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -397,13 +493,13 @@ export default function ScraperFinal() {
             </button>
             {countScraped > 0 && (
               <button
-                onClick={bulkProcess}
-                disabled={bulkRunning}
+                onClick={enqueueAllScraped}
                 className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium
-                  hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  hover:bg-violet-700 transition-colors"
+                title="Adaugă toate articolele neprocesate în coadă. Sunt procesate unul câte unul (~80s fiecare)."
               >
-                {bulkRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {bulkRunning ? 'Se procesează…' : `AI Procesează Tot (${countScraped})`}
+                <Sparkles className="w-4 h-4" />
+                AI Procesează Tot ({countScraped})
               </button>
             )}
             <button onClick={fetchArticles} disabled={loading}
@@ -413,6 +509,28 @@ export default function ScraperFinal() {
           </div>
         </div>
       </header>
+
+      {/* ── Queue status banner ── */}
+      {queueLength > 0 && (
+        <div className="max-w-6xl mx-auto mt-4 px-6">
+          <div className="bg-violet-50 border border-violet-200 rounded px-4 py-3 flex items-center gap-3">
+            <ListOrdered className="w-5 h-5 text-violet-700 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-violet-900">
+                Coadă activă: {queueLength} articole în procesare
+                {processingId && (
+                  <span className="ml-2 text-violet-700">
+                    · {articles.find(a => a.id === processingId)?.original_title.slice(0, 60) || 'Articol curent'}…
+                  </span>
+                )}
+              </p>
+              <p className="text-xs text-violet-700/80 mt-0.5">
+                Articolele sunt procesate unul câte unul ca să nu blocăm browserul. ~80 de secunde per articol.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="max-w-6xl mx-auto px-6 mt-6">
@@ -481,8 +599,10 @@ export default function ScraperFinal() {
               <ArticleRow
                 key={article.id}
                 article={article}
-                onProcess={() => processArticle(article)}
-                isProcessing={processing === article.id}
+                queuePosition={queuePosition(article.id)}
+                isProcessing={processingId === article.id}
+                onEnqueue={() => enqueueArticle(article)}
+                onDequeue={() => dequeueArticle(article.id)}
                 checked={selectedArticles.has(article.id)}
                 onCheck={() => toggleArticle(article.id)}
               />
@@ -612,7 +732,6 @@ export default function ScraperFinal() {
                 className={`bg-white border border-[#e5e2d9] p-4 flex items-center gap-3
                   ${selectedSources.has(source.id) ? 'border-[#c41e3a] bg-red-50/30' : ''}`}>
 
-                {/* Checkbox */}
                 <input
                   type="checkbox"
                   checked={selectedSources.has(source.id)}
@@ -620,7 +739,6 @@ export default function ScraperFinal() {
                   className="accent-[#c41e3a] w-4 h-4 shrink-0"
                 />
 
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[#1a1a1a]">{source.name}</p>
                   <p className="text-xs text-[#999] mt-0.5 truncate">{source.url}</p>
@@ -631,7 +749,6 @@ export default function ScraperFinal() {
                   )}
                 </div>
 
-                {/* Controls */}
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs text-[#999]">Limită: {source.output_limit}</span>
                   <button
@@ -653,16 +770,28 @@ export default function ScraperFinal() {
 }
 
 // ─── ARTICLE ROW ──────────────────────────────────────────────────────────────
+//
+// The action area shows one of:
+//   - "AI Rescrie" button (article is scraped, not in queue, not processing)
+//   - "Se procesează…" badge (article currently being processed by the worker)
+//   - "În coadă (poziția N)" + "Anulează" button (article queued, not yet processing)
+//   - "Ver ciornă →" link (article processed)
+//   - "Reîncearcă" button (article failed)
+//
 function ArticleRow({
   article,
-  onProcess,
+  queuePosition,
   isProcessing,
+  onEnqueue,
+  onDequeue,
   checked,
   onCheck,
 }: {
   article: ScrapedArticle
-  onProcess: () => void
+  queuePosition: number | null  // null = not in queue; 0 = currently processing; >=1 = position
   isProcessing: boolean
+  onEnqueue: () => void
+  onDequeue: () => void
   checked: boolean
   onCheck: () => void
 }) {
@@ -675,12 +804,13 @@ function ArticleRow({
     return 'Acum'
   }
 
+  const inQueue = queuePosition !== null && queuePosition > 0
+
   return (
     <div className={`bg-white border rounded p-4 flex items-start gap-3 transition-opacity
-      ${isProcessing ? 'opacity-60' : ''}
+      ${isProcessing ? 'opacity-60 border-violet-400' : ''}
       ${checked ? 'border-[#c41e3a] bg-red-50/30' : article.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-[#e5e2d9]'}`}>
 
-      {/* Checkbox */}
       <input
         type="checkbox"
         checked={checked}
@@ -688,7 +818,6 @@ function ArticleRow({
         className="accent-[#c41e3a] w-4 h-4 mt-1 shrink-0"
       />
 
-      {/* Article info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <StatusBadge status={article.status} score={article.ai_score} />
@@ -720,23 +849,46 @@ function ArticleRow({
         )}
       </div>
 
-      {/* Action */}
       <div className="shrink-0 flex flex-col items-end gap-2">
-        {article.status === 'scraped' && (
+
+        {/* Currently being processed (always wins) */}
+        {isProcessing && (
+          <span className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium rounded">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Se procesează…
+          </span>
+        )}
+
+        {/* Queued, not yet running */}
+        {!isProcessing && inQueue && (
+          <div className="flex flex-col items-end gap-1">
+            <span className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-100 text-violet-800 text-xs font-medium rounded">
+              <ListOrdered className="w-3.5 h-3.5" />
+              În coadă · poziția {queuePosition}
+            </span>
+            <button
+              onClick={onDequeue}
+              className="text-[11px] text-violet-700 hover:text-violet-900 underline"
+            >
+              Anulează
+            </button>
+          </div>
+        )}
+
+        {/* Available for enqueue */}
+        {!isProcessing && !inQueue && article.status === 'scraped' && (
           <button
-            onClick={onProcess}
-            disabled={isProcessing}
+            onClick={onEnqueue}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium
-              hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
+              hover:bg-violet-700 transition-colors rounded"
           >
-            {isProcessing
-              ? <Loader2  className="w-3.5 h-3.5 animate-spin" />
-              : <Sparkles className="w-3.5 h-3.5" />}
-            {isProcessing ? 'Se procesează…' : 'AI Rescrie'}
+            <Sparkles className="w-3.5 h-3.5" />
+            AI Rescrie
           </button>
         )}
 
-        {article.status === 'processed' && article.draft_post_id && (
+        {/* Already processed */}
+        {!isProcessing && !inQueue && article.status === 'processed' && article.draft_post_id && (
           <a
             href={`/admin/articles/${article.draft_post_id}/edit`}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium
@@ -747,16 +899,14 @@ function ArticleRow({
           </a>
         )}
 
-        {article.status === 'failed' && (
+        {/* Failed — can re-enqueue */}
+        {!isProcessing && !inQueue && article.status === 'failed' && (
           <button
-            onClick={onProcess}
-            disabled={isProcessing}
+            onClick={onEnqueue}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-medium
-              hover:bg-red-700 transition-colors disabled:opacity-50 rounded"
+              hover:bg-red-700 transition-colors rounded"
           >
-            {isProcessing
-              ? <Loader2   className="w-3.5 h-3.5 animate-spin" />
-              : <RefreshCw className="w-3.5 h-3.5" />}
+            <RefreshCw className="w-3.5 h-3.5" />
             Reîncearcă
           </button>
         )}
