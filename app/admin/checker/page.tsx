@@ -283,11 +283,11 @@ export default function ArticleChecker() {
   }, [source, generated]);
 
   // AI detection analysis
+  const aiInputText = tab === 'ai' ? aiText : generated;
   const aiResult = useMemo(() => {
-    const text = tab === 'ai' ? aiText : generated;
-    if (!text.trim()) return null;
-    return analyzeAI(text);
-  }, [tab === 'ai' ? aiText : generated, tab]);
+    if (!aiInputText.trim()) return null;
+    return analyzeAI(aiInputText);
+  }, [aiInputText]);
 
   // Rewrite via Anthropic API
   const handleRewrite = useCallback(async () => {
@@ -457,7 +457,7 @@ Răspunde DOAR cu textul rescris, fără explicații sau comentarii.`
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#fca5a5', marginBottom: 8 }}>⚠️ FABRICĂRI DETECTATE ({plagiarismResult.fabrications.length})</div>
                     {plagiarismResult.fabrications.map((f, i) => (
                       <div key={i} style={{ fontSize: 12, color: '#fca5a5', marginBottom: 6 }}>
-                        <strong>{f.label}:</strong> "...{f.context}..."
+                        <strong>{f.label}:</strong> {'"'}...{f.context}...{'"'}
                       </div>
                     ))}
                   </div>
@@ -477,7 +477,7 @@ Răspunde DOAR cu textul rescris, fără explicații sau comentarii.`
                         color: '#ccc',
                       }}>
                         <span style={{ color: '#888', marginRight: 8 }}>{seq.len} cuv</span>
-                        "{seq.words}"
+                        {'"'}{seq.words}{'"'}
                       </div>
                     ))}
                   </div>
