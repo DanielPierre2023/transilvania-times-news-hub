@@ -300,21 +300,14 @@ export default function ArticleChecker() {
           issues.push(`AI TRANSITIONS TO REMOVE: ${aiResult.transitionHits.join(', ')}`)
         }
       }
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 4000,
-          messages: [{
-            role: "user",
-            content: `Rescrie acest text in romana pentru a elimina TOATE tiparele de AI si TOATE secventele copiate.\n\nPROBLEME DETECTATE:\n${issues.join('\n')}\n\nREGULI DE RESCRIERE:\n1. Fiecare propozitie trebuie reconstruita complet.\n2. ELIMINA toate tranzitiile AI: "in contextul in care", "pe de alta parte", "in acelasi timp", "de asemenea", "mai mult", "cu toate acestea", "totusi".\n3. Variaza NEREGULAT lungimea propozitiilor.\n4. Schimba ORDINEA ideilor fata de textul original.\n5. Insereaza ocazional o propozitie fragmentara.\n6. Variaza modul de atribuire.\n7. NU fabrica surse, interviuri sau citate care nu apar in textul original.\n8. Pastreaza TOATE faptele din text.\n\nTEXT DE RESCRIS:\n${text}\n\nRaspunde DOAR cu textul rescris.`
-          }],
-        })
+      const response = await fetch('/api/rewrite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, issues }),
       })
       const data = await response.json()
-      const result = data?.content?.[0]?.text || 'Eroare: nu s-a primit raspuns.'
-      setRewriteResult(result)
+      if (data.error) throw new Error(data.error)
+      setRewriteResult(data.result || 'Nu s-a primit raspuns.')
     } catch (err: unknown) {
       setRewriteResult(`Eroare: ${err instanceof Error ? err.message : String(err)}`)
     }
