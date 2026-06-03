@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   // pageExtensions deliberately omitted — default ['tsx','ts','jsx','js']
   // src/pages/ was renamed to src/views/ so Next.js never scans it.
   // App Router in app/ works with standard file names.
+  
+  trailingSlash: true, // 👈 CRITICAL: Forces Next.js to match Netlify's URL structure
+
   images: {
     remotePatterns: [
       {
