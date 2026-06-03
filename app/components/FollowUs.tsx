@@ -21,17 +21,15 @@ const ICON_CLASS =
 
 function GoogleNewsLogo() {
   return (
-    <svg viewBox="0 0 92 20" xmlns="http://www.w3.org/2000/svg" className="h-4">
-      <text fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="18" fontWeight="500" y="16">
-        <tspan x="0" fill="#4285F4">G</tspan>
-        <tspan fill="#EA4335">o</tspan>
-        <tspan fill="#FBBC05">o</tspan>
-        <tspan fill="#4285F4">g</tspan>
-        <tspan fill="#34A853">l</tspan>
-        <tspan fill="#EA4335">e</tspan>
-        <tspan dx="4" fill="currentColor">News</tspan>
-      </text>
-    </svg>
+    <span className="font-sans font-medium text-[15px] inline-flex items-center leading-none">
+      <span style={{ color: '#4285F4' }}>G</span>
+      <span style={{ color: '#EA4335' }}>o</span>
+      <span style={{ color: '#FBBC05' }}>o</span>
+      <span style={{ color: '#4285F4' }}>g</span>
+      <span style={{ color: '#34A853' }}>l</span>
+      <span style={{ color: '#EA4335' }}>e</span>
+      <span className="ml-1.5 text-foreground">News</span>
+    </span>
   )
 }
 
@@ -54,13 +52,7 @@ export default function FollowUs({ locale = 'ro' }: Props) {
         <a href={SOCIAL.rss} target="_blank" rel="noopener noreferrer" aria-label="RSS feed" className={ICON_CLASS}>
           <Rss className="w-4 h-4" />
         </a>
-        
-          href={SOCIAL.googleNews}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Google News"
-          className="flex items-center gap-2 px-4 h-10 border border-foreground/15 hover:border-brand-red hover:text-brand-red text-foreground transition-colors"
-        >
+        <a href={SOCIAL.googleNews} target="_blank" rel="noopener noreferrer" aria-label="Google News" className="flex items-center gap-2 px-4 h-10 border border-foreground/15 hover:border-brand-red hover:text-brand-red transition-colors">
           <GoogleNewsLogo />
         </a>
       </div>
