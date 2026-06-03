@@ -5,17 +5,36 @@ import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { Wand2, Save, Globe, RefreshCw, Upload, X, Loader2 } from 'lucide-react'
 
-// ─── ARTICLE TYPES ───────────────────────────────────────────────────────────
+// ─── EDITORS ─────────────────────────────────────────────────────────────────
+// Mirrors the 9 active editor_key values in the authors table. Must stay in
+// sync with EDITOR_VOICES in tt-generate-article/index.ts. Daniel Dobos is
+// the default byline (the owner of the site).
+const EDITORS = [
+  { key: 'daniel_dobos',     label: 'Daniel Dobos',     desk: 'Tehnologie & Business · NYT-grade' },
+  { key: 'andrei_popescu',   label: 'Andrei Popescu',   desk: 'Politică & Investigații'           },
+  { key: 'elena_vasilescu',  label: 'Elena Vasilescu',  desk: 'Știință & Cultură'                 },
+  { key: 'lucian_bratu',     label: 'Lucian Bratu',     desk: 'Cronicar Regional & Patrimoniu'    },
+  { key: 'mihai_ionescu',    label: 'Mihai Ionescu',    desk: 'Tehnologie & Inovație'             },
+  { key: 'sofia_marinescu',  label: 'Sofia Marinescu',  desk: 'Sănătate & Date'                   },
+  { key: 'victor_simon',     label: 'Victor Simon',     desk: 'Știri Generale · Registru Wire'    },
+  { key: 'marcus_webb',      label: 'Marcus Webb',      desk: 'Corespondent Internațional'        },
+  { key: 'mihai_isac',       label: 'Mihai Isac',       desk: 'Știri & Investigații Daily'        },
+] as const
 
+// ─── ARTICLE TYPES ───────────────────────────────────────────────────────────
+// v10: NEWS is the new default. blog now clearly flagged as personal essay
+// (the only type where first-person is permitted).
 const ARTICLE_TYPES = [
-  { value: 'editorial',  label: 'Editorial',  emoji: '✒️', hint: 'Teză fermă · argumentare stratificată · concluzie memorabilă' },
-  { value: 'analiza',    label: 'Analiză',    emoji: '🔬', hint: 'Multi-perspectival · date concrete · predictiv' },
-  { value: 'pamflet',    label: 'Pamflet',    emoji: '⚡', hint: 'Swift · Voltaire · Caragiale — laudatio ironică → revelație absurdă' },
-  { value: 'blog',       label: 'Blog',       emoji: '📝', hint: 'Voce proprie · poziție clară · ton cald' },
-  { value: 'reportaj',   label: 'Reportaj',   emoji: '📰', hint: 'Scenă de deschidere · voci · tensiune narativă' },
-  { value: 'cultura',    label: 'Cultură',    emoji: '🎭', hint: 'Interpretare · context · valoare actuală' },
-  { value: 'tehnologie', label: 'Tehnologie', emoji: '💻', hint: 'Demistificare · impact real · scepticism sănătos' },
-]
+  { value: 'news',       label: 'Știre',      emoji: '📰', hint: 'Lead 5W în 25 cuvinte · atribuit · paragrafe scurte · fără persoana întâi'        },
+  { value: 'analiza',    label: 'Analiză',    emoji: '🔬', hint: 'Întrebare analitică · perspective multiple · date · concluzie deschisă'           },
+  { value: 'editorial',  label: 'Editorial',  emoji: '✒️', hint: 'Teză fermă · argumentare · verdict · persoana întâi permisă pentru judecată'      },
+  { value: 'opinie',     label: 'Opinie',     emoji: '💭', hint: 'Columnă semnată · persoana întâi disciplinată · teză clară în primele 100 cuv.' },
+  { value: 'pamflet',    label: 'Pamflet',    emoji: '⚡', hint: 'Caragiale / Cațavencu · ținta numită · citate exacte · sentință elegantă'         },
+  { value: 'reportaj',   label: 'Reportaj',   emoji: '🎥', hint: 'Scenă cu detaliu senzorial · personaje cu nume · tensiune · fără persoana întâi'  },
+  { value: 'cultura',    label: 'Cultură',    emoji: '🎭', hint: 'Critică · context istoric · operă pe propriii termeni · fără persoana întâi'      },
+  { value: 'tehnologie', label: 'Tehnologie', emoji: '💻', hint: 'Fapt tehnic specific · jargonul definit · decizia urmărită · fără persoana întâi' },
+  { value: 'blog',       label: 'Blog',       emoji: '📝', hint: 'ESEU PERSONAL · persoana întâi obligatorie · folosește doar dacă EXPERIENȚA TA este subiectul' },
+] as const
 
 const WORD_COUNTS = [
   { value: 800,  label: '800',  desc: 'Scurt' },
@@ -30,10 +49,6 @@ const CATEGORIES = [
 
 const SUBCATEGORIES = ['', 'regional', 'national', 'international']
 
-// v9: 13 Transylvania counties + 'national' for content outside Transylvania.
-// Order: alphabetical Romanian — operator-friendly. Display label is the
-// Romanian county name; the value is the same slug used in blog_posts.county
-// and rss_sources.county (kept consistent so the database has one canonical form).
 const COUNTIES: { value: string; label: string }[] = [
   { value: 'alba',            label: 'Alba' },
   { value: 'bihor',           label: 'Bihor' },
@@ -51,112 +66,35 @@ const COUNTIES: { value: string; label: string }[] = [
   { value: 'national',        label: 'Național (în afara Transilvaniei)' },
 ]
 
-// ─── PROMPTS ─────────────────────────────────────────────────────────────────
+// ─── BRIEF FORMATTER ─────────────────────────────────────────────────────────
+//
+// v10: the OLD buildPrompt() injected enormous tone descriptions per article
+// type (Editorial, Pamflet, etc.). That was duplicate work — the v10 backend
+// already carries the full TONE_VOICE dictionary AND the EDITOR_VOICES profiles.
+// Sending tone instructions from the frontend now risks CONFLICTING with the
+// backend's voice layer and confusing the model.
+//
+// The new buildBrief() just relays the user's editorial intent cleanly. The
+// backend receives `article_type` and `editor_key` as separate fields and
+// applies the correct voice + register itself.
+//
+function buildBrief(topic: string, wordCount: number, articleType: string): string {
+  const note = articleType === 'news'
+    ? '\n\nTIP: ȘTIRE — inverted pyramid, atribuit, fără persoana întâi.'
+    : articleType === 'blog'
+      ? '\n\nTIP: ESEU PERSONAL — persoana întâi obligatorie; subiectul este experiența autorului.'
+      : ''
 
-function buildPrompt(type: string, topic: string, wordCount: number): string {
-  const base = `SUBIECT: ${topic}
-LUNGIME: ~${wordCount} cuvinte per limbă.
-LIMBĂ: Generează NATIV în română ȘI nativ în engleză simultan.
+  return `SUBIECT EDITORIAL:
+${topic}
 
-TITLU: psihologic puternic, curiozitate/urgență/emoție. Fără punct final.
-REZUMAT: 3-4 bullet-uri max 15 cuvinte, fiecare adaugă informație nouă.
-SEO: 6-8 taguri lowercase cu cratimă.
-FĂRĂ subtitluri (### sau ##). FĂRĂ cuvinte interzise: crucial, esențial, vital, paradigmă, sinergie.
-
-RĂSPUNDE EXCLUSIV JSON (fără backticks, fără text în afara JSON):
-{
-  "title_ro":"...","title_en":"...",
-  "summary_ro":"bullet1\\nbullet2\\nbullet3",
-  "summary_en":"bullet1\\nbullet2\\nbullet3",
-  "excerpt_ro":"1-2 propoziții","excerpt_en":"1-2 sentences",
-  "content_ro":"articol complet în română","content_en":"full article in English",
-  "tags_ro":["tag1","tag2"],"tags_en":["tag1","tag2"],
-  "seo_title_ro":"max 60 car","seo_title_en":"max 60 chars",
-  "seo_description_ro":"max 160 car","seo_description_en":"max 160 chars"
-}`
-
-  const prompts: Record<string, string> = {
-    editorial: `${base}
-
-TIP: EDITORIAL DE ÎNALTĂ CLASĂ
-1. DESCHIDERE PUTERNICĂ: declarație provocatoare, scenă vie sau statistică șocantă
-2. TEZĂ CLARĂ: poziția publicației, fermă și fără echivoc
-3. ARGUMENTARE STRATIFICATĂ: 3-4 argumente cu fapte concrete, precedente, citate — se construiesc progresiv
-4. CONTRAARGUMENT ȘI RESPINGERE: recunoaște perspectiva opusă, demontează-o elegant
-5. CONCLUZIE MEMORABILĂ: propoziție care rămâne în minte, provoacă reflecție sau acțiune
-TON: Autoritar, lucid, angajat.`,
-
-    analiza: `${base}
-
-TIP: ANALIZĂ APROFUNDATĂ
-1. CONTEXT ȘI MIZĂ: de ce contează ACUM, tabloul mai larg
-2. ANATOMIA PROBLEMEI: cauze structurale, nu simptome
-3. PERSPECTIVE MULTIPLE: min 3 unghiuri — economic, politic, social, istoric sau geopolitic
-4. DATE ȘI EVIDENȚE: fiecare afirmație ancorată în cifre sau comparații
-5. SCENARII: 2-3 scenarii probabile cu argumente pro/contra
-6. CONCLUZIE ANALITICĂ: sintetică, precisă, cu valoare predictivă
-TON: Expert, nuanțat, fără simplificări.`,
-
-    pamflet: `${base}
-
-TIP: PAMFLET — SATIRĂ DE ÎNALTĂ CLASĂ (Swift, Voltaire, Caragiale)
-1. Umor fin, stratificat. Sarcasmul taie ca bisturiul, nu toporul.
-2. Ținta precisă: identifică exact ce/cine e satirizat.
-STRUCTURĂ:
-- LAUDATIO IRONICĂ: compliment fals și exagerat față de țintă
-- DEZMEMBRARE PROGRESIVĂ: demontarea cu exemple concrete și comparații devastatoare
-- REVELAȚIA ABSURDĂ: masca cade complet
-- CONCLUZIE TĂIOASĂ: aparent serioasă, implacabil de sarcastică
-TEHNICI: hiperbolă controlată, ironie socratică, analogii incomode, întrebări retorice ucigătoare
-FĂRĂ vulgaritate. FĂRĂ atacuri la persoană neverificabilă.`,
-
-    blog: `${base}
-
-TIP: BLOG — VOCE PERSONALĂ
-1. DESCHIDERE PERSONALĂ: experiență sau observație care conectează imediat
-2. PUNCT DE VEDERE PROPRIU: ia o poziție, spune ce crezi TU și de ce
-3. POVESTIRE + INFORMAȚIE: alternează narațiunea cu insight-uri valoroase
-4. UMOR SAU AUTOIRONIE: blogul bun nu se ia prea în serios
-5. CONCLUZIE PRACTICĂ: ce poate face cititorul cu această informație?
-TON: Cald, direct, inteligent fără a fi pedant.`,
-
-    reportaj: `${base}
-
-TIP: REPORTAJ NARATIV
-1. SCENĂ DE DESCHIDERE: plasează cititorul în acțiune — detalii senzoriale, personaje concrete
-2. CONTEXTUL POVEȘTII: cine, ce, unde, când, de ce — ca narațiune
-3. VOCI: min 2-3 perspective diferite, citate directe
-4. TENSIUNEA NARATIVĂ: conflict, problemă nerezolvată
-5. REZOLUȚIE: răspuns sau o întrebare mai mare
-TON: Narativ, uman, long-form journalism.`,
-
-    cultura: `${base}
-
-TIP: CRITICĂ CULTURALĂ
-1. OPERA/FENOMENUL: descrie cu acuratețe și detaliu relevant
-2. CONTEXTUL CULTURAL: situează în curentul artistic, istoric sau social
-3. ANALIZA CRITICĂ: nu rezumat — interpretare. Ce spune opera despre epoca ei?
-4. COMPARAȚII: pune în dialog cu alte opere sau momente culturale
-5. VALOAREA ACTUALĂ: de ce contează azi?
-TON: Cultivat, pasionat, accesibil fără vulgarizare.`,
-
-    tehnologie: `${base}
-
-TIP: JURNALISM TECH
-1. NOUTATEA: ce s-a schimbat? de ce acum?
-2. FUNCȚIONAREA: explică accesibil, analogii clare, fără jargon inutil
-3. IMPLICAȚIILE REALE: impact concret pe oameni, business, societate
-4. VOCEA CRITICĂ: riscuri, limitări, întrebări nerezolvate
-5. PERSPECTIVE GLOBALE: tendințe mai largi
-TON: Informat, scepticism sănătos, accesibil.`,
-  }
-  return prompts[type] || prompts['editorial']
+PARAMETRI:
+- Lungime țintă: ~${wordCount} cuvinte per limbă.
+- Generează NATIV în română ȘI în engleză simultan.
+- Tip articol: ${articleType.toUpperCase()}.${note}`
 }
 
-// ─── F FIELD WRAPPER — module level (fixes author input focus bug) ─────────────
-// IMPORTANT: must stay at module level, NOT inside EditorPage.
-// Defining a component inside another component causes React to unmount/remount
-// it on every render, losing input focus after every keystroke.
+// ─── F FIELD WRAPPER — module level (fixes author input focus bug) ─────────
 function F({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -220,6 +158,7 @@ function ImageSection({
     <div className="space-y-3">
       {coverImage && (
         <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={coverImage} alt="Cover" className="w-full aspect-video object-cover" />
           <button onClick={() => setCoverImage('')}
             className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white p-1.5 transition-colors">
@@ -266,13 +205,15 @@ function ImageSection({
 export default function EditorPage() {
   const router = useRouter()
 
-  const [articleType, setArticleType] = useState('editorial')
-  const [wordCount, setWordCount]     = useState(1200)
-  const [category, setCategory]       = useState('opinion')
-  // v9: county defaults to 'cluj' (largest share in the corpus). Operator can
-  // change before generating. Always set — never NULL from the AI Editor.
-  const [county, setCounty]           = useState('cluj')
-  const [topic, setTopic]             = useState('')
+  // v10 defaults: news article by Daniel Dobos in the news category. This is
+  // a news site — the default should produce a news article in the owner's
+  // byline, not a generic editorial.
+  const [editorKey,    setEditorKey]    = useState<string>('daniel_dobos')
+  const [articleType,  setArticleType]  = useState<string>('news')
+  const [wordCount,    setWordCount]    = useState(1200)
+  const [category,     setCategory]     = useState('news')
+  const [county,       setCounty]       = useState('cluj')
+  const [topic,        setTopic]        = useState('')
 
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated]   = useState(false)
@@ -294,14 +235,17 @@ export default function EditorPage() {
   const [seoDescEn, setSeoDescEn]     = useState('')
 
   const [slug, setSlug]               = useState('')
+  // v10: authorName is now derived from the editor selection but operator can
+  // still override it manually. The initial value comes from the v10 response
+  // (display_name_ro), which mirrors the EDITOR_VOICES definitions.
   const [authorName, setAuthorName]   = useState('')
   const [subcategory, setSubcategory] = useState('')
   const [sourceUrl, setSourceUrl]     = useState('')
   const [isBreaking, setIsBreaking]   = useState(false)
 
-  const [coverImage, setCoverImage]           = useState('')
+  const [coverImage, setCoverImage]             = useState('')
   const [coverImageCredit, setCoverImageCredit] = useState('')
-  const [generatingImg, setGeneratingImg]     = useState(false)
+  const [generatingImg, setGeneratingImg]       = useState(false)
 
   const [contentTab, setContentTab] = useState<'ro' | 'en'>('ro')
   const [saving, setSaving]         = useState(false)
@@ -331,7 +275,14 @@ export default function EditorPage() {
 
     try {
       const { data, error } = await supabase.functions.invoke('tt-generate-article', {
-        body: { prompt: buildPrompt(articleType, topic, wordCount), word_count: wordCount, category, article_type: articleType, county }
+        body: {
+          prompt:       buildBrief(topic, wordCount, articleType),
+          word_count:   wordCount,
+          category,
+          article_type: articleType,
+          editor_key:   editorKey,   // v10: explicit editor selection
+          county,
+        }
       })
       if (error) throw new Error(error.message)
       if (!data)  throw new Error('Niciun răspuns de la AI.')
@@ -351,12 +302,17 @@ export default function EditorPage() {
       setSeoDescRo(data.seo_description_ro || '')
       setSeoDescEn(data.seo_description_en || '')
       setSlug(data.slug || toSlug(data.title_ro || data.title_en || ''))
+
+      // v10: the response carries the editor's display name. Use it as the
+      // byline unless the operator has already typed something manually.
+      if (data.author_name && !authorName) {
+        setAuthorName(data.author_name as string)
+      }
+
       setGenerated(true)
       setContentTab('ro')
       flash('✓ Articol generat — generez imaginea...')
 
-      // Auto-generate cover in background — fire and forget, no await.
-      // Pass data directly to avoid React async state update timing issue.
       generateCoverImage(
         data.title_ro || data.title_en,
         data.summary_ro || data.summary_en || data.excerpt_ro
@@ -366,10 +322,6 @@ export default function EditorPage() {
     }
     setGenerating(false)
   }
-
-  // ── GENERATE COVER IMAGE ───────────────────────────────────────────────────
-  // Accepts optional overrides to avoid React async state timing issues
-  // when called immediately after setting state in generate().
 
   async function generateCoverImage(overrideTitle?: string, overrideSummary?: string) {
     const imgTitle   = overrideTitle   || titleRo || titleEn
@@ -412,7 +364,7 @@ export default function EditorPage() {
       cover_image: coverImage || null,
       cover_image_credit: coverImageCredit || null,
       category, subcategory: subcategory || null,
-      county,  // v9: persisted alongside category, so /judet/[slug] pages find this post
+      county,
       author_name: authorName || null,
       source_url: sourceUrl || null,
       is_breaking: isBreaking,
@@ -446,12 +398,17 @@ export default function EditorPage() {
     </div>
   }
 
+  const currentEditor = EDITORS.find(e => e.key === editorKey) || EDITORS[0]
+  const currentType   = ARTICLE_TYPES.find(t => t.value === articleType) || ARTICLE_TYPES[0]
+
   return (
     <div className="max-w-7xl">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-serif text-2xl font-bold text-white">Editor AI</h1>
-          <p className="font-sans text-[13px] text-white/40 mt-1">Generează articole editoriale de înaltă calitate</p>
+          <p className="font-sans text-[13px] text-white/40 mt-1">
+            v10 · 9 semnături · 9 tipuri · NYT-grade tech-business pentru Daniel Dobos
+          </p>
         </div>
         {msg && (
           <span className={`font-sans text-[12px] px-3 py-1.5 border ${
@@ -466,13 +423,37 @@ export default function EditorPage() {
         {/* ── LEFT ─────────────────────────────────────────────────────── */}
         <div className="space-y-4">
 
+          {/* ── EDITOR (semnătura) — NEW in v10 ─────────────────────── */}
+          <div className={sec}>
+            <p className={sh}>Semnătură (editor)</p>
+            <select
+              className={inp}
+              value={editorKey}
+              onChange={e => setEditorKey(e.target.value)}
+            >
+              {EDITORS.map(ed => (
+                <option key={ed.key} value={ed.key}>
+                  {ed.label} — {ed.desk}
+                </option>
+              ))}
+            </select>
+            <p className="font-sans text-[10px] text-white/30 italic leading-relaxed">
+              {currentEditor.desk}. Vocea editorului se aplică peste tipul articolului
+              — Daniel Dobos scriind o știre = reportaj tech-business NYT-grade, nu o
+              știre generică cu numele lui pe ea.
+            </p>
+          </div>
+
+          {/* ── ARTICLE TYPE ─────────────────────────────────────────── */}
           <div className={sec}>
             <p className={sh}>Tip articol</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {ARTICLE_TYPES.map(t => (
-                <button key={t.value} onClick={() => setArticleType(t.value)}
+                <button
+                  key={t.value}
+                  onClick={() => setArticleType(t.value)}
                   className={
-                    'flex items-center gap-2 px-3 py-2.5 border font-sans text-[12px] transition-colors ' +
+                    'flex items-center justify-center gap-1.5 px-2 py-2 border font-sans text-[11px] transition-colors ' +
                     (articleType === t.value
                       ? 'bg-brand-red border-brand-red text-white'
                       : 'border-white/[0.07] text-white/50 hover:text-white hover:border-white/20')
@@ -480,8 +461,8 @@ export default function EditorPage() {
                 ><span>{t.emoji}</span>{t.label}</button>
               ))}
             </div>
-            <p className="font-sans text-[10px] text-white/20 italic">
-              {ARTICLE_TYPES.find(t => t.value === articleType)?.hint}
+            <p className="font-sans text-[10px] text-white/40 italic leading-relaxed">
+              {currentType.hint}
             </p>
           </div>
 
@@ -525,7 +506,9 @@ export default function EditorPage() {
               placeholder={
                 articleType === 'pamflet'
                   ? 'Ex: Un politician promite transparență totală la exact o lună după ce dosarul lui a fost clasat...'
-                  : 'Descrie subiectul, unghiul, contextul dorit...'
+                  : articleType === 'news'
+                    ? 'Ex: Consiliul Județean Cluj a aprobat astăzi un buget de 12,4 milioane lei pentru renovarea Spitalului Județean...'
+                    : 'Descrie subiectul, unghiul, contextul dorit...'
               }
             />
             {genError && (
@@ -544,10 +527,10 @@ export default function EditorPage() {
           {generating && (
             <div className="bg-[#1a1a1a] border border-purple-500/20 p-4 text-center space-y-1">
               <p className="font-sans text-[12px] text-purple-300">
-                AI scrie {ARTICLE_TYPES.find(t => t.value === articleType)?.label}...
+                {currentEditor.label} scrie {currentType.label.toLowerCase()}...
               </p>
               <p className="font-sans text-[11px] text-purple-300/40">
-                {wordCount} cuvinte · RO + EN · titlu psihologic · SEO complet
+                {wordCount} cuvinte · RO + EN · 4 desk-uri · ~90s
               </p>
             </div>
           )}
@@ -559,14 +542,16 @@ export default function EditorPage() {
             <Wand2 className="w-16 h-16 text-white/[0.05] mb-5" />
             <p className="font-serif text-xl text-white/20 mb-2">Articolul generat va apărea aici</p>
             <p className="font-sans text-[12px] text-white/10 max-w-xs">
-              Selectează tipul · lungimea · categoria · scrie brieful · apasă Generează
+              Selectează semnătura · tipul · lungimea · categoria · scrie brieful · apasă Generează
             </p>
           </div>
         ) : (
           <div className="space-y-4">
 
             <div className="flex items-center justify-between">
-              <p className="font-sans text-[12px] text-white/30">Editează orice câmp înainte de publicare</p>
+              <p className="font-sans text-[12px] text-white/30">
+                Editează orice câmp înainte de publicare · Semnătură: <span className="text-white/60">{authorName || currentEditor.label}</span>
+              </p>
               <div className="flex gap-2">
                 <button onClick={() => saveArticle('draft')} disabled={saving}
                   className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-[#1a1a1a] border border-white/10 text-white hover:border-white/30 transition-colors disabled:opacity-50">
@@ -624,7 +609,6 @@ export default function EditorPage() {
                 onGenerate={() => generateCoverImage()}
                 generating={generatingImg}
               />
-              {/* Credit / sursa fotografie */}
               <F label="Sursă / creditare fotografie">
                 <input
                   className={inp}
@@ -635,7 +619,7 @@ export default function EditorPage() {
               </F>
               {coverImageCredit && (
                 <p className="font-sans text-[10px] text-blue-400/60">
-                  {coverImageCredit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: &bdquo;{coverImageCredit}&rdquo;
+                  {coverImageCredit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: {'„'}{coverImageCredit}{'"'}
                 </p>
               )}
             </div>
@@ -706,12 +690,12 @@ export default function EditorPage() {
                 <F label="Slug URL">
                   <input className={inp} value={slug} onChange={e => setSlug(e.target.value)} />
                 </F>
-                <F label="Autor — introdu manual">
+                <F label="Autor (din semnătură, editabil)">
                   <input
                     className={inp}
                     value={authorName}
                     onChange={e => setAuthorName(e.target.value)}
-                    placeholder="Numele autorului"
+                    placeholder={currentEditor.label}
                     autoComplete="off"
                   />
                 </F>
