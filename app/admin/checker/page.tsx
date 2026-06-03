@@ -1,3 +1,5 @@
+'use client'
+
 import { useState, useMemo, useCallback } from "react";
 
 // ─── ANALYSIS FUNCTIONS ─────────────────────────────────────────────────────
