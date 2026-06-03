@@ -1,12 +1,10 @@
 // app/blog/[slug]/page.tsx
 //
-// B4: hreflang — both ro and en alternates correctly declared
-// B5: OG article namespace — publishedTime, modifiedTime, authors, section, tags
-// Tier 2 (June 2026):
-//   - GoogleNewsBadge placed after article body + a second one mid-content (inside ArticleContent)
-//   - Related articles use county + tag overlap scoring (via getRelatedArticles)
-//   - Inline "Citește și" cards injected at 1/3 and 2/3 through the body
-//   - Two-column layout on desktop with "Cele mai citite" sidebar
+// Tier 3 (June 2026):
+//   - Editorial inline-related BLOCK at midpoint (image-left + headline-right pairs)
+//   - "Cele mai citite" sidebar with thumbnails (aktual24-style)
+//   - "Urmărește-ne" row at end of article with social icons + Google News badge
+//   - GoogleNewsBadge removed from article body
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
@@ -16,13 +14,15 @@ import type { Metadata } from 'next'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import ShareButtons from '@/app/components/ShareButtons'
 import CommentSection from '@/app/components/CommentSection'
-import ArticleContent, { type InlineRelatedItem } from '@/app/components/ArticleContent'
-import GoogleNewsBadge from '@/app/components/GoogleNewsBadge'
+import ArticleContent from '@/app/components/ArticleContent'
+import type { InlineRelatedItem } from '@/app/components/InlineRelatedBlock'
 import MostRead from '@/app/components/MostRead'
+import FollowUs from '@/app/components/FollowUs'
+import SectionHeader from '@/app/components/SectionHeader'
+import ViewTracker from '@/app/components/ViewTracker'
 import { getCounty } from '@/lib/counties'
 import { getRelatedArticles, type RelatedArticle } from '@/lib/related-articles'
 import { getMostRead } from '@/lib/most-read'
-import ViewTracker from '@/app/components/ViewTracker'
 
 export const revalidate = 60
 
@@ -216,15 +216,12 @@ export default async function ArticlePage({
 
   const typedSupabase = supabase as unknown as SupabaseClient
 
-  // Tier 2: fetch related (county+tag scored) and most-read (recent published)
-  // in parallel to keep page TTFB low.
+  // Fetch 6 related (2 inline + 4 end block) and most-read in parallel.
   const [related, mostRead] = await Promise.all([
-    getRelatedArticles(typedSupabase, post.id, post.county, post.tags_ro, 4),
+    getRelatedArticles(typedSupabase, post.id, post.county, post.tags_ro, 6),
     getMostRead(typedSupabase, post.id, 6),
   ])
 
-  // Inline cards = first 2 related, rendered mid-stream by ArticleContent.
-  // End-of-article block = remaining related.
   const inlineRelatedRaw = related.slice(0, 2)
   const endBlockRelated: RelatedArticle[] = related.slice(2)
 
@@ -234,7 +231,7 @@ export default async function ArticlePage({
     title_ro: a.title_ro,
     title_en: a.title_en,
     county: a.county,
-    category: a.category,
+    cover_image: a.cover_image,
   }))
 
   const authorName = author
@@ -292,7 +289,6 @@ export default async function ArticlePage({
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
       <article className="max-w-7xl mx-auto border-x border-foreground/10">
 
-        {/* Two-column layout: 8/12 article + 4/12 sidebar on desktop, single-column on mobile */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 px-6 pt-10 pb-4">
 
           {/* LEFT: article body */}
@@ -350,8 +346,6 @@ export default async function ArticlePage({
               inlineRelated={inlineRelated}
             />
 
-            <GoogleNewsBadge locale={defaultLang} variant="top" />
-
             <ShareButtons
               url={articleUrl}
               title={post.title_ro || post.title_en || ''}
@@ -396,23 +390,21 @@ export default async function ArticlePage({
               </div>
             )}
 
+            <FollowUs locale={defaultLang} />
+
             <CommentSection articleId={post.id} />
           </div>
 
-          {/* RIGHT: sidebar with most-read */}
+          {/* RIGHT: sidebar */}
           <div className="lg:col-span-4">
             <MostRead articles={mostRead} locale={defaultLang} />
           </div>
         </div>
 
-        {/* End-of-article related (the 4-up grid below the body, full width) */}
+        {/* End-of-article related grid (4-up) */}
         {endBlockRelated && endBlockRelated.length > 0 && (
           <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-foreground/10 pb-12">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-2 h-2 bg-brand-red" />
-              <h3 className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">Articole similare</h3>
-              <div className="flex-1 h-px bg-foreground/10" />
-            </div>
+            <SectionHeader className="mb-6">Articole similare</SectionHeader>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               {endBlockRelated.map((rel) => {
                 const countyData = rel.county ? getCounty(rel.county) : null
