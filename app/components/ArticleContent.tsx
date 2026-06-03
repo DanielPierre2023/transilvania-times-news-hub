@@ -2,17 +2,10 @@
 
 import { useState } from 'react'
 import { Camera, Bot } from 'lucide-react'
-import Link from 'next/link'
 import AuthorByline, { type AuthorData } from './AuthorByline'
-import GoogleNewsBadge from './GoogleNewsBadge'
+import InlineRelatedBlock, { type InlineRelatedItem } from './InlineRelatedBlock'
 
-export interface InlineRelatedItem {
-  id: string
-  slug: string
-  title_ro: string | null
-  title_en: string | null
-  county: string | null
-}
+export type { InlineRelatedItem }
 
 interface ArticleContentProps {
   titleRo: string | null
@@ -29,14 +22,6 @@ interface ArticleContentProps {
   timeAgoStr: string
   defaultLang: 'ro' | 'en'
   inlineRelated?: InlineRelatedItem[]
-}
-
-const COUNTY_LABELS: Record<string, string> = {
-  alba: 'Alba', bihor: 'Bihor', 'bistrita-nasaud': 'Bistrița-Năsăud',
-  brasov: 'Brașov', cluj: 'Cluj', covasna: 'Covasna',
-  harghita: 'Harghita', hunedoara: 'Hunedoara', maramures: 'Maramureș',
-  mures: 'Mureș', salaj: 'Sălaj', 'satu-mare': 'Satu Mare',
-  sibiu: 'Sibiu', national: 'România',
 }
 
 function escapeHtml(s: string): string {
@@ -73,15 +58,11 @@ function paragraphsFromSentences(text: string): string[] {
   return paras.map(p => p.replace(restore, '.')).filter(Boolean)
 }
 
-// Returns an array of paragraph STRINGS (still as plain text or HTML fragment).
-// Caller wraps each in <p> and interleaves the related-article cards.
 function extractParagraphs(raw: string): { paragraphs: string[]; preFormattedHtml: boolean } {
   if (!raw) return { paragraphs: [], preFormattedHtml: false }
 
   const hasBlockHtml = /<(p|h[1-6]|ul|ol|li|blockquote|figure|div)\b/i.test(raw)
   if (hasBlockHtml) {
-    // Pre-formatted HTML: split by closing </p> tag so we can still inject
-    // cards between paragraphs. Fall back to whole-blob if no <p> tags.
     const matches = raw.match(/<p[^>]*>[\s\S]*?<\/p>/gi)
     if (matches && matches.length > 1) {
       return { paragraphs: matches.map(m => m.trim()), preFormattedHtml: true }
@@ -109,32 +90,6 @@ function extractParagraphs(raw: string): { paragraphs: string[]; preFormattedHtm
   }
 
   return { paragraphs: chunks, preFormattedHtml: false }
-}
-
-// Inline "Citește și" card — server-safe component rendered inline.
-function InlineRelatedCard({ article, lang }: { article: InlineRelatedItem; lang: 'ro' | 'en' }) {
-  const title = lang === 'ro'
-    ? (article.title_ro || article.title_en)
-    : (article.title_en || article.title_ro)
-  if (!title) return null
-
-  const label = lang === 'ro' ? 'Citește și' : 'Read also'
-  const countyLabel = article.county ? COUNTY_LABELS[article.county] ?? article.county : null
-
-  return (
-    <aside className="my-8 border-l-4 border-brand-red bg-foreground/[0.02] px-5 py-4 not-prose">
-      <div className="font-sans text-[10px] uppercase tracking-[0.2em] text-brand-red font-bold mb-1.5">
-        {label}
-        {countyLabel ? ` · ${countyLabel}` : ''}
-      </div>
-      <Link
-        href={`/blog/${article.slug}`}
-        className="font-serif text-lg font-semibold text-foreground hover:text-brand-red leading-snug block no-underline"
-      >
-        {title}
-      </Link>
-    </aside>
-  )
 }
 
 export default function ArticleContent({
@@ -175,21 +130,11 @@ export default function ArticleContent({
     ? extractParagraphs(content)
     : { paragraphs: [], preFormattedHtml: false }
 
-  // Inline injection positions: 1/3 and 2/3 through, only if article is long
-  // enough AND we have related articles to inject.
-  const inlinePositions: number[] = []
-  if (inlineRelated.length >= 1 && paragraphs.length >= 6) {
-    inlinePositions.push(Math.floor(paragraphs.length / 3))
-  }
-  if (inlineRelated.length >= 2 && paragraphs.length >= 10) {
-    inlinePositions.push(Math.floor((paragraphs.length * 2) / 3))
-  }
-
-  // Mid-content Google News badge: right after the first inline card if any,
-  // otherwise at the halfway point. Only on long articles.
-  const midBadgePosition =
-    paragraphs.length >= 8
-      ? (inlinePositions[0] != null ? inlinePositions[0] + 1 : Math.floor(paragraphs.length / 2))
+  // One inline-related BLOCK (containing both items side-by-side) at the
+  // halfway point. Only on articles with ≥8 paragraphs and ≥2 related items.
+  const inlineBlockPosition =
+    inlineRelated.length >= 2 && paragraphs.length >= 8
+      ? Math.floor(paragraphs.length / 2)
       : -1
 
   return (
@@ -271,7 +216,7 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Article body — paragraphs interleaved with inline cards + mid-badge */}
+      {/* Article body — paragraphs with one inline-related block injected at midpoint */}
       {paragraphs.length > 0 && (
         <div
           className="prose prose-lg max-w-none font-serif text-foreground
@@ -282,27 +227,22 @@ export default function ArticleContent({
             prose-blockquote:border-l-brand-red prose-blockquote:text-muted-foreground
             [&_p]:font-serif [&_p]:text-[17px] [&_p]:leading-[1.8] [&_p]:mb-5 [&_p]:text-justify"
         >
-          {paragraphs.map((para, idx) => {
-            const inlineIdx = inlinePositions.indexOf(idx)
-            const article = inlineIdx >= 0 ? inlineRelated[inlineIdx] : null
-            return (
-              <div key={idx}>
-                {article && <InlineRelatedCard article={article} lang={lang} />}
-                {idx === midBadgePosition && (
-                  <GoogleNewsBadge locale={lang} variant="inline" />
-                )}
-                {preFormattedHtml ? (
-                  <div dangerouslySetInnerHTML={{ __html: para }} />
-                ) : (
-                  <p
-                    dangerouslySetInnerHTML={{
-                      __html: escapeHtml(para).replace(/\n/g, '<br />'),
-                    }}
-                  />
-                )}
-              </div>
-            )
-          })}
+          {paragraphs.map((para, idx) => (
+            <div key={idx}>
+              {idx === inlineBlockPosition && (
+                <InlineRelatedBlock articles={inlineRelated.slice(0, 2)} lang={lang} />
+              )}
+              {preFormattedHtml ? (
+                <div dangerouslySetInnerHTML={{ __html: para }} />
+              ) : (
+                <p
+                  dangerouslySetInnerHTML={{
+                    __html: escapeHtml(para).replace(/\n/g, '<br />'),
+                  }}
+                />
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
