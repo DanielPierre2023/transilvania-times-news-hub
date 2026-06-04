@@ -6,9 +6,6 @@ import { createBrowserClient } from '@supabase/ssr'
 import { Wand2, Save, Globe, RefreshCw, Upload, X, Loader2 } from 'lucide-react'
 
 // ─── EDITORS ─────────────────────────────────────────────────────────────────
-// Mirrors the 9 active editor_key values in the authors table. Must stay in
-// sync with EDITOR_VOICES in tt-generate-article/index.ts. Daniel Dobos is
-// the default byline (the owner of the site).
 const EDITORS = [
   { key: 'daniel_dobos',     label: 'Daniel Dobos',     desk: 'Tehnologie & Business · NYT-grade' },
   { key: 'andrei_popescu',   label: 'Andrei Popescu',   desk: 'Politică & Investigații'           },
@@ -21,9 +18,20 @@ const EDITORS = [
   { key: 'mihai_isac',       label: 'Mihai Isac',       desk: 'Știri & Investigații Daily'        },
 ] as const
 
+// ─── EDITOR → AUTHOR SLUG MAP ──────────────────────────────────────────────
+const EDITOR_SLUG_MAP: Record<string, string> = {
+  daniel_dobos: 'daniel-dobos',
+  andrei_popescu: 'andrei-popescu',
+  elena_vasilescu: 'elena-vasilescu',
+  lucian_bratu: 'lucian-bratu',
+  sofia_marinescu: 'sofia-marinescu',
+  mihai_ionescu: 'mihai-ionescu',
+  victor_simon: 'victor-simon',
+  marcus_webb: 'marcus-webb',
+  mihai_isac: 'mihai-isac',
+}
+
 // ─── ARTICLE TYPES ───────────────────────────────────────────────────────────
-// v10: NEWS is the new default. blog now clearly flagged as personal essay
-// (the only type where first-person is permitted).
 const ARTICLE_TYPES = [
   { value: 'news',       label: 'Știre',      emoji: '📰', hint: 'Lead 5W în 25 cuvinte · atribuit · paragrafe scurte · fără persoana întâi'        },
   { value: 'analiza',    label: 'Analiză',    emoji: '🔬', hint: 'Întrebare analitică · perspective multiple · date · concluzie deschisă'           },
@@ -66,18 +74,6 @@ const COUNTIES: { value: string; label: string }[] = [
   { value: 'national',        label: 'Național (în afara Transilvaniei)' },
 ]
 
-// ─── BRIEF FORMATTER ─────────────────────────────────────────────────────────
-//
-// v10: the OLD buildPrompt() injected enormous tone descriptions per article
-// type (Editorial, Pamflet, etc.). That was duplicate work — the v10 backend
-// already carries the full TONE_VOICE dictionary AND the EDITOR_VOICES profiles.
-// Sending tone instructions from the frontend now risks CONFLICTING with the
-// backend's voice layer and confusing the model.
-//
-// The new buildBrief() just relays the user's editorial intent cleanly. The
-// backend receives `article_type` and `editor_key` as separate fields and
-// applies the correct voice + register itself.
-//
 function buildBrief(topic: string, wordCount: number, articleType: string): string {
   const note = articleType === 'news'
     ? '\n\nTIP: ȘTIRE — inverted pyramid, atribuit, fără persoana întâi.'
@@ -94,7 +90,6 @@ PARAMETRI:
 - Tip articol: ${articleType.toUpperCase()}.${note}`
 }
 
-// ─── F FIELD WRAPPER — module level (fixes author input focus bug) ─────────
 function F({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -205,9 +200,6 @@ function ImageSection({
 export default function EditorPage() {
   const router = useRouter()
 
-  // v10 defaults: news article by Daniel Dobos in the news category. This is
-  // a news site — the default should produce a news article in the owner's
-  // byline, not a generic editorial.
   const [editorKey,    setEditorKey]    = useState<string>('daniel_dobos')
   const [articleType,  setArticleType]  = useState<string>('news')
   const [wordCount,    setWordCount]    = useState(1200)
@@ -235,9 +227,6 @@ export default function EditorPage() {
   const [seoDescEn, setSeoDescEn]     = useState('')
 
   const [slug, setSlug]               = useState('')
-  // v10: authorName is now derived from the editor selection but operator can
-  // still override it manually. The initial value comes from the v10 response
-  // (display_name_ro), which mirrors the EDITOR_VOICES definitions.
   const [authorName, setAuthorName]   = useState('')
   const [subcategory, setSubcategory] = useState('')
   const [sourceUrl, setSourceUrl]     = useState('')
@@ -263,6 +252,22 @@ export default function EditorPage() {
       .replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').substring(0, 80)
   }
 
+  // ── AUTHOR ID LOOKUP ──────────────────────────────────────────────────────
+  // Queries the authors table by slug to get the UUID. This links the article
+  // to the full author profile (avatar, bio, title) so AuthorByline shows the
+  // photo instead of just the initial letter.
+
+  async function getAuthorIdByKey(key: string): Promise<string | null> {
+    const slug = EDITOR_SLUG_MAP[key]
+    if (!slug) return null
+    const { data } = await supabase
+      .from('authors')
+      .select('id')
+      .eq('slug', slug)
+      .single()
+    return (data as { id: string } | null)?.id ?? null
+  }
+
   // ── GENERATE ARTICLE ───────────────────────────────────────────────────────
 
   async function generate() {
@@ -280,7 +285,7 @@ export default function EditorPage() {
           word_count:   wordCount,
           category,
           article_type: articleType,
-          editor_key:   editorKey,   // v10: explicit editor selection
+          editor_key:   editorKey,
           county,
         }
       })
@@ -303,8 +308,6 @@ export default function EditorPage() {
       setSeoDescEn(data.seo_description_en || '')
       setSlug(data.slug || toSlug(data.title_ro || data.title_en || ''))
 
-      // v10: the response carries the editor's display name. Use it as the
-      // byline unless the operator has already typed something manually.
       if (data.author_name && !authorName) {
         setAuthorName(data.author_name as string)
       }
@@ -354,7 +357,13 @@ export default function EditorPage() {
   async function saveArticle(newStatus: 'draft' | 'published') {
     setSaving(true)
     const finalSlug = (slug || toSlug(titleRo || titleEn)) + '-' + Date.now().toString(36)
-    const payload = {
+
+    // Look up the author UUID from the authors table so the article gets
+    // linked to the full profile (avatar, bio, title). Without this, the
+    // AuthorByline component only shows the initial letter.
+    const authorId = await getAuthorIdByKey(editorKey)
+
+    const payload: Record<string, unknown> = {
       title_ro: titleRo || null, title_en: titleEn || null,
       summary_ro: summaryRo || null, summary_en: summaryEn || null,
       excerpt_ro: excerptRo || null, excerpt_en: excerptEn || null,
@@ -366,6 +375,7 @@ export default function EditorPage() {
       category, subcategory: subcategory || null,
       county,
       author_name: authorName || null,
+      author_id: authorId,
       source_url: sourceUrl || null,
       is_breaking: isBreaking,
       slug: finalSlug, status: newStatus,
@@ -423,18 +433,11 @@ export default function EditorPage() {
         {/* ── LEFT ─────────────────────────────────────────────────────── */}
         <div className="space-y-4">
 
-          {/* ── EDITOR (semnătura) — NEW in v10 ─────────────────────── */}
           <div className={sec}>
             <p className={sh}>Semnătură (editor)</p>
-            <select
-              className={inp}
-              value={editorKey}
-              onChange={e => setEditorKey(e.target.value)}
-            >
+            <select className={inp} value={editorKey} onChange={e => setEditorKey(e.target.value)}>
               {EDITORS.map(ed => (
-                <option key={ed.key} value={ed.key}>
-                  {ed.label} — {ed.desk}
-                </option>
+                <option key={ed.key} value={ed.key}>{ed.label} — {ed.desk}</option>
               ))}
             </select>
             <p className="font-sans text-[10px] text-white/30 italic leading-relaxed">
@@ -444,14 +447,11 @@ export default function EditorPage() {
             </p>
           </div>
 
-          {/* ── ARTICLE TYPE ─────────────────────────────────────────── */}
           <div className={sec}>
             <p className={sh}>Tip articol</p>
             <div className="grid grid-cols-3 gap-2">
               {ARTICLE_TYPES.map(t => (
-                <button
-                  key={t.value}
-                  onClick={() => setArticleType(t.value)}
+                <button key={t.value} onClick={() => setArticleType(t.value)}
                   className={
                     'flex items-center justify-center gap-1.5 px-2 py-2 border font-sans text-[11px] transition-colors ' +
                     (articleType === t.value
