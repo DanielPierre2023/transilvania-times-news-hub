@@ -133,7 +133,7 @@ export default function ArticleContent({
   // One inline-related BLOCK (containing both items side-by-side) at the
   // halfway point. Only on articles with ≥8 paragraphs and ≥2 related items.
   const inlineBlockPosition =
-    inlineRelated.length >= 2 && paragraphs.length >= 8
+    inlineRelated.length >= 2 && paragraphs.length >= 6
       ? Math.floor(paragraphs.length / 2)
       : -1
 
