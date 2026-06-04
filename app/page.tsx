@@ -398,7 +398,7 @@ export default async function HomePage() {
             </Link>
             <div className="flex-1 h-px bg-foreground/10" />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 px-6 pb-6 gap-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 px-6 pb-6 gap-x-4">
             {catPosts.slice(0, 3).map((post, i) => (
               <ArticleCard
                 key={post.id}
@@ -410,7 +410,7 @@ export default async function HomePage() {
                 timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
                 image={post.cover_image}
                 variant="simple"
-                className={i < 2 ? 'lg:border-r border-foreground/10' : ''}
+                className={i < 2 ? 'lg:border-r border-foreground/10 lg:pr-4' : ''}
               />
             ))}
           </div>
