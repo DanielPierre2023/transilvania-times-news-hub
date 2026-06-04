@@ -1,8 +1,19 @@
 'use client'
 
+// app/components/PageTracker.tsx
+//
+// v2 — Server-routed tracking. Posts to /api/track-page instead of
+// inserting into site_analytics directly from the browser.
+//
+// Why: the browser can't access Netlify's x-nf-geo header, so country
+// and city were always NULL. The server-side route extracts geo from
+// Netlify headers and inserts the complete row.
+//
+// Client still detects: referrer, browser, device, screen, visitor_id,
+// session_id, UTM params, bot check. Server adds: country, city, user_agent.
+
 import { useEffect, useRef } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
 
 const BOT_PATTERNS = /bot|crawl|spider|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Googlebot|bingbot|Slurp|DuckDuckBot|Baiduspider|YandexBot|Sogou|ia_archiver|AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot|bytespider/i
 
@@ -63,12 +74,6 @@ export default function PageTracker() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const lastPath = useRef('')
-  const supabase = useRef(
-    createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-  )
 
   useEffect(() => {
     // Skip admin pages, API routes, and static assets
@@ -78,9 +83,8 @@ export default function PageTracker() {
     lastPath.current = pathname
 
     const ua = navigator.userAgent || ''
-    if (BOT_PATTERNS.test(ua)) return // Skip bots
+    if (BOT_PATTERNS.test(ua)) return
 
-    const isBot = false
     const referrer = cleanReferrer(document.referrer)
 
     const payload = {
@@ -89,21 +93,23 @@ export default function PageTracker() {
       browser:      getBrowser(ua),
       device_type:  getDeviceType(window.innerWidth),
       screen_width: window.innerWidth,
-      user_agent:   ua.substring(0, 300),
       session_id:   getSessionId(),
       visitor_id:   getVisitorId(),
-      is_bot:       isBot,
-      utm_source:   searchParams.get('utm_source') || searchParams.get('fbclid') ? 'facebook' : null,
+      utm_source:   searchParams.get('utm_source') || (searchParams.get('fbclid') ? 'facebook' : null),
       utm_medium:   searchParams.get('utm_medium') || null,
       utm_campaign: searchParams.get('utm_campaign') || null,
       event_type:   'pageview',
     }
 
-    // Fire and forget — don't block rendering
-    supabase.current.from('site_analytics').insert(payload).then(({ error }) => {
-      if (error) console.warn('[tracker]', error.message)
-    })
+    // POST to server-side route which enriches with geo data from Netlify
+    // headers (country, city) and inserts into site_analytics
+    fetch('/api/track-page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => { /* fire and forget */ })
   }, [pathname, searchParams])
 
-  return null // invisible component
+  return null
 }
