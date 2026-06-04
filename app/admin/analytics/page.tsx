@@ -72,8 +72,16 @@ const SOURCE_LABELS: Record<string, string> = {
 
 function classifyReferrer(ref: string | null): string {
   if (!ref) return 'direct'
-  const r = ref.toLowerCase()
-  if (r.includes('facebook') || r.includes('fb.com') || r.includes('fbclid')) return 'facebook'
+  const r = ref.toLowerCase().trim()
+  // Handle pre-classified labels stored in site_analytics
+  if (r === 'direct') return 'direct'
+  if (r === 'facebook') return 'facebook'
+  if (r === 'google') return 'google'
+  if (r === 'bing') return 'bing'
+  if (r === 'yahoo') return 'yahoo'
+  if (r === 'duckduckgo') return 'duckduckgo'
+  // Handle full URLs
+  if (r.includes('facebook.com') || r.includes('fb.com') || r.includes('fbclid')) return 'facebook'
   if (r.includes('news.google')) return 'google-news'
   if (r.includes('google')) return 'google'
   if (r.includes('t.co') || r.includes('twitter') || r.includes('x.com')) return 'twitter'
@@ -85,6 +93,7 @@ function classifyReferrer(ref: string | null): string {
   if (r.includes('yahoo')) return 'yahoo'
   if (r.includes('duckduckgo')) return 'duckduckgo'
   if (r.includes('transilvaniatimes')) return 'internal'
+  if (r.includes('lovable')) return 'internal'
   return 'other'
 }
 
