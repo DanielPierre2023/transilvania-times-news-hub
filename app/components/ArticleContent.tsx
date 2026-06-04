@@ -40,7 +40,7 @@ function paragraphsFromSentences(text: string): string[] {
     .replace(/(\d)\.(\d)/g, `$1${DOT}$2`)
     .replace(/\b([A-ZĂÂÎȘȚ])\.\s/g, `$1${DOT} `)
 
-  const sentences = guarded.match(/[^.!?]+[.!?]+(?:["”»)\]]+)?\s*|[^.!?]+$/g) || [guarded]
+  const sentences = guarded.match(/[^.!?]+[.!?]+(?:[""»)\]]+)?\s*|[^.!?]+$/g) || [guarded]
 
   const paras: string[] = []
   let bucket: string[] = []
@@ -122,16 +122,35 @@ export default function ArticleContent({
       coverImageCredit.toLowerCase().includes('ai')
     : false
 
-  const summaryLines = summary
-    ? summary.split('\n').map(l => l.trim()).filter(Boolean)
+  // ── Summary normalization ──────────────────────────────────────────────
+  // Processed articles produce 2-3 full sentences per line (each ~100 chars).
+  // Editor AI articles produce 4+ short bullet fragments (each ~50 chars).
+  // We detect the bullet pattern and join fragments in pairs to produce
+  // 2-3 flowing lines that match the processed article format.
+  const rawSummaryLines = summary
+    ? summary.split('\n').map(l => l.replace(/^[•\-·]\s*/, '').trim()).filter(Boolean)
     : []
+  const avgLen = rawSummaryLines.length > 0
+    ? rawSummaryLines.reduce((a, l) => a + l.length, 0) / rawSummaryLines.length
+    : 0
+  const isBulletStyle = rawSummaryLines.length >= 4 && avgLen < 80
+  const summaryLines = isBulletStyle
+    ? (() => {
+        const withDots = rawSummaryLines.map(l => l.endsWith('.') ? l : l + '.')
+        const result: string[] = []
+        for (let i = 0; i < withDots.length; i += 2) {
+          result.push(withDots.slice(i, i + 2).join(' '))
+        }
+        return result
+      })()
+    : rawSummaryLines
 
   const { paragraphs, preFormattedHtml } = content
     ? extractParagraphs(content)
     : { paragraphs: [], preFormattedHtml: false }
 
   // One inline-related BLOCK (containing both items side-by-side) at the
-  // halfway point. Only on articles with ≥8 paragraphs and ≥2 related items.
+  // halfway point. Only on articles with ≥6 paragraphs and ≥2 related items.
   const inlineBlockPosition =
     inlineRelated.length >= 2 && paragraphs.length >= 6
       ? Math.floor(paragraphs.length / 2)
@@ -170,14 +189,12 @@ export default function ArticleContent({
         {title}
       </h1>
 
-      {/* Summary bullets */}
+      {/* Summary — 2-3 flowing lines (normalized from bullets if needed) */}
       {summaryLines.length > 0 && (
         <div className="border-l-2 border-brand-red pl-4 mb-6 space-y-2">
           {summaryLines.map((line, i) => (
             <p key={i} className="font-sans text-sm text-muted-foreground leading-relaxed text-justify">
-              {line.startsWith('•') || line.startsWith('-') || line.startsWith('·')
-                ? line.substring(1).trim()
-                : line}
+              {line}
             </p>
           ))}
         </div>
