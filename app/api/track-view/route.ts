@@ -1,7 +1,14 @@
 // app/api/track-view/route.ts
 //
-// View tracking endpoint. POST { slug } → increments view_count atomically
-// via the increment_view_count() Postgres RPC.
+// View tracking endpoint. POST { slug } → increments blog_posts.view_count
+// atomically via the increment_view_count() Postgres RPC.
+//
+// v2 fix: the original code detached supabase.rpc from its `this` context
+// by assigning it to a standalone variable (`const rpc = supabase.rpc as
+// LooseRpc`). This caused every RPC call to silently fail because the
+// method lost access to the Supabase client's internal REST reference.
+// All blog_posts.view_count values were stuck at 0 as a result.
+// Fix: call rpc as a method on the client object directly.
 
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -9,31 +16,15 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 const SLUG_PATTERN = /^[a-z0-9-]+$/i
 
 const BOT_PATTERNS = [
-  /bot\b/i,
-  /crawler/i,
-  /spider/i,
-  /scrape/i,
-  /headless/i,
-  /preview/i,
-  /facebookexternalhit/i,
-  /linkedinbot/i,
-  /twitterbot/i,
-  /whatsapp/i,
-  /telegrambot/i,
-  /slackbot/i,
-  /googlebot/i,
-  /bingbot/i,
+  /bot\b/i, /crawler/i, /spider/i, /scrape/i, /headless/i, /preview/i,
+  /facebookexternalhit/i, /linkedinbot/i, /twitterbot/i, /whatsapp/i,
+  /telegrambot/i, /slackbot/i, /googlebot/i, /bingbot/i,
 ]
 
 function isBot(userAgent: string | null): boolean {
   if (!userAgent) return true
   return BOT_PATTERNS.some((re) => re.test(userAgent))
 }
-
-// Loose-typed RPC caller. The generated Database types don't yet know about
-// the increment_view_count() function (added in a later migration), so the
-// strict rpc() signature rejects our params. We bypass via `unknown` cast.
-type LooseRpc = (fn: string, params: Record<string, unknown>) => Promise<unknown>
 
 export async function POST(request: Request) {
   let body: { slug?: string }
@@ -55,11 +46,11 @@ export async function POST(request: Request) {
 
   try {
     const supabase = await createSupabaseServerClient()
-    // SECURITY DEFINER RPC — anon role has EXECUTE grant from the migration.
-    // Two-step `as unknown as` cast bypasses the strict rpc() param signature
-    // generated from Database types. Runtime is unaffected.
-    const rpc = supabase.rpc as unknown as LooseRpc
-    await rpc('increment_view_count', { post_slug: slug })
+    // v2 FIX: call rpc as a method on the client so `this` stays bound.
+    // The v1 code did `const rpc = supabase.rpc as LooseRpc; await rpc(...)`
+    // which detached the method and silently failed every call.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any).rpc('increment_view_count', { post_slug: slug })
   } catch {
     // Best-effort tracking: never fail the page if this fails.
   }
