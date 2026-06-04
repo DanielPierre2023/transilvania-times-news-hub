@@ -256,7 +256,7 @@ export default function AnalyticsPage() {
       .eq('is_bot', false)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .limit(5000)
+      .limit(50000)
 
     // Filter out admin panel activity — admin work is not reader traffic
     const allData: AnalyticsRow[] = (rows || []) as AnalyticsRow[]
@@ -269,7 +269,7 @@ export default function AnalyticsPage() {
       .select('page_path, visitor_id, created_at, referrer')
       .eq('is_bot', false)
       .gte('created_at', thirtyDaysAgo)
-      .limit(10000)
+      .limit(50000)
 
     const all = ((allRows || []) as { page_path: string; visitor_id: string | null; created_at: string; referrer: string | null }[])
       .filter(r => !r.page_path.startsWith('/admin'))
