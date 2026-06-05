@@ -37,11 +37,12 @@ export default function MostRead({ articles, locale = 'ro' }: Props) {
             : (article.title_en || article.title_ro)
           if (!title) return null
           const countyData = article.county ? getCounty(article.county) : null
+          const href = `/blog/${article.slug}/${locale === 'en' ? '?lang=en' : ''}`
 
           return (
             <li key={article.id}>
               <Link
-                href={`/blog/${article.slug}${locale === 'en' ? '?lang=en' : ''}`}
+                href={href}
                 className="flex gap-3 group py-4 no-underline items-start"
               >
                 <div className="flex-1 min-w-0">
