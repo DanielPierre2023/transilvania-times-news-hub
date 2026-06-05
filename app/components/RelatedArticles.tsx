@@ -68,11 +68,12 @@ export default function RelatedArticles({ articles, locale = 'ro' }: Props) {
           const countyLabel = article.county
             ? COUNTY_LABELS[article.county] ?? article.county
             : null
+          const href = `/blog/${article.slug}/${locale === 'en' ? '?lang=en' : ''}`
 
           return (
             <Link
               key={article.id}
-              href={`/blog/${article.slug}`}
+              href={href}
               className="group block bg-white rounded-lg overflow-hidden border border-gray-200 hover:border-[#C41E3A] hover:shadow-md transition-all no-underline"
             >
               {article.cover_image && (
