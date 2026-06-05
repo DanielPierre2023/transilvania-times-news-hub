@@ -38,6 +38,7 @@ export default function InlineRelated({ article, locale = 'ro' }: Props) {
 
   const label = locale === 'ro' ? 'Citește și' : 'Read also'
   const countyLabel = article.county ? COUNTY_LABELS[article.county] ?? article.county : null
+  const href = `/blog/${article.slug}/${locale === 'en' ? '?lang=en' : ''}`
 
   return (
     <aside className="my-8 border-l-4 border-[#C41E3A] bg-gray-50 px-5 py-4 not-prose">
@@ -46,7 +47,7 @@ export default function InlineRelated({ article, locale = 'ro' }: Props) {
         {countyLabel ? ` · ${countyLabel}` : ''}
       </div>
       <Link
-        href={`/blog/${article.slug}`}
+        href={href}
         className="text-lg font-semibold text-[#0D1B4B] hover:text-[#C41E3A] leading-snug block no-underline"
       >
         {title}
