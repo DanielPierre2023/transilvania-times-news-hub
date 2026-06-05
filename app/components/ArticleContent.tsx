@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Camera, Bot } from 'lucide-react'
 import AuthorByline, { type AuthorData } from './AuthorByline'
 import InlineRelatedBlock, { type InlineRelatedItem } from './InlineRelatedBlock'
@@ -109,6 +109,10 @@ export default function ArticleContent({
   inlineRelated = [],
 }: ArticleContentProps) {
   const [lang, setLang] = useState<'ro' | 'en'>(defaultLang)
+
+  useEffect(() => {
+    setLang(defaultLang)
+  }, [defaultLang])
 
   const title   = lang === 'ro' ? (titleRo   || titleEn)   : (titleEn   || titleRo)
   const summary = lang === 'ro' ? (summaryRo || summaryEn) : (summaryEn || summaryRo)
