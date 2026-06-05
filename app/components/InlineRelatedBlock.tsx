@@ -29,11 +29,12 @@ export default function InlineRelatedBlock({ articles, lang = 'ro' }: Props) {
             ? (article.title_ro || article.title_en)
             : (article.title_en || article.title_ro)
           if (!title) return null
+          const href = `/blog/${article.slug}/${lang === 'en' ? '?lang=en' : ''}`
 
           return (
             <Link
               key={article.id}
-              href={`/blog/${article.slug}${lang === 'en' ? '?lang=en' : ''}`}
+              href={href}
               className="flex gap-3 group no-underline items-start"
             >
               {article.cover_image && (
