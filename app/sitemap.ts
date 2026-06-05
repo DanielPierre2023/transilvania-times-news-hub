@@ -22,22 +22,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const staticPages: MetadataRoute.Sitemap = [
     {
-      url: BASE_URL,
+      url: `${BASE_URL}/`,
       lastModified: new Date(),
       changeFrequency: 'hourly',
       priority: 1.0,
     },
     {
-      url: `${BASE_URL}/en`,
+      url: `${BASE_URL}/en/`,
       lastModified: new Date(),
       changeFrequency: 'hourly',
       priority: 0.9,
     },
   ]
 
-  // Articles only at /blog/ — English served via ?lang=en, not /en/blog/
+  // Articles are served with trailing slashes because next.config.ts has trailingSlash: true.
+  // Listing canonical URLs here avoids Google Search Console "Page with redirect" noise.
   const articlePages: MetadataRoute.Sitemap = (posts ?? []).map(post => ({
-    url: `${BASE_URL}/blog/${post.slug}`,
+    url: `${BASE_URL}/blog/${post.slug}/`,
     lastModified: new Date(post.updated_at),
     changeFrequency: 'weekly' as const,
     priority: 0.8,
