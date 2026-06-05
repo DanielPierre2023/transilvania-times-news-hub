@@ -40,7 +40,7 @@ export default function ArticleCard({
   const catLabel = (category ? labels[category] || category : '').toUpperCase()
   const countyLabel = county ? getCountyShortLabel(county) : ''
   const secondaryLabel = countyLabel || (subcategory ? SUBCAT_LABELS[subcategory] || subcategory : '')
-  const href = `/blog/${slug}`
+  const href = `/blog/${slug}/${lang === 'en' ? '?lang=en' : ''}`
 
   if (variant === 'hero') {
     return (
