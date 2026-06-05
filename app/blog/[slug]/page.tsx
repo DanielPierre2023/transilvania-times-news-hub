@@ -92,9 +92,17 @@ interface Post {
 }
 
 export async function generateMetadata(
-  { params }: { params: Promise<{ slug: string }> }
+  {
+    params,
+    searchParams,
+  }: {
+    params: Promise<{ slug: string }>
+    searchParams?: Promise<{ lang?: string }>
+  }
 ): Promise<Metadata> {
   const { slug } = await params
+  const { lang: langParam } = (await searchParams) ?? {}
+  const isEnglish = langParam === 'en'
   const supabase  = await createSupabaseServerClient()
 
   const { data } = await supabase
@@ -110,11 +118,12 @@ export async function generateMetadata(
   if (!data) return { title: 'Article Not Found' }
 
   const post        = data as unknown as MetaPost
-  const title       = post.title_ro || post.title_en || ''
-  const description = post.excerpt_ro || post.excerpt_en || ''
+  const title       = isEnglish ? (post.title_en || post.title_ro || '') : (post.title_ro || post.title_en || '')
+  const description = isEnglish ? (post.excerpt_en || post.excerpt_ro || '') : (post.excerpt_ro || post.excerpt_en || '')
   const image       = post.cover_image || ''
-  const url         = `${SITE_URL}/blog/${post.slug}`
+  const url         = `${SITE_URL}/blog/${post.slug}/`
   const urlEn       = `${url}?lang=en`
+  const currentUrl  = isEnglish ? urlEn : url
 
   const allTags = [
     ...(post.tags_ro ?? []),
@@ -135,8 +144,9 @@ export async function generateMetadata(
     openGraph: {
       title,
       description,
-      url,
-      type: 'article',
+      url:           currentUrl,
+      type:          'article',
+      locale:        isEnglish ? 'en_GB' : 'ro_RO',
       images: image ? [{ url: image, width: 1200, height: 630 }] : [],
       publishedTime: post.published_at  ?? undefined,
       modifiedTime:  post.updated_at    ?? undefined,
@@ -201,7 +211,8 @@ export default async function ArticlePage({
   }
 
   const post       = data as unknown as Post
-  const articleUrl = `${SITE_URL}/blog/${post.slug}`
+  const articleUrl = `${SITE_URL}/blog/${post.slug}/`
+  const shareUrl   = defaultLang === 'en' ? `${articleUrl}?lang=en` : articleUrl
   const catLabel   = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
   const tags       = (post.tags_ro || post.tags_en || []) as string[]
 
@@ -238,11 +249,18 @@ export default async function ArticlePage({
     ? (defaultLang === 'en' ? author.name_en : author.name_ro)
     : (post.author_name || 'Transilvania Times')
 
+  const articleTitle = defaultLang === 'en'
+    ? (post.title_en || post.title_ro || '')
+    : (post.title_ro || post.title_en || '')
+  const articleDescription = defaultLang === 'en'
+    ? (post.excerpt_en || post.excerpt_ro || '')
+    : (post.excerpt_ro || post.excerpt_en || '')
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
-    headline: post.title_ro || post.title_en || '',
-    description: post.excerpt_ro || post.excerpt_en || '',
+    headline: articleTitle,
+    description: articleDescription,
     image: post.cover_image || '',
     datePublished: post.published_at || '',
     dateModified: post.updated_at || post.published_at || '',
@@ -261,8 +279,8 @@ export default async function ArticlePage({
       url: SITE_URL,
       logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.png` },
     },
-    url: articleUrl,
-    mainEntityOfPage: { '@type': 'WebPage', '@id': articleUrl },
+    url: shareUrl,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': shareUrl },
   }
 
   const breadcrumbLd = {
@@ -276,8 +294,8 @@ export default async function ArticlePage({
       {
         '@type': 'ListItem',
         position: post.category ? 3 : 2,
-        name: post.title_ro || post.title_en || '',
-        item: articleUrl,
+        name: articleTitle,
+        item: shareUrl,
       },
     ],
   }
@@ -347,9 +365,9 @@ export default async function ArticlePage({
             />
 
             <ShareButtons
-              url={articleUrl}
-              title={post.title_ro || post.title_en || ''}
-              summary={post.excerpt_ro || post.excerpt_en || ''}
+              url={shareUrl}
+              title={articleTitle}
+              summary={articleDescription}
             />
 
             {tags.length > 0 && (
@@ -411,7 +429,7 @@ export default async function ArticlePage({
                 return (
                   <Link
                     key={rel.id}
-                    href={'/blog/' + rel.slug + (defaultLang === 'en' ? '?lang=en' : '')}
+                    href={`/blog/${rel.slug}/${defaultLang === 'en' ? '?lang=en' : ''}`}
                     className="group"
                   >
                     {rel.cover_image && (
