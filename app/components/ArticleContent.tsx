@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Camera, Bot } from 'lucide-react'
 import AuthorByline, { type AuthorData } from './AuthorByline'
 import InlineRelatedBlock, { type InlineRelatedItem } from './InlineRelatedBlock'
@@ -108,11 +109,22 @@ export default function ArticleContent({
   defaultLang,
   inlineRelated = [],
 }: ArticleContentProps) {
+  const router = useRouter()
+  const pathname = usePathname()
   const [lang, setLang] = useState<'ro' | 'en'>(defaultLang)
 
   useEffect(() => {
     setLang(defaultLang)
   }, [defaultLang])
+
+  function switchLanguage(nextLang: 'ro' | 'en') {
+    setLang(nextLang)
+
+    const canonicalPath = pathname.endsWith('/') ? pathname : `${pathname}/`
+    const nextUrl = nextLang === 'en' ? `${canonicalPath}?lang=en` : canonicalPath
+
+    router.replace(nextUrl, { scroll: false })
+  }
 
   const title   = lang === 'ro' ? (titleRo   || titleEn)   : (titleEn   || titleRo)
   const summary = lang === 'ro' ? (summaryRo || summaryEn) : (summaryEn || summaryRo)
@@ -126,7 +138,7 @@ export default function ArticleContent({
       coverImageCredit.toLowerCase().includes('ai')
     : false
 
-  // ── Summary normalization ──────────────────────────────────────────────
+  // -- Summary normalization ------------------------------------------------
   // Processed articles produce 2-3 full sentences per line (each ~100 chars).
   // Editor AI articles produce 4+ short bullet fragments (each ~50 chars).
   // We detect the bullet pattern and join fragments in pairs to produce
@@ -154,7 +166,7 @@ export default function ArticleContent({
     : { paragraphs: [], preFormattedHtml: false }
 
   // One inline-related BLOCK (containing both items side-by-side) at the
-  // halfway point. Only on articles with ≥6 paragraphs and ≥2 related items.
+  // halfway point. Only on articles with >=6 paragraphs and >=2 related items.
   const inlineBlockPosition =
     inlineRelated.length >= 2 && paragraphs.length >= 6
       ? Math.floor(paragraphs.length / 2)
@@ -166,7 +178,7 @@ export default function ArticleContent({
       {hasBoth && (
         <div className="flex gap-1 mb-6">
           <button
-            onClick={() => setLang('ro')}
+            onClick={() => switchLanguage('ro')}
             className={`font-sans text-[10px] uppercase tracking-[0.15em] px-3 py-1.5 border transition-colors ${
               lang === 'ro'
                 ? 'bg-brand-red border-brand-red text-white'
@@ -176,7 +188,7 @@ export default function ArticleContent({
             🇷🇴 Română
           </button>
           <button
-            onClick={() => setLang('en')}
+            onClick={() => switchLanguage('en')}
             className={`font-sans text-[10px] uppercase tracking-[0.15em] px-3 py-1.5 border transition-colors ${
               lang === 'en'
                 ? 'bg-brand-red border-brand-red text-white'
@@ -193,7 +205,7 @@ export default function ArticleContent({
         {title}
       </h1>
 
-      {/* Summary — 2-3 flowing lines (normalized from bullets if needed) */}
+      {/* Summary - 2-3 flowing lines (normalized from bullets if needed) */}
       {summaryLines.length > 0 && (
         <div className="border-l-2 border-brand-red pl-4 mb-6 space-y-2">
           {summaryLines.map((line, i) => (
@@ -237,7 +249,7 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Article body — paragraphs with one inline-related block injected at midpoint */}
+      {/* Article body - paragraphs with one inline-related block injected at midpoint */}
       {paragraphs.length > 0 && (
         <div
           className="prose prose-lg max-w-none font-serif text-foreground
