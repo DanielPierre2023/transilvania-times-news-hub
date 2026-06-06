@@ -20,7 +20,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const OPENAI_MODEL = "gpt-4o"
-const CALL_TIMEOUT_MS = 90000
+const CALL_TIMEOUT_MS = 120000
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -191,6 +191,22 @@ function inferEditorKey(post: BlogPost, expected?: unknown): string {
   return "victor_simon"
 }
 
+function sourceRiskSummary(report: unknown): string {
+  const anyReport = report as any
+  const sourceReview = anyReport?.source_comparison_review || {}
+  const parts = [
+    "status=" + String(anyReport?.status || "unknown"),
+    "score=" + String(anyReport?.total_score || "unknown"),
+    "similarity=" + String(sourceReview.similarity_risk || "unknown"),
+    "quote_integrity=" + String(sourceReview.quote_integrity_risk || "unknown"),
+    "attribution=" + String(sourceReview.attribution_risk || "unknown"),
+    "added_value=" + String(sourceReview.value_added_score || "unknown"),
+    "ai_artifact=" + String(anyReport?.ai_artifact_review?.risk || "unknown"),
+    "type_score=" + String(anyReport?.voice_and_type_review?.type_preservation_score || "unknown")
+  ]
+  return parts.join("; ")
+}
+
 async function callOpenAI(system: string, user: string): Promise<{ text: string; error?: string }> {
   const apiKey = getEnv("OPENAI_API_KEY")
   if (!apiKey) return { text: "", error: "OPENAI_API_KEY not set" }
@@ -209,8 +225,8 @@ async function callOpenAI(system: string, user: string): Promise<{ text: string;
       body: JSON.stringify({
         model: OPENAI_MODEL,
         response_format: { type: "json_object" },
-        temperature: 0.2,
-        max_tokens: 9000,
+        temperature: 0.25,
+        max_tokens: 12000,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user }
@@ -297,21 +313,24 @@ function buildSystemPrompt(): string {
   }
 
   return [
-    "You are the Transilvania Times AdSense Improvement Editor.",
-    "Return valid JSON only.",
-    "Your task is to improve the final article for AdSense/editorial quality without damaging the site's data model.",
-    "You must preserve the article's basic facts, language pair, category, editorial voice and article type.",
-    "Do not invent facts, quotes, officials, resident reactions, dates, locations, phone numbers, policies, or statistics.",
-    "Do not add a direct quotation unless the exact quote exists in the source material or in the current article.",
-    "If the current article contains a quote not supported by the source, convert it to indirect attribution or remove it.",
-    "When source material exists, use it to check factual integrity, but avoid close paraphrase and copied sentence structure.",
-    "Improve added value by adding useful context already supported by the current article or source: who is affected, why it matters, what authority/operator is involved, and what remains unclear.",
-    "For news articles, use inverted pyramid structure: most important facts first, then context, then implications.",
-    "For Romanian text, use natural Romanian journalistic prose, diacritics, and Romanian quotation marks only for verified quotes.",
-    "Remove generic AI phrases, vague closers, over-polished corporate wording, and filler.",
-    "Keep paragraphs short and readable.",
-    "Do not change slug, status, source URL, author, image, category, or database IDs. You only return improved text fields.",
-    "If a language version is missing, you may create it from the available version, but keep it faithful and journalistic.",
+    "You are the Transilvania Times senior desk editor for AdSense-quality local journalism.",
+    "Return valid JSON only. No markdown. No extra keys.",
+    "Your task is not to polish the article. Your task is to rebuild it into a stronger, safer, more original newsroom article while preserving verifiable facts.",
+    "You must preserve the article's database identity, language pair, category, editorial voice and article type. You only return improved text fields.",
+    "Never invent facts, quotes, officials, resident reactions, dates, locations, phone numbers, policies, sanctions, medical claims, or statistics.",
+    "Never add a direct quotation unless the exact quote is present in the source material or the current article and is clearly attributable.",
+    "If quote integrity risk is medium or high, remove all direct quotes that are not exactly supported by the source. Convert them to cautious indirect attribution or remove them.",
+    "If similarity risk is medium or high, do not merely paraphrase sentence-by-sentence. Re-architect the article: new lead, new paragraph order, new sentence structure, no copied rhythm, no copied hooks, no copied closing lines.",
+    "If attribution risk is medium or high, add clear attribution in the first or second paragraph using natural wording such as 'potrivit relatării publicate de sursa citată' or 'potrivit informațiilor publicate de sursa citată'.",
+    "If added value is below 16, add reader value using only supported information: explain who is affected, what public service/operator/authority is involved, why the issue matters locally, what remains unclear, and what practical question readers should watch for.",
+    "For news articles, enforce strict inverted pyramid: first paragraph must answer what happened, where, who is involved/affected, when/duration if known, and why it matters. Later paragraphs add context and limits of what is known.",
+    "Use restrained local-news language. Avoid outrage, exaggeration, advocacy, generic endings, slogans, and AI-style filler.",
+    "Do not include a generic closing paragraph about community spirit, importance, complexity, or the need for solutions unless it contains concrete sourced information.",
+    "Keep paragraphs short: usually 1 to 3 sentences each. Prefer 6 to 9 compact paragraphs for normal local news.",
+    "Romanian text must use natural Romanian journalistic prose with diacritics. English text must be idiomatic but faithful, not a literal machine translation.",
+    "Do not include the source URL inside the article body. Keep attribution textual.",
+    "Do not change slug, status, source URL, author, image, category, IDs, scraped_article_id, analytics, or layout fields.",
+    "Quality target after rewriting: stronger 5W lead, attribution risk low, quote risk low, similarity lower, added value at least 16, AI artifact risk low, type preservation 8 or higher.",
     "Return exactly this JSON shape:",
     JSON.stringify(schema, null, 2)
   ].join("\n")
@@ -319,7 +338,8 @@ function buildSystemPrompt(): string {
 
 function buildUserPrompt(post: BlogPost, source: SourceMaterial | null, report: unknown, articleType: ArticleType, editorKey: string): string {
   return [
-    "Improve this article for AdSense/editorial quality.",
+    "Rewrite this article as a stronger AdSense-ready Transilvania Times newsroom article.",
+    "This is a second-pass improvement. Be more decisive than a light edit.",
     "",
     "EXPECTED ARTICLE TYPE: " + articleType,
     "EXPECTED EDITOR KEY: " + editorKey,
@@ -327,36 +347,40 @@ function buildUserPrompt(post: BlogPost, source: SourceMaterial | null, report: 
     "SUBCATEGORY: " + (post.subcategory || ""),
     "AUTHOR: " + (post.author_name || ""),
     "CURRENT SOURCE URL: " + (post.source_url || ""),
+    "RISK SUMMARY: " + sourceRiskSummary(report),
     "",
-    "QUALITY REPORT / PROBLEMS TO FIX",
-    JSON.stringify(report || {}, null, 2).slice(0, 9000),
+    "PRIOR QUALITY REPORT / PROBLEMS TO FIX",
+    JSON.stringify(report || {}, null, 2).slice(0, 10000),
     "",
-    "SOURCE MATERIAL",
+    "SOURCE MATERIAL - factual boundary. Use it to verify facts, not to copy prose.",
     source ? (JSON.stringify({
       source_type: source.source_type,
       source_url: source.source_url,
       source_title: source.source_title,
-      source_text: truncate(source.source_text, 12000)
+      source_text: truncate(source.source_text, 14000)
     }, null, 2)) : "No source text available. Improve cautiously from current article only. Do not invent new facts.",
     "",
     "CURRENT ROMANIAN ARTICLE",
     "title_ro: " + (post.title_ro || ""),
     "excerpt_ro: " + (post.excerpt_ro || ""),
     "summary_ro: " + (post.summary_ro || ""),
-    "content_ro:\n" + truncate(post.content_ro, 12000),
+    "content_ro:\n" + truncate(post.content_ro, 14000),
     "",
     "CURRENT ENGLISH ARTICLE",
     "title_en: " + (post.title_en || ""),
     "excerpt_en: " + (post.excerpt_en || ""),
     "summary_en: " + (post.summary_en || ""),
-    "content_en:\n" + truncate(post.content_en, 12000),
+    "content_en:\n" + truncate(post.content_en, 14000),
     "",
-    "Hard rules:",
-    "- Preserve factual accuracy over style.",
-    "- Do not make unsupported allegations stronger than the source.",
-    "- Attribute source-dependent claims using wording such as 'potrivit sursei citate' or 'potrivit anunțului/relatării'.",
-    "- Do not include the source URL inside the body unless the current editorial style normally does that.",
-    "- Keep the same article type and a credible newsroom style."
+    "Mandatory rewrite checklist:",
+    "- Write a new lead, not a cleaned-up version of the old lead.",
+    "- Place attribution near the top if the story depends on another publication/source.",
+    "- Remove unsupported direct quotes and avoid quote-like invented wording.",
+    "- Remove generic AI/editorial filler closings.",
+    "- Avoid sentence structures and paragraph order that mirror the source.",
+    "- Add a practical local-news angle using only supported facts: public service, affected residents, operator/authority, duration, uncertainty, or what is pending.",
+    "- Keep allegations cautious: 'potrivit sursei', 'locuitorii semnalează', 'situația descrisă', not definitive claims beyond the source.",
+    "- Keep it concise and publishable; do not over-expand."
   ].join("\n")
 }
 
@@ -440,7 +464,7 @@ serve(async function (req: Request) {
       summary_en: improved.summary_en,
       content_ro: improved.content_ro,
       content_en: improved.content_en,
-      ai_review_reason: "Improved for AdSense/editorial quality at " + new Date().toISOString(),
+      ai_review_reason: "Improved for AdSense/editorial quality v2 at " + new Date().toISOString(),
       updated_at: new Date().toISOString()
     }
 
@@ -459,6 +483,7 @@ serve(async function (req: Request) {
       ok: true,
       post_id: post.id,
       slug: post.slug,
+      improvement_version: "v2_stronger_source_aware_rewrite",
       source_used: source ? {
         source_type: source.source_type,
         source_url: source.source_url,
