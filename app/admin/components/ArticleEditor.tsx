@@ -113,6 +113,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
   const [generating, setGen]               = useState(false)
   const [uploading, setUploading]          = useState(false)
   const [checkingAdsense, setCheckingAdsense] = useState(false)
+  const [improvingAdsense, setImprovingAdsense] = useState(false)
   const [adsenseReport, setAdsenseReport]  = useState<AdsenseQualityReport | null>(null)
   const [msg, setMsg]                      = useState('')
   const uploadRef                          = useRef<HTMLInputElement>(null)
@@ -183,6 +184,23 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
     if (articleType === 'cultura' || data.category === 'culture' || data.category === 'travel') return 'lucian_bratu'
     if (data.category === 'health') return 'sofia_marinescu'
     return 'victor_simon'
+  }
+
+  function refreshArticleState(d: any) {
+    if (!d) return
+    setData(prev => ({
+      ...prev,
+      title_ro:    d.title_ro    ?? prev.title_ro,
+      title_en:    d.title_en    ?? prev.title_en,
+      content_ro:  d.content_ro  ?? prev.content_ro,
+      content_en:  d.content_en  ?? prev.content_en,
+      excerpt_ro:  d.excerpt_ro  ?? prev.excerpt_ro,
+      excerpt_en:  d.excerpt_en  ?? prev.excerpt_en,
+      summary_ro:  d.summary_ro  ?? prev.summary_ro,
+      summary_en:  d.summary_en  ?? prev.summary_en,
+      author_name: d.author_name ?? prev.author_name,
+      ai_editor:   d.ai_editor   ?? prev.ai_editor,
+    }))
   }
 
   async function save(newStatus?: string) {
@@ -276,19 +294,8 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
       if (!result?.ok) throw new Error(result?.error || 'Rescriere eșuată')
  
       const { data: d } = await supabase.from('blog_posts').select('*').eq('id', articleId).single()
-      if (d) setData(prev => ({
-        ...prev,
-        title_ro:    d.title_ro    ?? prev.title_ro,
-        title_en:    d.title_en    ?? prev.title_en,
-        content_ro:  d.content_ro  ?? prev.content_ro,
-        content_en:  d.content_en  ?? prev.content_en,
-        excerpt_ro:  d.excerpt_ro  ?? prev.excerpt_ro,
-        excerpt_en:  d.excerpt_en  ?? prev.excerpt_en,
-        summary_ro:  d.summary_ro  ?? prev.summary_ro,
-        summary_en:  d.summary_en  ?? prev.summary_en,
-        author_name: d.author_name ?? prev.author_name,
-        ai_editor:   d.ai_editor   ?? prev.ai_editor,
-      }))
+      refreshArticleState(d)
+      setAdsenseReport(null)
       flash(`✓ Rescris de ${result.editor || 'redactor'}`)
     } catch (err) {
       flash('Eroare rescriere: ' + (err as Error).message)
@@ -328,6 +335,45 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
       setCheckingAdsense(false)
     }
   }
+
+  // ── ADSENSE IMPROVE ───────────────────────────────────────────────────────
+  async function improveAdsenseQuality() {
+    if (!articleId) { flash('Salvați mai întâi articolul.'); return }
+
+    const articleType = expectedArticleType()
+    const editorKey = expectedEditorKey(articleType)
+
+    setImprovingAdsense(true)
+    flash('Îmbunătățesc articolul pentru AdSense...')
+
+    try {
+      const { data: result, error } = await supabase.functions.invoke('tt-improve-adsense', {
+        body: {
+          blog_post_id: articleId,
+          expected_article_type: articleType,
+          expected_editor_key: editorKey,
+          quality_report: adsenseReport || undefined,
+        },
+      })
+
+      if (error) throw error
+      if (!result?.ok) throw new Error(result?.error || 'Îmbunătățire eșuată')
+
+      if (result.updated_post) {
+        refreshArticleState(result.updated_post)
+      } else {
+        const { data: d } = await supabase.from('blog_posts').select('*').eq('id', articleId).single()
+        refreshArticleState(d)
+      }
+
+      setAdsenseReport(null)
+      flash('✓ Articol îmbunătățit. Rulează din nou Verifică AdSense.')
+    } catch (err) {
+      flash('Eroare îmbunătățire AdSense: ' + (err as Error).message)
+    } finally {
+      setImprovingAdsense(false)
+    }
+  }
  
   if (loading) {
     return (
@@ -357,24 +403,31 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
             }`}>{msg}</span>
           )}
           {articleId && (
-            <button onClick={aiRewrite} disabled={generating}
+            <button onClick={aiRewrite} disabled={generating || improvingAdsense}
               className="flex items-center gap-2 font-sans text-[12px] px-3 py-2 bg-purple-600/20 border border-purple-500/30 text-purple-300 hover:bg-purple-600/30 transition-colors disabled:opacity-50">
-              <Wand2 className="w-3.5 h-3.5" />
+              {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
               AI Rescrie
             </button>
           )}
           {articleId && (
-            <button onClick={checkAdsenseQuality} disabled={checkingAdsense}
+            <button onClick={checkAdsenseQuality} disabled={checkingAdsense || improvingAdsense}
               className="flex items-center gap-2 font-sans text-[12px] px-3 py-2 bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/30 transition-colors disabled:opacity-50">
               {checkingAdsense ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
               Verifică AdSense
             </button>
           )}
-          <button onClick={() => save()} disabled={saving}
+          {articleId && (
+            <button onClick={improveAdsenseQuality} disabled={improvingAdsense || checkingAdsense || generating}
+              className="flex items-center gap-2 font-sans text-[12px] px-3 py-2 bg-orange-600/20 border border-orange-500/30 text-orange-300 hover:bg-orange-600/30 transition-colors disabled:opacity-50">
+              {improvingAdsense ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+              Îmbunătățește AdSense
+            </button>
+          )}
+          <button onClick={() => save()} disabled={saving || improvingAdsense}
             className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-[#1a1a1a] border border-white/10 text-white hover:border-white/30 transition-colors disabled:opacity-50">
             <Save className="w-3.5 h-3.5" /> Salvează
           </button>
-          <button onClick={() => save('published')} disabled={saving}
+          <button onClick={() => save('published')} disabled={saving || improvingAdsense}
             className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-brand-red text-white hover:bg-red-700 transition-colors disabled:opacity-50">
             <Globe className="w-3.5 h-3.5" /> Publică
           </button>
