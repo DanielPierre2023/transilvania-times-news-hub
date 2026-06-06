@@ -349,7 +349,41 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
       })
 
       if (error) throw error
-      if (!result?.ok) throw new Error(result?.error || 'Îmbunătățire eșuată')
+
+if (!result?.ok) {
+  const details: string[] = []
+
+  if (Array.isArray(result?.validation_problems) && result.validation_problems.length > 0) {
+    details.push(`Probleme: ${result.validation_problems.join(', ')}`)
+  }
+
+  if (result?.editorial_no_go_detected) {
+    details.push('Editorial no-go detectat')
+  }
+
+  if (result?.language_leak_detected) {
+    details.push('Cuvinte EN detectate în textul RO')
+  }
+
+  if (result?.forbidden_public_citation_detected) {
+    details.push('Textul menționează sursa internă / materialul de bază')
+  }
+
+  if (result?.improved_word_count_ro || result?.improved_paragraph_count_ro) {
+    details.push(
+      `Output: ${result.improved_word_count_ro ?? 'n/a'} cuvinte, ${result.improved_paragraph_count_ro ?? 'n/a'} paragrafe`
+    )
+  }
+
+  if (result?.raw_preview) {
+    details.push(`Preview: ${String(result.raw_preview).slice(0, 240)}`)
+  }
+
+  throw new Error([
+    result?.error || 'Îmbunătățire eșuată',
+    ...details,
+  ].join(' | '))
+}
 
       if (result.updated_post) {
         refreshArticleState(result.updated_post)
