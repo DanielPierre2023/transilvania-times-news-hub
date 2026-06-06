@@ -64,6 +64,20 @@ interface AdsenseQualityReport {
     issues?: string[]
     recommendations?: string[]
   }
+  source_comparison_review?: {
+    available?: boolean
+    source_type?: string
+    source_url?: string | null
+    similarity_risk?: string
+    quote_integrity_risk?: string
+    attribution_risk?: string
+    value_added_score?: number
+    copied_or_near_copied_fragments?: string[]
+    altered_or_unverified_quotes?: string[]
+    missing_source_facts?: string[]
+    added_value_detected?: string[]
+    recommendations?: string[]
+  }
 }
 
 const EMPTY: ArticleData = {
@@ -250,11 +264,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
   }
 
   // ── AI REWRITE — v6 ───────────────────────────────────────────────────────
-  // Calls tt-rewrite-blog-post which re-runs the v6 pipeline. The function
-  // updates blog_posts in place (writing seo_*, tags_*, ai_editor, author_name
-  // server-side). This handler only refreshes the fields exposed in the
-  // local ArticleData state — the editor's other fields are
-  // backend-managed and shown read-only when this page reloads.
   async function aiRewrite() {
     if (!articleId) { flash('Salvați mai întâi articolul.'); return }
     setGen(true)
@@ -266,7 +275,6 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
       if (error) throw error
       if (!result?.ok) throw new Error(result?.error || 'Rescriere eșuată')
  
-      // Reload only the fields ArticleData declares
       const { data: d } = await supabase.from('blog_posts').select('*').eq('id', articleId).single()
       if (d) setData(prev => ({
         ...prev,
@@ -454,6 +462,98 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
               </p>
             </div>
           </div>
+
+          {adsenseReport.source_comparison_review && (
+            <div className="mt-5 pt-5 border-t border-white/[0.07]">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <p className="font-sans text-[11px] uppercase tracking-widest text-orange-300 mb-1">
+                    Source comparison
+                  </p>
+                  <p className="font-sans text-[12px] text-white/40">
+                    {adsenseReport.source_comparison_review.available ? 'Original source text was compared.' : 'No original source text available for comparison.'}
+                  </p>
+                </div>
+                <span className="font-sans text-[11px] uppercase tracking-widest px-3 py-1.5 border border-orange-400/30 bg-orange-400/10 text-orange-300">
+                  {adsenseReport.source_comparison_review.available ? 'AVAILABLE' : 'UNAVAILABLE'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+                <div className="bg-black/30 border border-white/[0.06] p-3">
+                  <p className="font-sans text-[10px] text-white/30 uppercase tracking-widest mb-1">Source type</p>
+                  <p className="font-sans text-[12px] text-white/70">{adsenseReport.source_comparison_review.source_type || 'none'}</p>
+                </div>
+                <div className="bg-black/30 border border-white/[0.06] p-3">
+                  <p className="font-sans text-[10px] text-white/30 uppercase tracking-widest mb-1">Similarity</p>
+                  <p className="font-sans text-[12px] text-white/70">{adsenseReport.source_comparison_review.similarity_risk || 'n/a'}</p>
+                </div>
+                <div className="bg-black/30 border border-white/[0.06] p-3">
+                  <p className="font-sans text-[10px] text-white/30 uppercase tracking-widest mb-1">Quote integrity</p>
+                  <p className="font-sans text-[12px] text-white/70">{adsenseReport.source_comparison_review.quote_integrity_risk || 'n/a'}</p>
+                </div>
+                <div className="bg-black/30 border border-white/[0.06] p-3">
+                  <p className="font-sans text-[10px] text-white/30 uppercase tracking-widest mb-1">Attribution</p>
+                  <p className="font-sans text-[12px] text-white/70">{adsenseReport.source_comparison_review.attribution_risk || 'n/a'}</p>
+                </div>
+                <div className="bg-black/30 border border-white/[0.06] p-3">
+                  <p className="font-sans text-[10px] text-white/30 uppercase tracking-widest mb-1">Added value</p>
+                  <p className="font-sans text-[12px] text-white/70">{adsenseReport.source_comparison_review.value_added_score ?? 'n/a'}</p>
+                </div>
+              </div>
+
+              {adsenseReport.source_comparison_review.source_url && (
+                <p className="font-sans text-[12px] text-white/40 mb-4 break-all">
+                  Source: {adsenseReport.source_comparison_review.source_url}
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <p className="font-sans text-[11px] uppercase tracking-widest text-red-300 mb-2">Copied / near-copied</p>
+                  {(adsenseReport.source_comparison_review.copied_or_near_copied_fragments || []).length > 0 ? (
+                    <ul className="space-y-1">
+                      {(adsenseReport.source_comparison_review.copied_or_near_copied_fragments || []).slice(0, 5).map((item, i) => (
+                        <li key={i} className="font-sans text-[12px] text-white/60">• {item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="font-sans text-[12px] text-white/30">No near-copied fragments flagged.</p>
+                  )}
+                </div>
+                <div>
+                  <p className="font-sans text-[11px] uppercase tracking-widest text-yellow-300 mb-2">Missing / altered source facts</p>
+                  {((adsenseReport.source_comparison_review.missing_source_facts || []).length > 0 || (adsenseReport.source_comparison_review.altered_or_unverified_quotes || []).length > 0) ? (
+                    <ul className="space-y-1">
+                      {(adsenseReport.source_comparison_review.missing_source_facts || []).slice(0, 4).map((item, i) => (
+                        <li key={`fact-${i}`} className="font-sans text-[12px] text-white/60">• {item}</li>
+                      ))}
+                      {(adsenseReport.source_comparison_review.altered_or_unverified_quotes || []).slice(0, 4).map((item, i) => (
+                        <li key={`quote-${i}`} className="font-sans text-[12px] text-white/60">• {item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="font-sans text-[12px] text-white/30">No altered quotes or missing source facts flagged.</p>
+                  )}
+                </div>
+                <div>
+                  <p className="font-sans text-[11px] uppercase tracking-widest text-green-300 mb-2">Added value / recommendations</p>
+                  {((adsenseReport.source_comparison_review.added_value_detected || []).length > 0 || (adsenseReport.source_comparison_review.recommendations || []).length > 0) ? (
+                    <ul className="space-y-1">
+                      {(adsenseReport.source_comparison_review.added_value_detected || []).slice(0, 3).map((item, i) => (
+                        <li key={`value-${i}`} className="font-sans text-[12px] text-white/60">• {item}</li>
+                      ))}
+                      {(adsenseReport.source_comparison_review.recommendations || []).slice(0, 4).map((item, i) => (
+                        <li key={`rec-${i}`} className="font-sans text-[12px] text-white/60">• {item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="font-sans text-[12px] text-white/30">No additional source recommendations.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
