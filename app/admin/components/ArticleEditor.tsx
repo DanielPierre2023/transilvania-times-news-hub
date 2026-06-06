@@ -339,7 +339,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
     flash('Îmbunătățesc articolul pentru AdSense...')
 
     try {
-      const { data: result, error } = await supabase.functions.invoke('tt-improve-adsense', {
+      const { data: result, error } = await supabase.functions.invoke('tt-improve-for-adsense', {
         body: {
           blog_post_id: articleId,
           expected_article_type: articleType,
