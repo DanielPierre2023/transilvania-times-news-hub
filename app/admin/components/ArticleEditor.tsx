@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Save, Globe, ArrowLeft, Wand2, Upload, X, Loader2 } from 'lucide-react'
+import { Save, Globe, ArrowLeft, Wand2, Upload, X, Loader2, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 
 const CATEGORIES = [
@@ -11,6 +11,8 @@ const CATEGORIES = [
   'culture', 'travel', 'education', 'sports', 'health', 'opinion',
 ]
 const SUBCATEGORIES = ['regional', 'national', 'international']
+
+type ArticleType = 'news' | 'editorial' | 'opinie' | 'analiza' | 'pamflet' | 'blog' | 'reportaj' | 'cultura' | 'tehnologie'
 
 interface ArticleEditorProps {
   articleId?: string
@@ -25,13 +27,50 @@ interface ArticleData {
   category: string; subcategory: string
   cover_image: string; cover_image_credit: string; author_name: string
   status: string; is_breaking: boolean; source_url: string
+  ai_editor: string
+}
+
+interface AdsenseQualityReport {
+  ok: boolean
+  total_score: number
+  status: 'PASS' | 'NEEDS_EDIT' | 'HIGH_RISK' | string
+  risk_level: 'low' | 'medium' | 'high' | string
+  scores?: Record<string, number>
+  verdict_ro?: string
+  verdict_en?: string
+  must_fix_before_publish?: string[]
+  recommendations?: string[]
+  policy_risks?: string[]
+  strengths?: string[]
+  adsense_notes?: Record<string, string>
+  ai_artifact_review?: {
+    score?: number
+    risk?: string
+    issues?: string[]
+    typography_issues?: string[]
+    rhythm_issues?: string[]
+    cliche_issues?: string[]
+    quote_and_punctuation_issues?: string[]
+    recommendations?: string[]
+  }
+  voice_and_type_review?: {
+    expected_editor_key?: string | null
+    expected_article_type?: string
+    detected_editor_voice?: string | null
+    detected_article_type?: string
+    voice_preservation_score?: number
+    type_preservation_score?: number
+    risk?: string
+    issues?: string[]
+    recommendations?: string[]
+  }
 }
 
 const EMPTY: ArticleData = {
   slug: '', title_ro: '', title_en: '', content_ro: '', content_en: '',
   excerpt_ro: '', excerpt_en: '', summary_ro: '', summary_en: '',
   category: 'news', subcategory: '', cover_image: '', cover_image_credit: '',
-  author_name: '', status: 'draft', is_breaking: false, source_url: '',
+  author_name: '', status: 'draft', is_breaking: false, source_url: '', ai_editor: '',
 }
 
 // ─── FIELD WRAPPER — module level (critical: must NOT be inside component) ────
@@ -53,14 +92,16 @@ const ta  = inp + " resize-none leading-relaxed"
 
 export default function ArticleEditor({ articleId }: ArticleEditorProps) {
   const router = useRouter()
-  const [data, setData]           = useState<ArticleData>(EMPTY)
-  const [loading, setLoading]     = useState(!!articleId)
-  const [saving, setSaving]       = useState(false)
-  const [tab, setTab]             = useState<'ro' | 'en'>('ro')
-  const [generating, setGen]      = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [msg, setMsg]             = useState('')
-  const uploadRef                 = useRef<HTMLInputElement>(null)
+  const [data, setData]                    = useState<ArticleData>(EMPTY)
+  const [loading, setLoading]              = useState(!!articleId)
+  const [saving, setSaving]                = useState(false)
+  const [tab, setTab]                      = useState<'ro' | 'en'>('ro')
+  const [generating, setGen]               = useState(false)
+  const [uploading, setUploading]          = useState(false)
+  const [checkingAdsense, setCheckingAdsense] = useState(false)
+  const [adsenseReport, setAdsenseReport]  = useState<AdsenseQualityReport | null>(null)
+  const [msg, setMsg]                      = useState('')
+  const uploadRef                          = useRef<HTMLInputElement>(null)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -89,6 +130,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
           status:             d.status            ?? 'draft',
           is_breaking:        d.is_breaking       ?? false,
           source_url:         d.source_url        ?? '',
+          ai_editor:          d.ai_editor         ?? '',
         })
         setLoading(false)
       })
@@ -105,6 +147,29 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
   }
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 4000) }
+
+  function expectedArticleType(): ArticleType {
+    const sub = data.subcategory.toLowerCase()
+    const cat = data.category.toLowerCase()
+
+    if (sub.includes('pamflet')) return 'pamflet'
+    if (sub.includes('reportaj')) return 'reportaj'
+    if (sub.includes('analiza') || sub.includes('analysis')) return 'analiza'
+    if (sub.includes('blog')) return 'blog'
+    if (cat === 'technology') return 'tehnologie'
+    if (cat === 'culture') return 'cultura'
+    if (cat === 'opinion') return 'opinie'
+    return 'news'
+  }
+
+  function expectedEditorKey(articleType: ArticleType): string {
+    if (data.ai_editor) return data.ai_editor
+    if (articleType === 'tehnologie' || data.category === 'technology') return 'daniel_dobos'
+    if (data.category === 'politics') return 'andrei_popescu'
+    if (articleType === 'cultura' || data.category === 'culture' || data.category === 'travel') return 'lucian_bratu'
+    if (data.category === 'health') return 'sofia_marinescu'
+    return 'victor_simon'
+  }
 
   async function save(newStatus?: string) {
     setSaving(true)
@@ -184,7 +249,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
     setGen(false)
   }
 
-// ── AI REWRITE — v6 ───────────────────────────────────────────────────────
+  // ── AI REWRITE — v6 ───────────────────────────────────────────────────────
   // Calls tt-rewrite-blog-post which re-runs the v6 pipeline. The function
   // updates blog_posts in place (writing seo_*, tags_*, ai_editor, author_name
   // server-side). This handler only refreshes the fields exposed in the
@@ -214,12 +279,45 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
         summary_ro:  d.summary_ro  ?? prev.summary_ro,
         summary_en:  d.summary_en  ?? prev.summary_en,
         author_name: d.author_name ?? prev.author_name,
+        ai_editor:   d.ai_editor   ?? prev.ai_editor,
       }))
       flash(`✓ Rescris de ${result.editor || 'redactor'}`)
     } catch (err) {
       flash('Eroare rescriere: ' + (err as Error).message)
     } finally {
       setGen(false)
+    }
+  }
+
+  // ── ADSENSE QUALITY CHECK ─────────────────────────────────────────────────
+  async function checkAdsenseQuality() {
+    if (!articleId) { flash('Salvați mai întâi articolul.'); return }
+
+    const articleType = expectedArticleType()
+    const editorKey = expectedEditorKey(articleType)
+
+    setCheckingAdsense(true)
+    setAdsenseReport(null)
+    flash('Verific AdSense quality...')
+
+    try {
+      const { data: result, error } = await supabase.functions.invoke('tt-adsense-quality-check', {
+        body: {
+          blog_post_id: articleId,
+          expected_article_type: articleType,
+          expected_editor_key: editorKey,
+        },
+      })
+
+      if (error) throw error
+      if (!result?.ok) throw new Error(result?.error || 'Verificare eșuată')
+
+      setAdsenseReport(result as AdsenseQualityReport)
+      flash(`✓ AdSense: ${result.status} (${result.total_score}/100)`)
+    } catch (err) {
+      flash('Eroare AdSense: ' + (err as Error).message)
+    } finally {
+      setCheckingAdsense(false)
     }
   }
  
@@ -257,6 +355,13 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
               AI Rescrie
             </button>
           )}
+          {articleId && (
+            <button onClick={checkAdsenseQuality} disabled={checkingAdsense}
+              className="flex items-center gap-2 font-sans text-[12px] px-3 py-2 bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/30 transition-colors disabled:opacity-50">
+              {checkingAdsense ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              Verifică AdSense
+            </button>
+          )}
           <button onClick={() => save()} disabled={saving}
             className="flex items-center gap-2 font-sans text-[12px] px-4 py-2 bg-[#1a1a1a] border border-white/10 text-white hover:border-white/30 transition-colors disabled:opacity-50">
             <Save className="w-3.5 h-3.5" /> Salvează
@@ -267,6 +372,90 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
           </button>
         </div>
       </div>
+
+      {adsenseReport && (
+        <div className="mb-6 bg-[#1a1a1a] border border-emerald-500/20 p-5">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4">
+            <div>
+              <p className="font-sans text-[11px] uppercase tracking-widest text-emerald-300 mb-2">
+                AdSense Editorial Quality Check
+              </p>
+              <h2 className="font-serif text-xl font-bold text-white">
+                {adsenseReport.status} · {adsenseReport.total_score}/100
+              </h2>
+              <p className="font-sans text-sm text-white/50 mt-1">
+                Risc: {adsenseReport.risk_level} · Tip: {adsenseReport.voice_and_type_review?.expected_article_type || 'news'} · Editor: {adsenseReport.voice_and_type_review?.expected_editor_key || 'auto'}
+              </p>
+            </div>
+            <span className={`font-sans text-[11px] uppercase tracking-widest px-3 py-1.5 border ${
+              adsenseReport.status === 'PASS'
+                ? 'text-green-300 border-green-400/30 bg-green-400/10'
+                : adsenseReport.status === 'HIGH_RISK'
+                  ? 'text-red-300 border-red-400/30 bg-red-400/10'
+                  : 'text-yellow-300 border-yellow-400/30 bg-yellow-400/10'
+            }`}>
+              {adsenseReport.status}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
+            {adsenseReport.scores && Object.entries(adsenseReport.scores).map(([key, value]) => (
+              <div key={key} className="bg-black/30 border border-white/[0.06] p-3">
+                <p className="font-sans text-[10px] text-white/30 uppercase tracking-widest mb-1">{key.replace(/_/g, ' ')}</p>
+                <p className="font-sans text-sm text-white font-bold">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {adsenseReport.verdict_ro && (
+            <p className="font-sans text-sm text-white/70 border-l-2 border-emerald-400/50 pl-3 mb-4">
+              {adsenseReport.verdict_ro}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <p className="font-sans text-[11px] uppercase tracking-widest text-red-300 mb-2">De reparat înainte de publicare</p>
+              {(adsenseReport.must_fix_before_publish || []).length > 0 ? (
+                <ul className="space-y-1">
+                  {(adsenseReport.must_fix_before_publish || []).map((item, i) => (
+                    <li key={i} className="font-sans text-[12px] text-white/60">• {item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="font-sans text-[12px] text-white/30">Nicio problemă critică.</p>
+              )}
+            </div>
+            <div>
+              <p className="font-sans text-[11px] uppercase tracking-widest text-yellow-300 mb-2">Recomandări</p>
+              {(adsenseReport.recommendations || []).length > 0 ? (
+                <ul className="space-y-1">
+                  {(adsenseReport.recommendations || []).slice(0, 5).map((item, i) => (
+                    <li key={i} className="font-sans text-[12px] text-white/60">• {item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="font-sans text-[12px] text-white/30">Nu există recomandări.</p>
+              )}
+            </div>
+            <div>
+              <p className="font-sans text-[11px] uppercase tracking-widest text-blue-300 mb-2">AI / voce editorială</p>
+              <p className="font-sans text-[12px] text-white/60">
+                AI artifact risk: {adsenseReport.ai_artifact_review?.risk || 'n/a'}
+              </p>
+              <p className="font-sans text-[12px] text-white/60">
+                Voice risk: {adsenseReport.voice_and_type_review?.risk || 'n/a'}
+              </p>
+              <p className="font-sans text-[12px] text-white/60">
+                Voice score: {adsenseReport.voice_and_type_review?.voice_preservation_score ?? 'n/a'}
+              </p>
+              <p className="font-sans text-[12px] text-white/60">
+                Type score: {adsenseReport.voice_and_type_review?.type_preservation_score ?? 'n/a'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
