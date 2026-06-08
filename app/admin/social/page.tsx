@@ -71,21 +71,30 @@ function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: numb
 
 function drawArrow(ctx: CanvasRenderingContext2D, cx: number, y: number, size: number, color: string) {
   ctx.save()
-  ctx.strokeStyle = color
-  ctx.lineWidth = 1.8
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  // Stem
-  ctx.beginPath()
-  ctx.moveTo(cx, y)
-  ctx.lineTo(cx, y + size * 0.7)
-  ctx.stroke()
-  // Chevron head
-  ctx.beginPath()
-  ctx.moveTo(cx - size * 0.3, y + size * 0.45)
-  ctx.lineTo(cx, y + size * 0.7)
-  ctx.lineTo(cx + size * 0.3, y + size * 0.45)
-  ctx.stroke()
+  ctx.fillStyle = color
+
+  const w = size * 0.7   // width of each chevron
+  const h = size * 0.38  // height of each chevron
+  const t = size * 0.14  // thickness of chevron arms
+  const gap = size * 0.08 // gap between the two chevrons
+
+  // Draw two filled chevrons pointing down
+  for (let c = 0; c < 2; c++) {
+    const top = y + c * (h + gap)
+
+    ctx.beginPath()
+    // Outer V shape
+    ctx.moveTo(cx - w / 2, top)
+    ctx.lineTo(cx, top + h)
+    ctx.lineTo(cx + w / 2, top)
+    // Inner V (cut-out to create thickness)
+    ctx.lineTo(cx + w / 2 - t, top + t * 0.3)
+    ctx.lineTo(cx, top + h - t)
+    ctx.lineTo(cx - w / 2 + t, top + t * 0.3)
+    ctx.closePath()
+    ctx.fill()
+  }
+
   ctx.restore()
 }
 
@@ -151,7 +160,7 @@ async function renderEditorial(
 
   // Arrow next to CTA text
   const ctaTextW = ctx.measureText(ctaEn).width
-  drawArrow(ctx, pad + ctaTextW + 18, bottomY - ctaFs * 1.6, ctaFs * 1.8, B.red)
+  drawArrow(ctx, pad + ctaTextW + 18, bottomY - ctaFs * 1.6, ctaFs * 2.8, B.red)
 
   // Logo (right side)
   try {
@@ -245,7 +254,7 @@ async function renderImmersive(
 
   // Arrow
   const ctaW = ctx.measureText(ctaEn).width
-  drawArrow(ctx, pad + ctaW + 18, bottomY - ctaFs * 1.6, ctaFs * 1.8, B.amber)
+  drawArrow(ctx, pad + ctaW + 18, bottomY - ctaFs * 1.6, ctaFs * 2.8, B.red)
 
   // Logo (right, white-on-dark works with the gradient)
   try {
