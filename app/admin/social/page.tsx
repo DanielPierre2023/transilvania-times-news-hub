@@ -2,9 +2,9 @@
 
 // app/admin/social/page.tsx
 //
-// Social media image generator for Transilvania Times.
-// Composites: article cover photo + title + CTA arrow + TT logo
-// into downloadable publication-grade images for social platforms.
+// Social media image generator — two publication-grade styles:
+//   EDITORIAL: Photo top + cream text area (Guardian-inspired)
+//   IMERSIV:   Full-bleed photo with title overlay (NYT-inspired)
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
@@ -13,245 +13,261 @@ import { Download, RefreshCw, Image as ImageIcon } from 'lucide-react'
 // ─── FORMATS ──────────────────────────────────────────────────────────────────
 
 interface Format {
-  label: string
-  width: number
-  height: number
-  imageRatio: number
-  titleSize: number
-  logoSize: number
+  label: string; width: number; height: number
 }
 
 const FORMATS: Record<string, Format> = {
-  square: {
-    label: 'Instagram / Facebook (1080×1080)',
-    width: 1080, height: 1080,
-    imageRatio: 0.58, titleSize: 50, logoSize: 90,
-  },
-  landscape: {
-    label: 'Facebook / Twitter (1200×630)',
-    width: 1200, height: 630,
-    imageRatio: 0.52, titleSize: 38, logoSize: 70,
-  },
-  story: {
-    label: 'Instagram Story (1080×1920)',
-    width: 1080, height: 1920,
-    imageRatio: 0.50, titleSize: 54, logoSize: 100,
-  },
+  square:    { label: 'Instagram / Facebook', width: 1080, height: 1080 },
+  landscape: { label: 'Facebook / Twitter',   width: 1200, height: 630  },
+  story:     { label: 'Instagram Story',      width: 1080, height: 1920 },
 }
 
 // ─── BRAND ────────────────────────────────────────────────────────────────────
 
-const BRAND = {
+const B = {
   red: '#C41E3A',
   navy: '#0D1B4B',
+  amber: '#F0A500',
+  cream: '#F5F4F0',
   nearBlack: '#1A1A1A',
-  darkGray: '#2A2A2A',
-  medGray: '#666666',
   white: '#FFFFFF',
-  bgLight: '#FFFFFF',
 }
+
+type Style = 'editorial' | 'immersive'
 
 // ─── CANVAS HELPERS ───────────────────────────────────────────────────────────
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new window.Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error(`Failed to load: ${src}`))
+    img.onerror = () => reject(new Error(`Load failed: ${src}`))
     img.src = src
   })
 }
 
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  fontSize: number,
-  fontFamily: string,
-): string[] {
-  ctx.font = `bold ${fontSize}px ${fontFamily}`
+function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, font: string): string[] {
+  ctx.font = font
   const words = text.split(' ')
   const lines: string[] = []
-  let currentLine = ''
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word
-    if (ctx.measureText(testLine).width > maxWidth && currentLine) {
-      lines.push(currentLine)
-      currentLine = word
-    } else {
-      currentLine = testLine
-    }
+  let cur = ''
+  for (const w of words) {
+    const test = cur ? `${cur} ${w}` : w
+    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w }
+    else cur = test
   }
-  if (currentLine) lines.push(currentLine)
+  if (cur) lines.push(cur)
   return lines
 }
 
-function drawElegantArrow(
-  ctx: CanvasRenderingContext2D,
-  cx: number, // center x
-  topY: number, // top of arrow
-  height: number, // total arrow height
-  color: string,
-) {
-  const stemWidth = 1.5
-  const headWidth = 10
-  const headHeight = 12
-  const stemEnd = topY + height - headHeight
-
-  ctx.strokeStyle = color
-  ctx.fillStyle = color
-  ctx.lineWidth = stemWidth
-  ctx.lineCap = 'round'
-
-  // Stem
-  ctx.beginPath()
-  ctx.moveTo(cx, topY)
-  ctx.lineTo(cx, stemEnd)
-  ctx.stroke()
-
-  // Arrowhead (chevron style — elegant, not filled triangle)
-  ctx.lineWidth = 1.5
-  ctx.beginPath()
-  ctx.moveTo(cx - headWidth, stemEnd)
-  ctx.lineTo(cx, stemEnd + headHeight)
-  ctx.lineTo(cx + headWidth, stemEnd)
-  ctx.stroke()
+function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: number, h: number) {
+  const sa = img.width / img.height, da = w / h
+  let sx = 0, sy = 0, sw = img.width, sh = img.height
+  if (sa > da) { sw = img.height * da; sx = (img.width - sw) / 2 }
+  else { sh = img.width / da; sy = (img.height - sh) / 2 }
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h)
 }
 
-async function generateSocialImage(
-  coverUrl: string,
-  title: string,
-  logoUrl: string,
-  format: Format,
-  ctaRo: string,
-  ctaEn: string,
+function drawArrow(ctx: CanvasRenderingContext2D, cx: number, y: number, size: number, color: string) {
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1.8
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  // Stem
+  ctx.beginPath()
+  ctx.moveTo(cx, y)
+  ctx.lineTo(cx, y + size * 0.7)
+  ctx.stroke()
+  // Chevron head
+  ctx.beginPath()
+  ctx.moveTo(cx - size * 0.3, y + size * 0.45)
+  ctx.lineTo(cx, y + size * 0.7)
+  ctx.lineTo(cx + size * 0.3, y + size * 0.45)
+  ctx.stroke()
+  ctx.restore()
+}
+
+// ─── EDITORIAL STYLE (Guardian-inspired) ──────────────────────────────────────
+
+async function renderEditorial(
+  coverUrl: string, title: string, logoUrl: string,
+  format: Format, ctaRo: string, ctaEn: string,
 ): Promise<string> {
+  const { width: W, height: H } = format
   const canvas = document.createElement('canvas')
-  canvas.width = format.width
-  canvas.height = format.height
+  canvas.width = W; canvas.height = H
   const ctx = canvas.getContext('2d')!
-
-  const pad = Math.round(format.width * 0.06)
-  const imageH = Math.round(format.height * format.imageRatio)
-  const textAreaH = format.height - imageH
-  const serif = 'Georgia, "Times New Roman", Times, serif'
+  const pad = Math.round(W * 0.06)
+  const serif = 'Georgia, "Times New Roman", serif'
   const sans = '"Helvetica Neue", Helvetica, Arial, sans-serif'
+  const imgH = Math.round(H * 0.58)
+  const textH = H - imgH
 
-  // ── 1. Cover image with bottom gradient fade ──────────────────────────
-  try {
-    const coverImg = await loadImage(coverUrl)
-    const srcAspect = coverImg.width / coverImg.height
-    const dstAspect = format.width / imageH
-    let sx = 0, sy = 0, sw = coverImg.width, sh = coverImg.height
-    if (srcAspect > dstAspect) {
-      sw = coverImg.height * dstAspect
-      sx = (coverImg.width - sw) / 2
-    } else {
-      sh = coverImg.width / dstAspect
-      sy = (coverImg.height - sh) / 2
-    }
-    ctx.drawImage(coverImg, sx, sy, sw, sh, 0, 0, format.width, imageH)
+  // 1. Cover photo
+  try { const img = await loadImg(coverUrl); drawCover(ctx, img, W, imgH) }
+  catch { ctx.fillStyle = B.navy; ctx.fillRect(0, 0, W, imgH) }
 
-    // Subtle gradient at bottom of photo for smooth transition
-    const grad = ctx.createLinearGradient(0, imageH - 60, 0, imageH)
-    grad.addColorStop(0, 'rgba(255,255,255,0)')
-    grad.addColorStop(1, 'rgba(255,255,255,0.15)')
-    ctx.fillStyle = grad
-    ctx.fillRect(0, imageH - 60, format.width, 60)
-  } catch {
-    ctx.fillStyle = BRAND.navy
-    ctx.fillRect(0, 0, format.width, imageH)
-  }
+  // 2. Red accent bar
+  ctx.fillStyle = B.red
+  ctx.fillRect(0, imgH, W, 5)
 
-  // ── 2. Red accent line ────────────────────────────────────────────────
-  ctx.fillStyle = BRAND.red
-  ctx.fillRect(0, imageH, format.width, 5)
+  // 3. Cream text area
+  ctx.fillStyle = B.cream
+  ctx.fillRect(0, imgH + 5, W, textH - 5)
 
-  // ── 3. White background for text area (matches logo background) ───────
-  ctx.fillStyle = BRAND.bgLight
-  ctx.fillRect(0, imageH + 5, format.width, textAreaH - 5)
+  // 4. Navy left accent strip (4px, editorial mark)
+  ctx.fillStyle = B.navy
+  ctx.fillRect(pad - 14, imgH + 5 + pad * 0.5, 4, textH - 5 - pad)
 
-  // ── 4. Title text ─────────────────────────────────────────────────────
-  const textMaxW = format.width - pad * 2
-  const titleTop = imageH + 5 + pad * 0.7
+  // 5. Title
+  let fs = Math.round(W * 0.046)
+  let lines = wrap(ctx, title, W - pad * 2 - 10, `bold ${fs}px ${serif}`)
+  const maxL = H > 1200 ? 7 : 4
+  while (lines.length > maxL && fs > 24) { fs -= 2; lines = wrap(ctx, title, W - pad * 2 - 10, `bold ${fs}px ${serif}`) }
+  const lh = fs * 1.2
+  const titleTop = imgH + 5 + pad * 0.65
 
-  let fontSize = format.titleSize
-  let lines = wrapText(ctx, title, textMaxW, fontSize, serif)
-  const maxLines = format.label.includes('Story') ? 6 : 4
-  while (lines.length > maxLines && fontSize > 26) {
-    fontSize -= 2
-    lines = wrapText(ctx, title, textMaxW, fontSize, serif)
-  }
-
-  const lineHeight = fontSize * 1.22
-  ctx.font = `bold ${fontSize}px ${serif}`
-  ctx.fillStyle = BRAND.nearBlack
+  ctx.font = `bold ${fs}px ${serif}`
+  ctx.fillStyle = B.nearBlack
   ctx.textBaseline = 'top'
+  for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], pad, titleTop + i * lh)
+
+  // 6. Bottom row: CTA left + logo right (vertically aligned)
+  const bottomY = H - pad * 1.1
+  const ctaFs = Math.round(fs * 0.22)
+
+  // CTA text + arrow (left side, at bottom)
+  ctx.font = `500 ${ctaFs}px ${sans}`
+  ctx.fillStyle = B.navy
+  ctx.textBaseline = 'bottom'
   ctx.textAlign = 'left'
+  ctx.fillText(ctaRo, pad, bottomY - ctaFs - 2)
 
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], pad, titleTop + i * lineHeight)
-  }
+  ctx.font = `400 ${Math.round(ctaFs * 0.85)}px ${sans}`
+  ctx.fillStyle = '#888888'
+  ctx.fillText(ctaEn, pad, bottomY)
 
-  // ── 5. CTA text + arrow (centered below title) ───────────────────────
-  const titleBottom = titleTop + lines.length * lineHeight
-  const ctaFontSize = Math.round(fontSize * 0.24)
-  const ctaGap = Math.round(pad * 0.5)
-  const ctaY = titleBottom + ctaGap
+  // Arrow next to CTA text
+  const ctaTextW = ctx.measureText(ctaEn).width
+  drawArrow(ctx, pad + ctaTextW + 18, bottomY - ctaFs * 1.6, ctaFs * 1.8, B.red)
 
-  // Romanian CTA
-  ctx.font = `500 ${ctaFontSize}px ${sans}`
-  ctx.fillStyle = BRAND.medGray
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'top'
-  ctx.fillText(ctaRo, format.width / 2, ctaY)
-
-  // English CTA (smaller, lighter)
-  const enFontSize = Math.round(ctaFontSize * 0.85)
-  ctx.font = `400 ${enFontSize}px ${sans}`
-  ctx.fillStyle = '#999999'
-  ctx.fillText(ctaEn, format.width / 2, ctaY + ctaFontSize + 4)
-
-  // Elegant arrow below CTA
-  const arrowTop = ctaY + ctaFontSize + 4 + enFontSize + 10
-  const arrowHeight = Math.round(pad * 0.55)
-  drawElegantArrow(ctx, format.width / 2, arrowTop, arrowHeight, BRAND.red)
-
-  // ── 6. Logo (bottom-right) ────────────────────────────────────────────
+  // Logo (right side)
   try {
-    const logoImg = await loadImage(logoUrl)
-    const logoW = format.logoSize
-    const logoH = (logoImg.height / logoImg.width) * logoW
-    const logoX = format.width - logoW - pad * 0.6
-    const logoY = format.height - logoH - pad * 0.4
-    ctx.drawImage(logoImg, logoX, logoY, logoW, logoH)
+    const logo = await loadImg(logoUrl)
+    const logoW = Math.round(W * 0.085)
+    const logoH = (logo.height / logo.width) * logoW
+    ctx.drawImage(logo, W - pad - logoW, bottomY - logoH + 4, logoW, logoH)
   } catch {
-    ctx.font = `bold ${Math.round(ctaFontSize * 1.2)}px ${serif}`
-    ctx.fillStyle = BRAND.red
-    ctx.textAlign = 'right'
-    ctx.textBaseline = 'bottom'
-    ctx.fillText('Transilvania Times', format.width - pad, format.height - pad * 0.4)
+    ctx.font = `bold ${ctaFs * 1.3}px ${serif}`
+    ctx.fillStyle = B.red; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'
+    ctx.fillText('Transilvania Times', W - pad, bottomY)
   }
-
-  // ── 7. Thin border around the entire image ────────────────────────────
-  ctx.strokeStyle = '#E0E0E0'
-  ctx.lineWidth = 1
-  ctx.strokeRect(0.5, 0.5, format.width - 1, format.height - 1)
 
   ctx.textAlign = 'left'
   return canvas.toDataURL('image/png')
 }
 
-// ─── TYPES ────────────────────────────────────────────────────────────────────
+// ─── IMMERSIVE STYLE (NYT-inspired) ──────────────────────────────────────────
+
+async function renderImmersive(
+  coverUrl: string, title: string, logoUrl: string,
+  format: Format, ctaRo: string, ctaEn: string,
+): Promise<string> {
+  const { width: W, height: H } = format
+  const canvas = document.createElement('canvas')
+  canvas.width = W; canvas.height = H
+  const ctx = canvas.getContext('2d')!
+  const pad = Math.round(W * 0.06)
+  const serif = 'Georgia, "Times New Roman", serif'
+  const sans = '"Helvetica Neue", Helvetica, Arial, sans-serif'
+
+  // 1. Full-bleed photo
+  try { const img = await loadImg(coverUrl); drawCover(ctx, img, W, H) }
+  catch { ctx.fillStyle = B.navy; ctx.fillRect(0, 0, W, H) }
+
+  // 2. Cinematic gradient from bottom (navy-black, 50% of image)
+  const gradH = Math.round(H * 0.55)
+  const grad = ctx.createLinearGradient(0, H - gradH, 0, H)
+  grad.addColorStop(0, 'rgba(13,27,75,0)')       // navy transparent
+  grad.addColorStop(0.3, 'rgba(13,27,75,0.4)')
+  grad.addColorStop(0.6, 'rgba(13,27,75,0.75)')
+  grad.addColorStop(1, 'rgba(13,27,75,0.92)')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, H - gradH, W, gradH)
+
+  // 3. Red accent line at very bottom
+  ctx.fillStyle = B.red
+  ctx.fillRect(0, H - 5, W, 5)
+
+  // 4. Title (white, bold italic serif — NYT signature)
+  let fs = Math.round(W * 0.05)
+  const font = (s: number) => `bold italic ${s}px ${serif}`
+  let lines = wrap(ctx, title, W - pad * 2, font(fs))
+  const maxL = H > 1200 ? 7 : 4
+  while (lines.length > maxL && fs > 24) { fs -= 2; lines = wrap(ctx, title, W - pad * 2, font(fs)) }
+  const lh = fs * 1.25
+
+  // Position title above the bottom section
+  const ctaSpace = Math.round(pad * 2.2)
+  const titleBottom = H - 5 - ctaSpace
+  const titleTop = titleBottom - lines.length * lh
+
+  ctx.font = font(fs)
+  ctx.fillStyle = B.white
+  ctx.textBaseline = 'top'
+  ctx.textAlign = 'left'
+
+  // Text shadow for legibility
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'
+  ctx.shadowBlur = 12
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = 2
+  for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], pad, titleTop + i * lh)
+  ctx.shadowColor = 'transparent'
+  ctx.shadowBlur = 0
+
+  // 5. Bottom row: CTA left + logo right
+  const bottomY = H - 5 - pad * 0.6
+  const ctaFs = Math.round(fs * 0.24)
+
+  // CTA
+  ctx.font = `500 ${ctaFs}px ${sans}`
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  ctx.textBaseline = 'bottom'
+  ctx.textAlign = 'left'
+  ctx.fillText(ctaRo, pad, bottomY - ctaFs - 2)
+
+  ctx.font = `400 ${Math.round(ctaFs * 0.85)}px ${sans}`
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  ctx.fillText(ctaEn, pad, bottomY)
+
+  // Arrow
+  const ctaW = ctx.measureText(ctaEn).width
+  drawArrow(ctx, pad + ctaW + 18, bottomY - ctaFs * 1.6, ctaFs * 1.8, B.amber)
+
+  // Logo (right, white-on-dark works with the gradient)
+  try {
+    const logo = await loadImg(logoUrl)
+    const logoW = Math.round(W * 0.085)
+    const logoH = (logo.height / logo.width) * logoW
+    ctx.drawImage(logo, W - pad - logoW, bottomY - logoH + 4, logoW, logoH)
+  } catch {
+    ctx.font = `bold ${ctaFs * 1.3}px ${serif}`
+    ctx.fillStyle = B.amber; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'
+    ctx.fillText('Transilvania Times', W - pad, bottomY)
+  }
+
+  ctx.textAlign = 'left'
+  return canvas.toDataURL('image/png')
+}
+
+// ─── ARTICLE TYPE ─────────────────────────────────────────────────────────────
 
 interface Article {
-  id: string
-  slug: string
-  title_ro: string | null
-  title_en: string | null
-  cover_image: string | null
-  published_at: string | null
+  id: string; slug: string; title_ro: string | null; title_en: string | null
+  cover_image: string | null; published_at: string | null
 }
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
@@ -262,6 +278,7 @@ export default function SocialPage() {
   const [title, setTitle] = useState('')
   const [coverUrl, setCoverUrl] = useState('')
   const [formatKey, setFormatKey] = useState<string>('square')
+  const [style, setStyle] = useState<Style>('immersive')
   const [ctaRo, setCtaRo] = useState('Accesează articolul complet în comentarii')
   const [ctaEn, setCtaEn] = useState('Full article link in comments')
   const [generating, setGenerating] = useState(false)
@@ -285,38 +302,32 @@ export default function SocialPage() {
   }, [supabase])
 
   const selectArticle = useCallback((id: string) => {
-    setSelectedId(id)
-    setImageData('')
-    const article = articles.find(a => a.id === id)
-    if (article) {
-      setTitle(article.title_ro || article.title_en || '')
-      setCoverUrl(article.cover_image || '')
-    }
+    setSelectedId(id); setImageData('')
+    const a = articles.find(x => x.id === id)
+    if (a) { setTitle(a.title_ro || a.title_en || ''); setCoverUrl(a.cover_image || '') }
   }, [articles])
 
   const generate = useCallback(async () => {
     if (!title || !coverUrl) return
-    setGenerating(true)
-    setImageData('')
+    setGenerating(true); setImageData('')
     try {
-      const data = await generateSocialImage(
-        coverUrl, title, logoUrl, FORMATS[formatKey], ctaRo, ctaEn
-      )
+      const fmt = FORMATS[formatKey]
+      const data = style === 'immersive'
+        ? await renderImmersive(coverUrl, title, logoUrl, fmt, ctaRo, ctaEn)
+        : await renderEditorial(coverUrl, title, logoUrl, fmt, ctaRo, ctaEn)
       setImageData(data)
-    } catch (e) {
-      console.error('Generation failed:', e)
-    }
+    } catch (e) { console.error('Gen failed:', e) }
     setGenerating(false)
-  }, [title, coverUrl, formatKey, logoUrl, ctaRo, ctaEn])
+  }, [title, coverUrl, formatKey, logoUrl, ctaRo, ctaEn, style])
 
   const download = useCallback(() => {
     if (!imageData) return
     const a = document.createElement('a')
     a.href = imageData
-    const slug = articles.find(ar => ar.id === selectedId)?.slug || 'social'
-    a.download = `tt-${formatKey}-${slug.substring(0, 40)}.png`
+    const slug = articles.find(x => x.id === selectedId)?.slug || 'social'
+    a.download = `tt-${style}-${formatKey}-${slug.substring(0, 35)}.png`
     a.click()
-  }, [imageData, formatKey, selectedId, articles])
+  }, [imageData, style, formatKey, selectedId, articles])
 
   const format = FORMATS[formatKey]
   const previewScale = Math.min(560 / format.width, 560 / format.height)
@@ -330,7 +341,7 @@ export default function SocialPage() {
       <div className="mb-6">
         <h1 className="font-serif text-2xl font-bold text-white">Social Media Generator</h1>
         <p className="font-sans text-[13px] text-white/40 mt-1">
-          Imagini pentru Facebook, Instagram, Twitter — format publicație
+          Imagini pentru rețele sociale — două stiluri de publicație
         </p>
       </div>
 
@@ -339,15 +350,36 @@ export default function SocialPage() {
         {/* LEFT */}
         <div className="space-y-4">
 
+          {/* Style selector */}
+          <div className={sec}>
+            <p className={sh}>Stil</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => { setStyle('immersive'); setImageData('') }}
+                className={`py-3 border font-sans text-[12px] font-bold transition-colors ${
+                  style === 'immersive' ? 'bg-brand-red border-brand-red text-white' : 'border-white/[0.07] text-white/50 hover:text-white'
+                }`}>
+                Imersiv (NYT)
+              </button>
+              <button onClick={() => { setStyle('editorial'); setImageData('') }}
+                className={`py-3 border font-sans text-[12px] font-bold transition-colors ${
+                  style === 'editorial' ? 'bg-brand-red border-brand-red text-white' : 'border-white/[0.07] text-white/50 hover:text-white'
+                }`}>
+                Editorial
+              </button>
+            </div>
+            <p className="font-sans text-[10px] text-white/20">
+              {style === 'immersive'
+                ? 'Titlu suprapus pe fotografie cu gradient cinematic. Optimal pentru mobil.'
+                : 'Fotografie sus, titlu pe fond cream dedesubt. Stil editorial clasic.'}
+            </p>
+          </div>
+
           <div className={sec}>
             <p className={sh}>Articol</p>
-            <select className={inp} value={selectedId}
-              onChange={e => selectArticle(e.target.value)}>
+            <select className={inp} value={selectedId} onChange={e => selectArticle(e.target.value)}>
               <option value="">— Alege un articol —</option>
               {articles.map(a => (
-                <option key={a.id} value={a.id}>
-                  {(a.title_ro || a.title_en || a.slug).substring(0, 80)}
-                </option>
+                <option key={a.id} value={a.id}>{(a.title_ro || a.title_en || a.slug).substring(0, 80)}</option>
               ))}
             </select>
           </div>
@@ -367,7 +399,7 @@ export default function SocialPage() {
             {coverUrl && (
               <div className="overflow-hidden aspect-video">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={coverUrl} alt="Cover preview" className="w-full h-full object-cover" />
+                <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
               </div>
             )}
           </div>
@@ -388,9 +420,7 @@ export default function SocialPage() {
               {Object.entries(FORMATS).map(([key, f]) => (
                 <button key={key} onClick={() => { setFormatKey(key); setImageData('') }}
                   className={`w-full text-left px-3 py-2.5 border font-sans text-[12px] transition-colors ${
-                    formatKey === key
-                      ? 'bg-brand-red border-brand-red text-white'
-                      : 'border-white/[0.07] text-white/50 hover:text-white hover:border-white/20'
+                    formatKey === key ? 'bg-brand-red border-brand-red text-white' : 'border-white/[0.07] text-white/50 hover:text-white hover:border-white/20'
                   }`}>
                   {f.label}
                   <span className="text-white/30 ml-2">{f.width}×{f.height}</span>
@@ -403,8 +433,7 @@ export default function SocialPage() {
             className="w-full flex items-center justify-center gap-3 py-4 bg-brand-red text-white font-sans text-[13px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             {generating
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generează...</>
-              : <><ImageIcon className="w-4 h-4" /> Generează imagine</>
-            }
+              : <><ImageIcon className="w-4 h-4" /> Generează imagine</>}
           </button>
         </div>
 
@@ -412,17 +441,10 @@ export default function SocialPage() {
         <div className="flex flex-col items-center">
           {imageData ? (
             <div className="space-y-4">
-              <div className="bg-[#1a1a1a] border border-white/[0.07] p-4 inline-block">
+              <div className="bg-[#1a1a1a] border border-white/[0.07] p-3 inline-block">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  ref={previewRef}
-                  src={imageData}
-                  alt="Social media preview"
-                  style={{
-                    width: format.width * previewScale,
-                    height: format.height * previewScale,
-                  }}
-                />
+                <img ref={previewRef} src={imageData} alt="Preview"
+                  style={{ width: format.width * previewScale, height: format.height * previewScale }} />
               </div>
               <div className="flex gap-3">
                 <button onClick={download}
@@ -434,13 +456,11 @@ export default function SocialPage() {
                   <RefreshCw className="w-4 h-4" /> Regenerează
                 </button>
               </div>
-              <p className="font-sans text-[10px] text-white/20 text-center">
-                {format.width}×{format.height}px · PNG
-              </p>
+              <p className="font-sans text-[10px] text-white/20 text-center">{format.width}×{format.height}px · PNG</p>
             </div>
           ) : (
             <div className="bg-[#1a1a1a] border border-white/[0.07] border-dashed flex flex-col items-center justify-center p-8 text-center"
-              style={{ width: format.width * previewScale + 32, height: format.height * previewScale + 32 }}>
+              style={{ width: format.width * previewScale + 24, height: format.height * previewScale + 24 }}>
               <ImageIcon className="w-16 h-16 text-white/[0.05] mb-5" />
               <p className="font-serif text-xl text-white/20 mb-2">Preview</p>
               <p className="font-sans text-[12px] text-white/10 max-w-xs">
