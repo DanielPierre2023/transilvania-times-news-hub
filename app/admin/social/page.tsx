@@ -3,9 +3,8 @@
 // app/admin/social/page.tsx
 //
 // Social media image generator for Transilvania Times.
-// Composites: article cover photo + title text + TT logo
-// into downloadable images for Facebook, Instagram, Twitter.
-// Format inspired by The Guardian's social media cards.
+// Composites: article cover photo + title + CTA arrow + TT logo
+// into downloadable publication-grade images for social platforms.
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
@@ -17,26 +16,26 @@ interface Format {
   label: string
   width: number
   height: number
-  imageRatio: number  // how much of the height the photo takes
-  titleSize: number   // base font size for title
-  logoSize: number    // logo width
+  imageRatio: number
+  titleSize: number
+  logoSize: number
 }
 
 const FORMATS: Record<string, Format> = {
   square: {
     label: 'Instagram / Facebook (1080×1080)',
     width: 1080, height: 1080,
-    imageRatio: 0.62, titleSize: 52, logoSize: 100,
+    imageRatio: 0.58, titleSize: 50, logoSize: 90,
   },
   landscape: {
     label: 'Facebook / Twitter (1200×630)',
     width: 1200, height: 630,
-    imageRatio: 0.58, titleSize: 40, logoSize: 80,
+    imageRatio: 0.52, titleSize: 38, logoSize: 70,
   },
   story: {
     label: 'Instagram Story (1080×1920)',
     width: 1080, height: 1920,
-    imageRatio: 0.55, titleSize: 56, logoSize: 110,
+    imageRatio: 0.50, titleSize: 54, logoSize: 100,
   },
 }
 
@@ -45,9 +44,11 @@ const FORMATS: Record<string, Format> = {
 const BRAND = {
   red: '#C41E3A',
   navy: '#0D1B4B',
-  cream: '#F5F4F0',
   nearBlack: '#1A1A1A',
+  darkGray: '#2A2A2A',
+  medGray: '#666666',
   white: '#FFFFFF',
+  bgLight: '#FFFFFF',
 }
 
 // ─── CANVAS HELPERS ───────────────────────────────────────────────────────────
@@ -73,11 +74,9 @@ function wrapText(
   const words = text.split(' ')
   const lines: string[] = []
   let currentLine = ''
-
   for (const word of words) {
     const testLine = currentLine ? `${currentLine} ${word}` : word
-    const metrics = ctx.measureText(testLine)
-    if (metrics.width > maxWidth && currentLine) {
+    if (ctx.measureText(testLine).width > maxWidth && currentLine) {
       lines.push(currentLine)
       currentLine = word
     } else {
@@ -88,26 +87,62 @@ function wrapText(
   return lines
 }
 
+function drawElegantArrow(
+  ctx: CanvasRenderingContext2D,
+  cx: number, // center x
+  topY: number, // top of arrow
+  height: number, // total arrow height
+  color: string,
+) {
+  const stemWidth = 1.5
+  const headWidth = 10
+  const headHeight = 12
+  const stemEnd = topY + height - headHeight
+
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
+  ctx.lineWidth = stemWidth
+  ctx.lineCap = 'round'
+
+  // Stem
+  ctx.beginPath()
+  ctx.moveTo(cx, topY)
+  ctx.lineTo(cx, stemEnd)
+  ctx.stroke()
+
+  // Arrowhead (chevron style — elegant, not filled triangle)
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.moveTo(cx - headWidth, stemEnd)
+  ctx.lineTo(cx, stemEnd + headHeight)
+  ctx.lineTo(cx + headWidth, stemEnd)
+  ctx.stroke()
+}
+
 async function generateSocialImage(
   coverUrl: string,
   title: string,
   logoUrl: string,
   format: Format,
+  ctaRo: string,
+  ctaEn: string,
 ): Promise<string> {
   const canvas = document.createElement('canvas')
   canvas.width = format.width
   canvas.height = format.height
   const ctx = canvas.getContext('2d')!
 
-  const padding = Math.round(format.width * 0.055) // ~60px at 1080
-  const imageHeight = Math.round(format.height * format.imageRatio)
-  const textAreaHeight = format.height - imageHeight
+  const pad = Math.round(format.width * 0.06)
+  const imageH = Math.round(format.height * format.imageRatio)
+  const textAreaH = format.height - imageH
+  const serif = 'Georgia, "Times New Roman", Times, serif'
+  const sans = '"Helvetica Neue", Helvetica, Arial, sans-serif'
 
-  // 1. Draw cover image (cropped to fill)
+  // ── 1. Cover image with bottom gradient fade ──────────────────────────
   try {
     const coverImg = await loadImage(coverUrl)
     const srcAspect = coverImg.width / coverImg.height
-    const dstAspect = format.width / imageHeight
+    const dstAspect = format.width / imageH
     let sx = 0, sy = 0, sw = coverImg.width, sh = coverImg.height
     if (srcAspect > dstAspect) {
       sw = coverImg.height * dstAspect
@@ -116,66 +151,99 @@ async function generateSocialImage(
       sh = coverImg.width / dstAspect
       sy = (coverImg.height - sh) / 2
     }
-    ctx.drawImage(coverImg, sx, sy, sw, sh, 0, 0, format.width, imageHeight)
+    ctx.drawImage(coverImg, sx, sy, sw, sh, 0, 0, format.width, imageH)
+
+    // Subtle gradient at bottom of photo for smooth transition
+    const grad = ctx.createLinearGradient(0, imageH - 60, 0, imageH)
+    grad.addColorStop(0, 'rgba(255,255,255,0)')
+    grad.addColorStop(1, 'rgba(255,255,255,0.15)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, imageH - 60, format.width, 60)
   } catch {
-    // If image fails, draw a dark placeholder
     ctx.fillStyle = BRAND.navy
-    ctx.fillRect(0, 0, format.width, imageHeight)
+    ctx.fillRect(0, 0, format.width, imageH)
   }
 
-  // 2. Draw text area background (cream)
-  ctx.fillStyle = BRAND.cream
-  ctx.fillRect(0, imageHeight, format.width, textAreaHeight)
-
-  // 3. Draw red accent line between image and text
+  // ── 2. Red accent line ────────────────────────────────────────────────
   ctx.fillStyle = BRAND.red
-  ctx.fillRect(0, imageHeight, format.width, 4)
+  ctx.fillRect(0, imageH, format.width, 5)
 
-  // 4. Draw title text
-  const fontFamily = 'Georgia, "Times New Roman", serif'
-  const textMaxWidth = format.width - padding * 2
-  const textTop = imageHeight + padding * 0.8
+  // ── 3. White background for text area (matches logo background) ───────
+  ctx.fillStyle = BRAND.bgLight
+  ctx.fillRect(0, imageH + 5, format.width, textAreaH - 5)
 
-  // Auto-size: if title is very long, reduce font size
+  // ── 4. Title text ─────────────────────────────────────────────────────
+  const textMaxW = format.width - pad * 2
+  const titleTop = imageH + 5 + pad * 0.7
+
   let fontSize = format.titleSize
-  let lines = wrapText(ctx, title, textMaxWidth, fontSize, fontFamily)
+  let lines = wrapText(ctx, title, textMaxW, fontSize, serif)
   const maxLines = format.label.includes('Story') ? 6 : 4
-  while (lines.length > maxLines && fontSize > 28) {
+  while (lines.length > maxLines && fontSize > 26) {
     fontSize -= 2
-    lines = wrapText(ctx, title, textMaxWidth, fontSize, fontFamily)
+    lines = wrapText(ctx, title, textMaxW, fontSize, serif)
   }
 
-  const lineHeight = fontSize * 1.2
-  ctx.font = `bold ${fontSize}px ${fontFamily}`
+  const lineHeight = fontSize * 1.22
+  ctx.font = `bold ${fontSize}px ${serif}`
   ctx.fillStyle = BRAND.nearBlack
   ctx.textBaseline = 'top'
+  ctx.textAlign = 'left'
 
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], padding, textTop + i * lineHeight)
+    ctx.fillText(lines[i], pad, titleTop + i * lineHeight)
   }
 
-  // 5. Draw logo in bottom-right
+  // ── 5. CTA text + arrow (centered below title) ───────────────────────
+  const titleBottom = titleTop + lines.length * lineHeight
+  const ctaFontSize = Math.round(fontSize * 0.24)
+  const ctaGap = Math.round(pad * 0.5)
+  const ctaY = titleBottom + ctaGap
+
+  // Romanian CTA
+  ctx.font = `500 ${ctaFontSize}px ${sans}`
+  ctx.fillStyle = BRAND.medGray
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  ctx.fillText(ctaRo, format.width / 2, ctaY)
+
+  // English CTA (smaller, lighter)
+  const enFontSize = Math.round(ctaFontSize * 0.85)
+  ctx.font = `400 ${enFontSize}px ${sans}`
+  ctx.fillStyle = '#999999'
+  ctx.fillText(ctaEn, format.width / 2, ctaY + ctaFontSize + 4)
+
+  // Elegant arrow below CTA
+  const arrowTop = ctaY + ctaFontSize + 4 + enFontSize + 10
+  const arrowHeight = Math.round(pad * 0.55)
+  drawElegantArrow(ctx, format.width / 2, arrowTop, arrowHeight, BRAND.red)
+
+  // ── 6. Logo (bottom-right) ────────────────────────────────────────────
   try {
     const logoImg = await loadImage(logoUrl)
     const logoW = format.logoSize
     const logoH = (logoImg.height / logoImg.width) * logoW
-    const logoX = format.width - logoW - padding * 0.7
-    const logoY = format.height - logoH - padding * 0.5
+    const logoX = format.width - logoW - pad * 0.6
+    const logoY = format.height - logoH - pad * 0.4
     ctx.drawImage(logoImg, logoX, logoY, logoW, logoH)
   } catch {
-    // If logo fails, draw text fallback
-    ctx.font = `bold 14px ${fontFamily}`
+    ctx.font = `bold ${Math.round(ctaFontSize * 1.2)}px ${serif}`
     ctx.fillStyle = BRAND.red
     ctx.textAlign = 'right'
     ctx.textBaseline = 'bottom'
-    ctx.fillText('Transilvania Times', format.width - padding, format.height - padding * 0.5)
-    ctx.textAlign = 'left'
+    ctx.fillText('Transilvania Times', format.width - pad, format.height - pad * 0.4)
   }
 
+  // ── 7. Thin border around the entire image ────────────────────────────
+  ctx.strokeStyle = '#E0E0E0'
+  ctx.lineWidth = 1
+  ctx.strokeRect(0.5, 0.5, format.width - 1, format.height - 1)
+
+  ctx.textAlign = 'left'
   return canvas.toDataURL('image/png')
 }
 
-// ─── ARTICLE INTERFACE ────────────────────────────────────────────────────────
+// ─── TYPES ────────────────────────────────────────────────────────────────────
 
 interface Article {
   id: string
@@ -186,7 +254,7 @@ interface Article {
   published_at: string | null
 }
 
-// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
+// ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 export default function SocialPage() {
   const [articles, setArticles] = useState<Article[]>([])
@@ -194,6 +262,8 @@ export default function SocialPage() {
   const [title, setTitle] = useState('')
   const [coverUrl, setCoverUrl] = useState('')
   const [formatKey, setFormatKey] = useState<string>('square')
+  const [ctaRo, setCtaRo] = useState('Accesează articolul complet în comentarii')
+  const [ctaEn, setCtaEn] = useState('Full article link in comments')
   const [generating, setGenerating] = useState(false)
   const [imageData, setImageData] = useState('')
   const [logoUrl] = useState('/assets/logos/logo-transilvania-times.png')
@@ -211,10 +281,7 @@ export default function SocialPage() {
       .eq('status', 'published')
       .order('published_at', { ascending: false })
       .limit(50)
-      .then(({ data }) => {
-        const list = (data || []) as Article[]
-        setArticles(list)
-      })
+      .then(({ data }) => setArticles((data || []) as Article[]))
   }, [supabase])
 
   const selectArticle = useCallback((id: string) => {
@@ -232,14 +299,15 @@ export default function SocialPage() {
     setGenerating(true)
     setImageData('')
     try {
-      const format = FORMATS[formatKey]
-      const data = await generateSocialImage(coverUrl, title, logoUrl, format)
+      const data = await generateSocialImage(
+        coverUrl, title, logoUrl, FORMATS[formatKey], ctaRo, ctaEn
+      )
       setImageData(data)
     } catch (e) {
       console.error('Generation failed:', e)
     }
     setGenerating(false)
-  }, [title, coverUrl, formatKey, logoUrl])
+  }, [title, coverUrl, formatKey, logoUrl, ctaRo, ctaEn])
 
   const download = useCallback(() => {
     if (!imageData) return
@@ -251,7 +319,7 @@ export default function SocialPage() {
   }, [imageData, formatKey, selectedId, articles])
 
   const format = FORMATS[formatKey]
-  const previewScale = Math.min(600 / format.width, 600 / format.height)
+  const previewScale = Math.min(560 / format.width, 560 / format.height)
 
   const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
   const sec = "bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4"
@@ -262,17 +330,17 @@ export default function SocialPage() {
       <div className="mb-6">
         <h1 className="font-serif text-2xl font-bold text-white">Social Media Generator</h1>
         <p className="font-sans text-[13px] text-white/40 mt-1">
-          Generează imagini pentru Facebook, Instagram, Twitter cu titlul articolului și logo TT
+          Imagini pentru Facebook, Instagram, Twitter — format publicație
         </p>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-6">
 
-        {/* LEFT — Controls */}
+        {/* LEFT */}
         <div className="space-y-4">
 
           <div className={sec}>
-            <p className={sh}>Selectează articol</p>
+            <p className={sh}>Articol</p>
             <select className={inp} value={selectedId}
               onChange={e => selectArticle(e.target.value)}>
               <option value="">— Alege un articol —</option>
@@ -287,17 +355,14 @@ export default function SocialPage() {
           <div className={sec}>
             <p className={sh}>Titlu (editabil)</p>
             <textarea className={inp + ' resize-none'} rows={3} value={title}
-              onChange={e => setTitle(e.target.value)}
+              onChange={e => { setTitle(e.target.value); setImageData('') }}
               placeholder="Titlul care va apărea pe imagine..." />
-            <p className="font-sans text-[10px] text-white/20">
-              Poți edita titlul pentru social media — poate fi diferit de titlul articolului.
-            </p>
           </div>
 
           <div className={sec}>
             <p className={sh}>Imagine copertă</p>
             <input className={inp} value={coverUrl}
-              onChange={e => setCoverUrl(e.target.value)}
+              onChange={e => { setCoverUrl(e.target.value); setImageData('') }}
               placeholder="URL imagine copertă..." />
             {coverUrl && (
               <div className="overflow-hidden aspect-video">
@@ -305,6 +370,16 @@ export default function SocialPage() {
                 <img src={coverUrl} alt="Cover preview" className="w-full h-full object-cover" />
               </div>
             )}
+          </div>
+
+          <div className={sec}>
+            <p className={sh}>Call to Action</p>
+            <input className={inp} value={ctaRo}
+              onChange={e => { setCtaRo(e.target.value); setImageData('') }}
+              placeholder="Text CTA în română..." />
+            <input className={inp} value={ctaEn}
+              onChange={e => { setCtaEn(e.target.value); setImageData('') }}
+              placeholder="CTA text in English..." />
           </div>
 
           <div className={sec}>
@@ -333,7 +408,7 @@ export default function SocialPage() {
           </button>
         </div>
 
-        {/* RIGHT — Preview */}
+        {/* RIGHT */}
         <div className="flex flex-col items-center">
           {imageData ? (
             <div className="space-y-4">
@@ -360,7 +435,7 @@ export default function SocialPage() {
                 </button>
               </div>
               <p className="font-sans text-[10px] text-white/20 text-center">
-                {format.width}×{format.height}px · PNG · Click {'"'}Descarcă{'"'} pentru a salva
+                {format.width}×{format.height}px · PNG
               </p>
             </div>
           ) : (
@@ -369,7 +444,7 @@ export default function SocialPage() {
               <ImageIcon className="w-16 h-16 text-white/[0.05] mb-5" />
               <p className="font-serif text-xl text-white/20 mb-2">Preview</p>
               <p className="font-sans text-[12px] text-white/10 max-w-xs">
-                Selectează un articol și apasă {'"'}Generează{'"'}
+                Selectează un articol și apasă Generează
               </p>
             </div>
           )}
