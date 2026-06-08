@@ -7,12 +7,13 @@ import { createBrowserClient } from '@supabase/ssr'
 import {
   LayoutDashboard, FileText, Rss, MessageSquare,
   Mail, Users, Inbox, Settings, LogOut, Menu, X,
-  ChevronRight, Newspaper, PenLine, BarChart2
+  ChevronRight, Newspaper, PenLine, BarChart2, Share2
 } from 'lucide-react'
 
 const NAV = [
   { label: 'Dashboard',   href: '/admin/dashboard',  icon: LayoutDashboard },
   { label: 'Editor AI',   href: '/admin/editor',      icon: PenLine },
+  { label: 'Social Media',    href: '/admin/social',      icon: Share2 },
   { label: 'Articole',    href: '/admin/articles',    icon: FileText },
   { label: 'Scraper RSS', href: '/admin/scraper',     icon: Rss },
   { label: 'Comentarii',  href: '/admin/comments',    icon: MessageSquare },
