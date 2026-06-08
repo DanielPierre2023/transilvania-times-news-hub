@@ -14,12 +14,14 @@ import { Download, RefreshCw, Image as ImageIcon } from 'lucide-react'
 
 interface Format {
   label: string; width: number; height: number
+  imageRatio: number    // photo height as fraction of total (Editorial style)
+  titleFactor: number   // title font size as fraction of width
 }
 
 const FORMATS: Record<string, Format> = {
-  square:    { label: 'Instagram / Facebook', width: 1080, height: 1080 },
-  landscape: { label: 'Facebook / Twitter',   width: 1200, height: 630  },
-  story:     { label: 'Instagram Story',      width: 1080, height: 1920 },
+  square:    { label: 'Instagram / Facebook', width: 1080, height: 1080, imageRatio: 0.60, titleFactor: 0.048 },
+  landscape: { label: 'Facebook / Twitter',   width: 1200, height: 630,  imageRatio: 0.54, titleFactor: 0.046 },
+  story:     { label: 'Instagram Story',      width: 1080, height: 1920, imageRatio: 0.72, titleFactor: 0.058 },
 }
 
 // ─── BRAND ────────────────────────────────────────────────────────────────────
@@ -146,26 +148,38 @@ async function renderEditorial(
   // 6. Bottom row: CTA left + logo right (vertically aligned)
   const bottomY = H - pad * 1.1
   const ctaFs = Math.round(fs * 0.22)
+  const ctaEnFs = Math.round(ctaFs * 0.85)
 
-  // CTA text + arrow (left side, at bottom)
+  // Measure both CTA lines to position arrow after the widest
+  ctx.font = `500 ${ctaFs}px ${sans}`
+  const ctaRoW = ctx.measureText(ctaRo).width
+  ctx.font = `400 ${ctaEnFs}px ${sans}`
+  const ctaEnW = ctx.measureText(ctaEn).width
+  const maxCtaW = Math.max(ctaRoW, ctaEnW)
+
+  // CTA texts
   ctx.font = `500 ${ctaFs}px ${sans}`
   ctx.fillStyle = B.navy
   ctx.textBaseline = 'bottom'
   ctx.textAlign = 'left'
   ctx.fillText(ctaRo, pad, bottomY - ctaFs - 2)
 
-  ctx.font = `400 ${Math.round(ctaFs * 0.85)}px ${sans}`
+  ctx.font = `400 ${ctaEnFs}px ${sans}`
   ctx.fillStyle = '#888888'
   ctx.fillText(ctaEn, pad, bottomY)
 
-  // Arrow next to CTA text
-  const ctaTextW = ctx.measureText(ctaEn).width
-  drawArrow(ctx, pad + ctaTextW + 18, bottomY - ctaFs * 1.6, ctaFs * 2.8, B.red)
+  // Arrow: positioned AFTER the longest CTA text, vertically centered with both lines
+  const ctaBlockHeight = ctaFs + ctaEnFs + 2
+  const ctaBlockTop = bottomY - ctaBlockHeight
+  const arrowSize = ctaBlockHeight * 1.4
+  const arrowX = pad + maxCtaW + Math.round(pad * 0.4)
+  const arrowY = ctaBlockTop - (arrowSize - ctaBlockHeight) / 2
+  drawArrow(ctx, arrowX, arrowY, arrowSize, B.red)
 
-  // Logo (right side)
+  // Logo (right side) — larger for prominence
   try {
     const logo = await loadImg(logoUrl)
-    const logoW = Math.round(W * 0.085)
+    const logoW = Math.round(W * 0.13)  // larger: 13% of width (was 8.5%)
     const logoH = (logo.height / logo.width) * logoW
     ctx.drawImage(logo, W - pad - logoW, bottomY - logoH + 4, logoW, logoH)
   } catch {
@@ -240,28 +254,70 @@ async function renderImmersive(
   // 5. Bottom row: CTA left + logo right
   const bottomY = H - 5 - pad * 0.6
   const ctaFs = Math.round(fs * 0.24)
+  const ctaEnFs = Math.round(ctaFs * 0.85)
 
-  // CTA
+  // Measure both CTA lines to position arrow after the widest
   ctx.font = `500 ${ctaFs}px ${sans}`
-  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  const ctaRoW = ctx.measureText(ctaRo).width
+  ctx.font = `400 ${ctaEnFs}px ${sans}`
+  const ctaEnW = ctx.measureText(ctaEn).width
+  const maxCtaW = Math.max(ctaRoW, ctaEnW)
+
+  // CTA texts
+  ctx.font = `500 ${ctaFs}px ${sans}`
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'
   ctx.textBaseline = 'bottom'
   ctx.textAlign = 'left'
   ctx.fillText(ctaRo, pad, bottomY - ctaFs - 2)
 
-  ctx.font = `400 ${Math.round(ctaFs * 0.85)}px ${sans}`
-  ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  ctx.font = `400 ${ctaEnFs}px ${sans}`
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'
   ctx.fillText(ctaEn, pad, bottomY)
 
-  // Arrow
-  const ctaW = ctx.measureText(ctaEn).width
-  drawArrow(ctx, pad + ctaW + 18, bottomY - ctaFs * 1.6, ctaFs * 2.8, B.red)
+  // Arrow: positioned AFTER the longest CTA text, vertically centered with both lines
+  const ctaBlockHeight = ctaFs + ctaEnFs + 2  // total height of both lines
+  const ctaBlockTop = bottomY - ctaBlockHeight
+  const arrowSize = ctaBlockHeight * 1.4  // arrow taller than text block for visual weight
+  const arrowX = pad + maxCtaW + Math.round(pad * 0.4)
+  const arrowY = ctaBlockTop - (arrowSize - ctaBlockHeight) / 2
+  drawArrow(ctx, arrowX, arrowY, arrowSize, B.red)
 
-  // Logo (right, white-on-dark works with the gradient)
+  // Logo (right side) — with cream circular backdrop for visibility on dark gradient
   try {
     const logo = await loadImg(logoUrl)
-    const logoW = Math.round(W * 0.085)
+    const logoW = Math.round(W * 0.13)  // larger: 13% of width (was 8.5%)
     const logoH = (logo.height / logo.width) * logoW
-    ctx.drawImage(logo, W - pad - logoW, bottomY - logoH + 4, logoW, logoH)
+    const logoX = W - pad - logoW
+    const logoY = bottomY - logoH + 4
+
+    // Cream rounded-square backdrop with subtle shadow for separation
+    const bgPad = Math.round(logoW * 0.08)
+    const bgX = logoX - bgPad
+    const bgY = logoY - bgPad
+    const bgW = logoW + bgPad * 2
+    const bgH = logoH + bgPad * 2
+    const radius = Math.round(bgW * 0.08)
+
+    ctx.save()
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'
+    ctx.shadowBlur = 16
+    ctx.shadowOffsetY = 3
+    ctx.fillStyle = B.cream
+    ctx.beginPath()
+    ctx.moveTo(bgX + radius, bgY)
+    ctx.lineTo(bgX + bgW - radius, bgY)
+    ctx.arcTo(bgX + bgW, bgY, bgX + bgW, bgY + radius, radius)
+    ctx.lineTo(bgX + bgW, bgY + bgH - radius)
+    ctx.arcTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH, radius)
+    ctx.lineTo(bgX + radius, bgY + bgH)
+    ctx.arcTo(bgX, bgY + bgH, bgX, bgY + bgH - radius, radius)
+    ctx.lineTo(bgX, bgY + radius)
+    ctx.arcTo(bgX, bgY, bgX + radius, bgY, radius)
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+
+    ctx.drawImage(logo, logoX, logoY, logoW, logoH)
   } catch {
     ctx.font = `bold ${ctaFs * 1.3}px ${serif}`
     ctx.fillStyle = B.amber; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'
