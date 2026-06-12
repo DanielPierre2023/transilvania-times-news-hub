@@ -195,7 +195,7 @@ function drawSpeechBubble(
   const pad = Math.round(W * 0.04)
   const x = pad
   const w = W - pad * 2
-  const radius = Math.round(W * 0.025)
+  const radius = Math.round(W * 0.032)
 
   // Bubble (red, with shadow)
   ctx.save()
@@ -278,10 +278,10 @@ function drawCtaBanner(
   ctx.fillStyle = B.white
   ctx.fillRect(0, top, W, h)
 
-  let fs = Math.round(h * 0.50)
+  let fs = Math.round(h * 0.42)
   ctx.font = `900 ${fs}px ${SANS}`
   let textW = ctx.measureText(cta).width
-  while (textW > W * 0.92 && fs > 22) {
+  while (textW > W * 0.86 && fs > 18) {
     fs -= 2
     ctx.font = `900 ${fs}px ${SANS}`
     textW = ctx.measureText(cta).width
@@ -304,31 +304,80 @@ async function drawLogo(
   bottomY: number,
   sizePct: number,
 ) {
+  const pad = Math.round(W * 0.04)
   try {
     const logo = await loadImg(logoUrl)
     const logoW = Math.round(W * sizePct)
     const logoH = (logo.height / logo.width) * logoW
-    const pad = Math.round(W * 0.04)
     const logoX = W - pad - logoW
     const logoY = bottomY - logoH
+
+    // White rounded-square backdrop with subtle drop shadow — separates
+    // the dark logo emblem from whatever photo content is behind it.
+    const bgPad = Math.round(logoW * 0.16)
+    const bgX = logoX - bgPad
+    const bgY = logoY - bgPad
+    const bgW = logoW + bgPad * 2
+    const bgH = logoH + bgPad * 2
+    const radius = Math.round(bgW * 0.14)
+
     ctx.save()
-    ctx.shadowColor = 'rgba(0,0,0,0.55)'
-    ctx.shadowBlur = 16
-    ctx.shadowOffsetY = 4
-    ctx.drawImage(logo, logoX, logoY, logoW, logoH)
-    ctx.restore()
-  } catch {
-    const pad = Math.round(W * 0.04)
-    ctx.save()
-    ctx.font = `bold ${Math.round(W * 0.024)}px Georgia, "Times New Roman", serif`
+    ctx.shadowColor = 'rgba(0,0,0,0.40)'
+    ctx.shadowBlur = 22
+    ctx.shadowOffsetY = 6
     ctx.fillStyle = B.white
-    ctx.textAlign = 'right'
-    ctx.textBaseline = 'bottom'
-    ctx.shadowColor = 'rgba(0,0,0,0.7)'
-    ctx.shadowBlur = 10
-    ctx.shadowOffsetY = 2
-    ctx.fillText('TRANSILVANIA TIMES', W - pad, bottomY)
+    ctx.beginPath()
+    ctx.moveTo(bgX + radius, bgY)
+    ctx.lineTo(bgX + bgW - radius, bgY)
+    ctx.arcTo(bgX + bgW, bgY, bgX + bgW, bgY + radius, radius)
+    ctx.lineTo(bgX + bgW, bgY + bgH - radius)
+    ctx.arcTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH, radius)
+    ctx.lineTo(bgX + radius, bgY + bgH)
+    ctx.arcTo(bgX, bgY + bgH, bgX, bgY + bgH - radius, radius)
+    ctx.lineTo(bgX, bgY + radius)
+    ctx.arcTo(bgX, bgY, bgX + radius, bgY, radius)
+    ctx.closePath()
+    ctx.fill()
     ctx.restore()
+
+    // Logo drawn on top of backdrop, no shadow (backdrop already has one)
+    ctx.drawImage(logo, logoX, logoY, logoW, logoH)
+  } catch {
+    // Fallback: text on red rounded pill
+    ctx.save()
+    ctx.font = `900 ${Math.round(W * 0.022)}px ${SANS}`
+    const label = 'TRANSILVANIA TIMES'
+    const textW = ctx.measureText(label).width
+    const pillH = Math.round(W * 0.045)
+    const pillPad = Math.round(W * 0.022)
+    const pillW = textW + pillPad * 2
+    const pillX = W - pad - pillW
+    const pillY = bottomY - pillH
+    const pillR = pillH / 2
+
+    ctx.shadowColor = 'rgba(0,0,0,0.40)'
+    ctx.shadowBlur = 18
+    ctx.shadowOffsetY = 4
+    ctx.fillStyle = B.red
+    ctx.beginPath()
+    ctx.moveTo(pillX + pillR, pillY)
+    ctx.lineTo(pillX + pillW - pillR, pillY)
+    ctx.arcTo(pillX + pillW, pillY, pillX + pillW, pillY + pillR, pillR)
+    ctx.arcTo(pillX + pillW, pillY + pillH, pillX + pillW - pillR, pillY + pillH, pillR)
+    ctx.lineTo(pillX + pillR, pillY + pillH)
+    ctx.arcTo(pillX, pillY + pillH, pillX, pillY + pillH - pillR, pillR)
+    ctx.arcTo(pillX, pillY, pillX + pillR, pillY, pillR)
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+
+    ctx.font = `900 ${Math.round(W * 0.022)}px ${SANS}`
+    ctx.fillStyle = B.white
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, pillX + pillW / 2, pillY + pillH / 2 + 1)
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
   }
 }
 
@@ -380,7 +429,7 @@ async function renderCard(
   }
 
   // 3. Logo (right) — smaller than previous version
-  await drawLogo(ctx, W, logoUrl, logoBottomY, 0.095)
+  await drawLogo(ctx, W, logoUrl, logoBottomY, 0.105)
 
   // 4. CTA banner (drawn before bubble/triangle so they overlay it)
   drawCtaBanner(ctx, W, cta, ctaTop, ctaH)
