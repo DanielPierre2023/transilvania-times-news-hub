@@ -56,6 +56,8 @@ const B = {
 type Lang = 'ro' | 'en'
 
 const SANS = '"Helvetica Neue", Helvetica, Arial, sans-serif'
+// Lora — masthead serif. Project font, falls back to Georgia where Lora is not loaded.
+const SERIF = 'Lora, Georgia, "Times New Roman", serif'
 
 // ─── CANVAS HELPERS ───────────────────────────────────────────────────────────
 
@@ -117,7 +119,7 @@ function drawBreakingBadge(
   const ref = W * scale
   const h1 = Math.round(ref * 0.058)
   const h2 = Math.round(ref * 0.048)
-  const slant = Math.round(ref * 0.024)
+  const slant = Math.round(ref * 0.034)  // sharper slant — bolder TV-graphic feel
   const padIn = Math.round(ref * 0.018)
   const pad = Math.round(W * 0.04)
 
@@ -159,8 +161,8 @@ function drawBreakingBadge(
 
   // Box B (offset right and below)
   if (lineB) {
-    const xB = xA + Math.round(boxAw * 0.5)
-    const yB = yA + h1 + Math.round(h1 * 0.06)
+    const xB = xA + Math.round(boxAw * 0.62)   // more dramatic offset right
+    const yB = yA + h1 + Math.round(h1 * 0.04)  // tighter vertical stack
     ctx.save()
     ctx.shadowColor = 'rgba(0,0,0,0.45)'
     ctx.shadowBlur = 18
@@ -192,47 +194,65 @@ function drawSpeechBubble(
   top: number,
   h: number,
 ) {
-  const pad = Math.round(W * 0.04)
+  // Tighter bubble — 88% of canvas width — gives editorial breathing room
+  const pad = Math.round(W * 0.06)
   const x = pad
   const w = W - pad * 2
   const radius = Math.round(W * 0.032)
 
-  // Bubble (red, with shadow)
+  // Helper to trace the rounded-rect path — used twice for layered shadow
+  const tracePath = () => {
+    ctx.beginPath()
+    ctx.moveTo(x + radius, top)
+    ctx.lineTo(x + w - radius, top)
+    ctx.arcTo(x + w, top, x + w, top + radius, radius)
+    ctx.lineTo(x + w, top + h - radius)
+    ctx.arcTo(x + w, top + h, x + w - radius, top + h, radius)
+    ctx.lineTo(x + radius, top + h)
+    ctx.arcTo(x, top + h, x, top + h - radius, radius)
+    ctx.lineTo(x, top + radius)
+    ctx.arcTo(x, top, x + radius, top, radius)
+    ctx.closePath()
+  }
+
+  // PASS 1: wide ambient shadow (Material elevation 3 — low opacity, big blur)
   ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.40)'
-  ctx.shadowBlur = 24
-  ctx.shadowOffsetY = 6
+  ctx.shadowColor = 'rgba(0,0,0,0.28)'
+  ctx.shadowBlur = 56
+  ctx.shadowOffsetY = 20
   ctx.fillStyle = B.red
-  ctx.beginPath()
-  ctx.moveTo(x + radius, top)
-  ctx.lineTo(x + w - radius, top)
-  ctx.arcTo(x + w, top, x + w, top + radius, radius)
-  ctx.lineTo(x + w, top + h - radius)
-  ctx.arcTo(x + w, top + h, x + w - radius, top + h, radius)
-  ctx.lineTo(x + radius, top + h)
-  ctx.arcTo(x, top + h, x, top + h - radius, radius)
-  ctx.lineTo(x, top + radius)
-  ctx.arcTo(x, top, x + radius, top, radius)
-  ctx.closePath()
+  tracePath()
   ctx.fill()
   ctx.restore()
 
-  // Title: bold sans, white, centered, auto-shrink to fit
+  // PASS 2: close shadow (higher contrast, tight blur) — stacks for depth
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'
+  ctx.shadowBlur = 14
+  ctx.shadowOffsetY = 5
+  ctx.fillStyle = B.red
+  tracePath()
+  ctx.fill()
+  ctx.restore()
+
+  // Title: Lora serif, bold, white, centered, auto-shrink to fit.
+  // Serif reads slightly smaller than sans optically, so fs starts higher and
+  // line height is tighter (1.18 vs 1.22) — classic editorial setting.
   const innerPad = Math.round(W * 0.045)
   const titleMaxW = w - innerPad * 2
 
-  let fs = Math.round(W * 0.052)
-  let lines = wrap(ctx, title, titleMaxW, `900 ${fs}px ${SANS}`)
-  const maxLines = Math.max(2, Math.floor((h - innerPad * 0.5) / (fs * 1.22)))
+  let fs = Math.round(W * 0.056)
+  let lines = wrap(ctx, title, titleMaxW, `700 ${fs}px ${SERIF}`)
+  const maxLines = Math.max(2, Math.floor((h - innerPad * 0.5) / (fs * 1.18)))
   while (lines.length > maxLines && fs > 22) {
     fs -= 2
-    lines = wrap(ctx, title, titleMaxW, `900 ${fs}px ${SANS}`)
+    lines = wrap(ctx, title, titleMaxW, `700 ${fs}px ${SERIF}`)
   }
-  const lh = fs * 1.22
+  const lh = fs * 1.18
   const blockH = lines.length * lh
   const textTop = top + (h - blockH) / 2
 
-  ctx.font = `900 ${fs}px ${SANS}`
+  ctx.font = `700 ${fs}px ${SERIF}`
   ctx.fillStyle = B.white
   ctx.textBaseline = 'top'
   ctx.textAlign = 'center'
@@ -275,8 +295,16 @@ function drawCtaBanner(
   top: number,
   h: number,
 ) {
+  // White background
   ctx.fillStyle = B.white
   ctx.fillRect(0, top, W, h)
+
+  // Thin amber accent stripe at the very top of the banner — uses the brand
+  // amber (#F0A500) as a publication-grade seam between bubble and CTA.
+  // Same role as the colored bar on the masthead.
+  const stripeH = Math.max(4, Math.round(W * 0.005))
+  ctx.fillStyle = B.amber
+  ctx.fillRect(0, top, W, stripeH)
 
   let fs = Math.round(h * 0.42)
   ctx.font = `900 ${fs}px ${SANS}`
@@ -563,7 +591,7 @@ export default function SocialPage() {
       <div className="mb-6">
         <h1 className="font-serif text-2xl font-bold text-white">Social Media Generator</h1>
         <p className="font-sans text-[13px] text-white/40 mt-1">
-          Card cu bulă de titlu, BREAKING NEWS opțional, CTA bilingv
+          Card cu titlu în Lora serif, BREAKING NEWS opțional, CTA bilingv
         </p>
       </div>
 
