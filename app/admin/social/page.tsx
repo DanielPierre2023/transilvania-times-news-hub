@@ -5,10 +5,19 @@
 // Social media image generator — two publication-grade styles:
 //   EDITORIAL: Photo top + cream text area (Guardian-inspired)
 //   IMERSIV:   Full-bleed photo with title overlay (NYT-inspired)
+//
+// v2 — BREAKING NEWS wiring:
+//   • Fetches blog_posts.is_breaking and auto-toggles the badge.
+//   • Manual override toggle in the left panel (force-on or force-off).
+//   • Dropdown shows 🔴 prefix on breaking articles.
+//   • Editable badge label (default "BREAKING NEWS", swap to "ULTIMELE ȘTIRI"
+//     or anything else without touching code).
+//   • Badge renders identically in both Editorial and Immersive styles —
+//     top-left, brand red with amber accent, white live-dot, drop shadow.
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Download, RefreshCw, Image as ImageIcon } from 'lucide-react'
+import { Download, RefreshCw, Image as ImageIcon, Radio } from 'lucide-react'
 
 // ─── FORMATS ──────────────────────────────────────────────────────────────────
 
@@ -74,30 +83,93 @@ function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: numb
 function drawArrow(ctx: CanvasRenderingContext2D, cx: number, y: number, size: number, color: string) {
   ctx.save()
   ctx.fillStyle = color
-
   const w = size * 0.7   // width of each chevron
   const h = size * 0.38  // height of each chevron
   const t = size * 0.14  // thickness of chevron arms
-  const gap = size * 0.08 // gap between the two chevrons
+  const gap = size * 0.08
 
-  // Draw two filled chevrons pointing down
   for (let c = 0; c < 2; c++) {
     const top = y + c * (h + gap)
-
     ctx.beginPath()
-    // Outer V shape
     ctx.moveTo(cx - w / 2, top)
     ctx.lineTo(cx, top + h)
     ctx.lineTo(cx + w / 2, top)
-    // Inner V (cut-out to create thickness)
     ctx.lineTo(cx + w / 2 - t, top + t * 0.3)
     ctx.lineTo(cx, top + h - t)
     ctx.lineTo(cx - w / 2 + t, top + t * 0.3)
     ctx.closePath()
     ctx.fill()
   }
-
   ctx.restore()
+}
+
+// ─── BREAKING NEWS BADGE ──────────────────────────────────────────────────────
+// Top-left corner. Brand red with amber accent stripe on the right edge.
+// White live-pulse dot + bold "BREAKING NEWS" (or custom label) text.
+// Drop shadow for separation from any photo background.
+
+function drawBreakingBadge(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  pad: number,
+  label: string,
+) {
+  // Auto-size to label so "ULTIMELE ȘTIRI" doesn't overflow vs "BREAKING NEWS"
+  const sans = '"Helvetica Neue", Helvetica, Arial, sans-serif'
+  const bh = Math.round(W * 0.058)             // badge height
+  const textFs = Math.round(bh * 0.42)
+  ctx.save()
+  ctx.font = `900 ${textFs}px ${sans}`
+  const textWidth = ctx.measureText(label.toUpperCase()).width
+  ctx.restore()
+
+  const dotZone = Math.round(bh * 1.1)         // space for live dot before text
+  const rightPad = Math.round(bh * 0.55)       // breathing room after text
+  const accentW = Math.round(bh * 0.18)        // amber right accent
+  const bw = dotZone + textWidth + rightPad + accentW
+
+  const bx = pad
+  const by = pad
+
+  // 1. Red main rectangle WITH shadow for separation
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'
+  ctx.shadowBlur = 22
+  ctx.shadowOffsetY = 5
+  ctx.fillStyle = B.red
+  ctx.fillRect(bx, by, bw, bh)
+  ctx.restore()
+
+  // 2. Amber accent stripe on right edge (brand signature)
+  ctx.fillStyle = B.amber
+  ctx.fillRect(bx + bw - accentW, by, accentW, bh)
+
+  // 3. Live pulse — outer ring + solid white dot
+  const dotR = Math.round(bh * 0.16)
+  const dotX = bx + Math.round(bh * 0.55)
+  const dotY = by + bh / 2
+
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR * 2.1, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+  ctx.lineWidth = Math.max(1, Math.round(bh * 0.025))
+  ctx.stroke()
+
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
+  ctx.fillStyle = B.white
+  ctx.fill()
+
+  // 4. Label text — heavy weight, all caps, generous tracking
+  ctx.font = `900 ${textFs}px ${sans}`
+  ctx.fillStyle = B.white
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  const textX = bx + dotZone
+  // letterSpacing is unreliable; fake tracking by manual draw if needed
+  ctx.fillText(label.toUpperCase(), textX, by + bh / 2 + 1)
+
+  ctx.textAlign = 'left'
 }
 
 // ─── EDITORIAL STYLE (Guardian-inspired) ──────────────────────────────────────
@@ -105,6 +177,7 @@ function drawArrow(ctx: CanvasRenderingContext2D, cx: number, y: number, size: n
 async function renderEditorial(
   coverUrl: string, title: string, logoUrl: string,
   format: Format, ctaRo: string, ctaEn: string,
+  isBreaking: boolean, breakingLabel: string,
 ): Promise<string> {
   const { width: W, height: H } = format
   const canvas = document.createElement('canvas')
@@ -128,7 +201,7 @@ async function renderEditorial(
   ctx.fillStyle = B.cream
   ctx.fillRect(0, imgH + 5, W, textH - 5)
 
-  // 4. Navy left accent strip (4px, editorial mark)
+  // 4. Navy left accent strip
   ctx.fillStyle = B.navy
   ctx.fillRect(pad - 14, imgH + 5 + pad * 0.5, 4, textH - 5 - pad)
 
@@ -145,19 +218,17 @@ async function renderEditorial(
   ctx.textBaseline = 'top'
   for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], pad, titleTop + i * lh)
 
-  // 6. Bottom row: CTA left + logo right (vertically aligned)
+  // 6. Bottom row: CTA left + logo right
   const bottomY = H - pad * 1.1
   const ctaFs = Math.round(fs * 0.22)
   const ctaEnFs = Math.round(ctaFs * 0.85)
 
-  // Measure both CTA lines to position arrow after the widest
   ctx.font = `500 ${ctaFs}px ${sans}`
   const ctaRoW = ctx.measureText(ctaRo).width
   ctx.font = `400 ${ctaEnFs}px ${sans}`
   const ctaEnW = ctx.measureText(ctaEn).width
   const maxCtaW = Math.max(ctaRoW, ctaEnW)
 
-  // CTA texts
   ctx.font = `500 ${ctaFs}px ${sans}`
   ctx.fillStyle = B.navy
   ctx.textBaseline = 'bottom'
@@ -168,7 +239,6 @@ async function renderEditorial(
   ctx.fillStyle = '#888888'
   ctx.fillText(ctaEn, pad, bottomY)
 
-  // Arrow: positioned AFTER the longest CTA text, vertically centered with both lines
   const ctaBlockHeight = ctaFs + ctaEnFs + 2
   const ctaBlockTop = bottomY - ctaBlockHeight
   const arrowSize = ctaBlockHeight * 1.4
@@ -176,10 +246,10 @@ async function renderEditorial(
   const arrowY = ctaBlockTop - (arrowSize - ctaBlockHeight) / 2
   drawArrow(ctx, arrowX, arrowY, arrowSize, B.red)
 
-  // Logo (right side) — larger for prominence
+  // Logo
   try {
     const logo = await loadImg(logoUrl)
-    const logoW = Math.round(W * 0.13)  // larger: 13% of width (was 8.5%)
+    const logoW = Math.round(W * 0.13)
     const logoH = (logo.height / logo.width) * logoW
     ctx.drawImage(logo, W - pad - logoW, bottomY - logoH + 4, logoW, logoH)
   } catch {
@@ -189,6 +259,10 @@ async function renderEditorial(
   }
 
   ctx.textAlign = 'left'
+
+  // 7. Breaking News badge — drawn last so it sits above photo + text
+  if (isBreaking) drawBreakingBadge(ctx, W, pad, breakingLabel)
+
   return canvas.toDataURL('image/png')
 }
 
@@ -197,6 +271,7 @@ async function renderEditorial(
 async function renderImmersive(
   coverUrl: string, title: string, logoUrl: string,
   format: Format, ctaRo: string, ctaEn: string,
+  isBreaking: boolean, breakingLabel: string,
 ): Promise<string> {
   const { width: W, height: H } = format
   const canvas = document.createElement('canvas')
@@ -210,10 +285,10 @@ async function renderImmersive(
   try { const img = await loadImg(coverUrl); drawCover(ctx, img, W, H) }
   catch { ctx.fillStyle = B.navy; ctx.fillRect(0, 0, W, H) }
 
-  // 2. Cinematic gradient from bottom (navy-black, 50% of image)
+  // 2. Cinematic gradient from bottom
   const gradH = Math.round(H * 0.55)
   const grad = ctx.createLinearGradient(0, H - gradH, 0, H)
-  grad.addColorStop(0, 'rgba(13,27,75,0)')       // navy transparent
+  grad.addColorStop(0, 'rgba(13,27,75,0)')
   grad.addColorStop(0.3, 'rgba(13,27,75,0.4)')
   grad.addColorStop(0.6, 'rgba(13,27,75,0.75)')
   grad.addColorStop(1, 'rgba(13,27,75,0.92)')
@@ -224,7 +299,7 @@ async function renderImmersive(
   ctx.fillStyle = B.red
   ctx.fillRect(0, H - 5, W, 5)
 
-  // 4. Title (white, bold italic serif — NYT signature)
+  // 4. Title (white bold italic serif)
   let fs = Math.round(W * 0.05)
   const font = (s: number) => `bold italic ${s}px ${serif}`
   let lines = wrap(ctx, title, W - pad * 2, font(fs))
@@ -232,7 +307,6 @@ async function renderImmersive(
   while (lines.length > maxL && fs > 24) { fs -= 2; lines = wrap(ctx, title, W - pad * 2, font(fs)) }
   const lh = fs * 1.25
 
-  // Position title above the bottom section
   const ctaSpace = Math.round(pad * 2.2)
   const titleBottom = H - 5 - ctaSpace
   const titleTop = titleBottom - lines.length * lh
@@ -242,7 +316,6 @@ async function renderImmersive(
   ctx.textBaseline = 'top'
   ctx.textAlign = 'left'
 
-  // Text shadow for legibility
   ctx.shadowColor = 'rgba(0,0,0,0.6)'
   ctx.shadowBlur = 12
   ctx.shadowOffsetX = 0
@@ -251,19 +324,17 @@ async function renderImmersive(
   ctx.shadowColor = 'transparent'
   ctx.shadowBlur = 0
 
-  // 5. Bottom row: CTA left + logo right
+  // 5. Bottom row: CTA + logo
   const bottomY = H - 5 - pad * 0.6
   const ctaFs = Math.round(fs * 0.24)
   const ctaEnFs = Math.round(ctaFs * 0.85)
 
-  // Measure both CTA lines to position arrow after the widest
   ctx.font = `500 ${ctaFs}px ${sans}`
   const ctaRoW = ctx.measureText(ctaRo).width
   ctx.font = `400 ${ctaEnFs}px ${sans}`
   const ctaEnW = ctx.measureText(ctaEn).width
   const maxCtaW = Math.max(ctaRoW, ctaEnW)
 
-  // CTA texts
   ctx.font = `500 ${ctaFs}px ${sans}`
   ctx.fillStyle = 'rgba(255,255,255,0.85)'
   ctx.textBaseline = 'bottom'
@@ -274,23 +345,21 @@ async function renderImmersive(
   ctx.fillStyle = 'rgba(255,255,255,0.6)'
   ctx.fillText(ctaEn, pad, bottomY)
 
-  // Arrow: positioned AFTER the longest CTA text, vertically centered with both lines
-  const ctaBlockHeight = ctaFs + ctaEnFs + 2  // total height of both lines
+  const ctaBlockHeight = ctaFs + ctaEnFs + 2
   const ctaBlockTop = bottomY - ctaBlockHeight
-  const arrowSize = ctaBlockHeight * 1.4  // arrow taller than text block for visual weight
+  const arrowSize = ctaBlockHeight * 1.4
   const arrowX = pad + maxCtaW + Math.round(pad * 0.4)
   const arrowY = ctaBlockTop - (arrowSize - ctaBlockHeight) / 2
   drawArrow(ctx, arrowX, arrowY, arrowSize, B.red)
 
-  // Logo (right side) — with cream circular backdrop for visibility on dark gradient
+  // Logo with cream backdrop for legibility on dark gradient
   try {
     const logo = await loadImg(logoUrl)
-    const logoW = Math.round(W * 0.13)  // larger: 13% of width (was 8.5%)
+    const logoW = Math.round(W * 0.13)
     const logoH = (logo.height / logo.width) * logoW
     const logoX = W - pad - logoW
     const logoY = bottomY - logoH + 4
 
-    // Cream rounded-square backdrop with subtle shadow for separation
     const bgPad = Math.round(logoW * 0.08)
     const bgX = logoX - bgPad
     const bgY = logoY - bgPad
@@ -325,6 +394,10 @@ async function renderImmersive(
   }
 
   ctx.textAlign = 'left'
+
+  // 6. Breaking News badge
+  if (isBreaking) drawBreakingBadge(ctx, W, pad, breakingLabel)
+
   return canvas.toDataURL('image/png')
 }
 
@@ -333,6 +406,7 @@ async function renderImmersive(
 interface Article {
   id: string; slug: string; title_ro: string | null; title_en: string | null
   cover_image: string | null; published_at: string | null
+  is_breaking: boolean | null
 }
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
@@ -346,6 +420,12 @@ export default function SocialPage() {
   const [style, setStyle] = useState<Style>('immersive')
   const [ctaRo, setCtaRo] = useState('Accesează articolul complet în comentarii')
   const [ctaEn, setCtaEn] = useState('Full article link in comments')
+
+  // v2 — Breaking News state
+  const [isBreaking, setIsBreaking] = useState(false)
+  const [breakingLabel, setBreakingLabel] = useState('BREAKING NEWS')
+  const [showOnlyBreaking, setShowOnlyBreaking] = useState(false)
+
   const [generating, setGenerating] = useState(false)
   const [imageData, setImageData] = useState('')
   const [logoUrl] = useState('/assets/logos/logo-transilvania-times.png')
@@ -359,7 +439,7 @@ export default function SocialPage() {
   useEffect(() => {
     supabase
       .from('blog_posts')
-      .select('id, slug, title_ro, title_en, cover_image, published_at')
+      .select('id, slug, title_ro, title_en, cover_image, published_at, is_breaking')
       .eq('status', 'published')
       .order('published_at', { ascending: false })
       .limit(50)
@@ -369,7 +449,12 @@ export default function SocialPage() {
   const selectArticle = useCallback((id: string) => {
     setSelectedId(id); setImageData('')
     const a = articles.find(x => x.id === id)
-    if (a) { setTitle(a.title_ro || a.title_en || ''); setCoverUrl(a.cover_image || '') }
+    if (a) {
+      setTitle(a.title_ro || a.title_en || '')
+      setCoverUrl(a.cover_image || '')
+      // Auto-init breaking state from the column. User can still override.
+      setIsBreaking(a.is_breaking === true)
+    }
   }, [articles])
 
   const generate = useCallback(async () => {
@@ -378,24 +463,41 @@ export default function SocialPage() {
     try {
       const fmt = FORMATS[formatKey]
       const data = style === 'immersive'
-        ? await renderImmersive(coverUrl, title, logoUrl, fmt, ctaRo, ctaEn)
-        : await renderEditorial(coverUrl, title, logoUrl, fmt, ctaRo, ctaEn)
+        ? await renderImmersive(coverUrl, title, logoUrl, fmt, ctaRo, ctaEn, isBreaking, breakingLabel)
+        : await renderEditorial(coverUrl, title, logoUrl, fmt, ctaRo, ctaEn, isBreaking, breakingLabel)
       setImageData(data)
     } catch (e) { console.error('Gen failed:', e) }
     setGenerating(false)
-  }, [title, coverUrl, formatKey, logoUrl, ctaRo, ctaEn, style])
+  }, [title, coverUrl, formatKey, logoUrl, ctaRo, ctaEn, style, isBreaking, breakingLabel])
 
   const download = useCallback(() => {
     if (!imageData) return
     const a = document.createElement('a')
     a.href = imageData
     const slug = articles.find(x => x.id === selectedId)?.slug || 'social'
-    a.download = `tt-${style}-${formatKey}-${slug.substring(0, 35)}.png`
+    const breakingTag = isBreaking ? '-breaking' : ''
+    a.download = `tt-${style}-${formatKey}${breakingTag}-${slug.substring(0, 35)}.png`
     a.click()
-  }, [imageData, style, formatKey, selectedId, articles])
+  }, [imageData, style, formatKey, selectedId, articles, isBreaking])
 
   const format = FORMATS[formatKey]
   const previewScale = Math.min(560 / format.width, 560 / format.height)
+
+  // Computed: which articles to show in the dropdown
+  const visibleArticles = showOnlyBreaking
+    ? articles.filter(a => a.is_breaking === true)
+    : articles
+
+  // Computed: is the manual toggle out of sync with the DB column?
+  const selectedArticle = articles.find(a => a.id === selectedId)
+  const dbIsBreaking = selectedArticle?.is_breaking === true
+  const overrideHint = selectedArticle
+    ? (dbIsBreaking && !isBreaking)
+      ? 'Articolul este marcat ca breaking în baza de date, dar badge-ul este oprit manual.'
+      : (!dbIsBreaking && isBreaking)
+        ? 'Articolul NU este marcat ca breaking în baza de date — badge-ul este forțat manual.'
+        : null
+    : null
 
   const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
   const sec = "bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4"
@@ -439,16 +541,68 @@ export default function SocialPage() {
             </p>
           </div>
 
+          {/* Article picker */}
           <div className={sec}>
             <p className={sh}>Articol</p>
+            <label className="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                type="checkbox"
+                checked={showOnlyBreaking}
+                onChange={e => setShowOnlyBreaking(e.target.checked)}
+                className="w-4 h-4 accent-[#C41E3A] cursor-pointer"
+              />
+              <span className="font-sans text-[11px] text-white/60">
+                Doar articole marcate &quot;Ultimele știri&quot;
+              </span>
+            </label>
             <select className={inp} value={selectedId} onChange={e => selectArticle(e.target.value)}>
               <option value="">— Alege un articol —</option>
-              {articles.map(a => (
-                <option key={a.id} value={a.id}>{(a.title_ro || a.title_en || a.slug).substring(0, 80)}</option>
+              {visibleArticles.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.is_breaking ? '🔴 ' : ''}
+                  {(a.title_ro || a.title_en || a.slug).substring(0, 78)}
+                </option>
               ))}
             </select>
+            {visibleArticles.length === 0 && showOnlyBreaking && (
+              <p className="font-sans text-[11px] text-white/40">
+                Niciun articol nu este marcat ca &quot;Ultimele știri&quot; în prezent.
+              </p>
+            )}
           </div>
 
+          {/* Breaking News control */}
+          <div className={sec}>
+            <p className={sh}>Breaking News</p>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isBreaking}
+                onChange={e => { setIsBreaking(e.target.checked); setImageData('') }}
+                className="w-5 h-5 accent-[#C41E3A] cursor-pointer"
+              />
+              <Radio className={`w-4 h-4 ${isBreaking ? 'text-[#C41E3A]' : 'text-white/20'}`} />
+              <span className="font-sans text-[13px] text-white">
+                Afișează badge &quot;BREAKING NEWS&quot;
+              </span>
+            </label>
+            <input
+              className={inp}
+              value={breakingLabel}
+              onChange={e => { setBreakingLabel(e.target.value); setImageData('') }}
+              placeholder="Text badge (ex: BREAKING NEWS, ULTIMELE ȘTIRI)"
+              disabled={!isBreaking}
+            />
+            {overrideHint && (
+              <p className="font-sans text-[10px] text-[#F0A500]">⚠ {overrideHint}</p>
+            )}
+            <p className="font-sans text-[10px] text-white/20">
+              Badge-ul se activează automat dacă articolul are bifa &quot;Ultimele știri&quot;.
+              Poți forța manual on/off pentru orice articol.
+            </p>
+          </div>
+
+          {/* Title editor */}
           <div className={sec}>
             <p className={sh}>Titlu (editabil)</p>
             <textarea className={inp + ' resize-none'} rows={3} value={title}
@@ -456,6 +610,7 @@ export default function SocialPage() {
               placeholder="Titlul care va apărea pe imagine..." />
           </div>
 
+          {/* Cover image */}
           <div className={sec}>
             <p className={sh}>Imagine copertă</p>
             <input className={inp} value={coverUrl}
@@ -469,6 +624,7 @@ export default function SocialPage() {
             )}
           </div>
 
+          {/* CTA */}
           <div className={sec}>
             <p className={sh}>Call to Action</p>
             <input className={inp} value={ctaRo}
@@ -479,6 +635,7 @@ export default function SocialPage() {
               placeholder="CTA text in English..." />
           </div>
 
+          {/* Format */}
           <div className={sec}>
             <p className={sh}>Format</p>
             <div className="space-y-2">
@@ -521,7 +678,9 @@ export default function SocialPage() {
                   <RefreshCw className="w-4 h-4" /> Regenerează
                 </button>
               </div>
-              <p className="font-sans text-[10px] text-white/20 text-center">{format.width}×{format.height}px · PNG</p>
+              <p className="font-sans text-[10px] text-white/20 text-center">
+                {format.width}×{format.height}px · PNG{isBreaking ? ' · Breaking News' : ''}
+              </p>
             </div>
           ) : (
             <div className="bg-[#1a1a1a] border border-white/[0.07] border-dashed flex flex-col items-center justify-center p-8 text-center"
