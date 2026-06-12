@@ -5,6 +5,15 @@
 //   - "Cele mai citite" sidebar with thumbnails (aktual24-style)
 //   - "Urmărește-ne" row at end of article with social icons + Google News badge
 //   - GoogleNewsBadge removed from article body
+//
+// 2026-06-12 FIX — language-aware tag rendering:
+//   The visible tag chips and the JSON-LD `keywords` field now switch by
+//   `defaultLang`. Previously `tags_ro` always won (because it is non-null for
+//   every properly-generated article), so English readers saw Romanian tags
+//   even though `tags_en` was stored correctly by the pipeline. The OpenGraph
+//   `article:tag` meta is still emitted from BOTH languages in
+//   generateMetadata() — that is intentional (multilingual SEO discovery) and
+//   was not the bug.
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
@@ -125,6 +134,8 @@ export async function generateMetadata(
   const urlEn       = `${url}?lang=en`
   const currentUrl  = isEnglish ? urlEn : url
 
+  // OpenGraph tags: include BOTH languages (intentional — helps multilingual
+  // discovery; not the source of the on-page bug).
   const allTags = [
     ...(post.tags_ro ?? []),
     ...(post.tags_en ?? []),
@@ -214,7 +225,20 @@ export default async function ArticlePage({
   const articleUrl = `${SITE_URL}/blog/${post.slug}/`
   const shareUrl   = defaultLang === 'en' ? `${articleUrl}?lang=en` : articleUrl
   const catLabel   = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
-  const tags       = (post.tags_ro || post.tags_en || []) as string[]
+
+  // ─── 2026-06-12 FIX — language-aware visible tags ──────────────────────────
+  // Previously: `(post.tags_ro || post.tags_en || []) as string[]`. Since
+  // tags_ro is non-null for every properly-generated article, tags_en was
+  // never reached. English readers saw Romanian tag chips. Now the active
+  // language wins; the other language is a fallback for legacy rows that
+  // might only have one column populated.
+  const tags: string[] = (() => {
+    const primary  = defaultLang === 'en' ? post.tags_en : post.tags_ro
+    const fallback = defaultLang === 'en' ? post.tags_ro : post.tags_en
+    if (primary && primary.length > 0) return primary
+    if (fallback && fallback.length > 0) return fallback
+    return []
+  })()
 
   const author = post.authors ?? null
 
@@ -228,6 +252,9 @@ export default async function ArticlePage({
   const typedSupabase = supabase as unknown as SupabaseClient
 
   // Fetch 6 related (2 inline + 4 end block) and most-read in parallel.
+  // Note: related-article matching uses tags_ro by design — the underlying
+  // articles are the same regardless of UI language, so the Romanian tag set
+  // (which always exists) is a stable matching key.
   const [related, mostRead] = await Promise.all([
     getRelatedArticles(typedSupabase, post.id, post.county, post.tags_ro, 6),
     getMostRead(typedSupabase, post.id, 6),
@@ -266,6 +293,8 @@ export default async function ArticlePage({
     dateModified: post.updated_at || post.published_at || '',
     articleSection: post.category || 'news',
     wordCount: post.word_count || undefined,
+    // Uses the now-language-aware `tags` variable above, so JSON-LD keywords
+    // match the rendered language (RO on /blog/<slug>, EN on ?lang=en).
     keywords: tags.join(', ') || undefined,
     author: {
       '@type': 'Person',
