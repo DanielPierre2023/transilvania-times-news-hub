@@ -1,5 +1,14 @@
 // app/atom.xml/route.ts
 //
+// v2 (June 8, 2026): URLs now include trailing slash to match site canonical
+// (next.config.ts has trailingSlash: true). Previously every entry linked to
+// /blog/{slug} which returned 308 redirect, causing aggregators to follow
+// redirects on every poll.
+//
+// Also adds:
+//   • hreflang annotations: ro = canonical URL, en = /en/blog/{slug}/ when content_en exists
+//   • Channel-level URLs use trailing slash
+//
 // B6: Atom 1.0 feed — preferred by Feedly, NewsBlur, and most EU aggregators.
 // Serves last 50 published articles in Romanian (canonical language).
 // English title/excerpt included as <summary xml:lang="en"> where available.
@@ -37,7 +46,7 @@ export async function GET() {
 
   const { data: posts, error } = await supabase
     .from('blog_posts')
-    .select('slug, title_ro, title_en, excerpt_ro, excerpt_en, cover_image, category, published_at, updated_at, author_name')
+    .select('slug, title_ro, title_en, excerpt_ro, excerpt_en, content_en, cover_image, category, published_at, updated_at, author_name')
     .eq('status', 'published')
     .not('slug',     'is', null)
     .not('title_ro', 'is', null)
@@ -53,7 +62,9 @@ export async function GET() {
   const year        = new Date().getFullYear()
 
   const entries = (posts ?? []).map(post => {
-    const url       = `${SITE_URL}/blog/${post.slug}`
+    // FIX: trailing slash to match canonical URL and avoid 308 redirects
+    const url       = `${SITE_URL}/blog/${post.slug}/`
+    const urlEn     = `${SITE_URL}/en/blog/${post.slug}/`
     const titleRo   = esc(post.title_ro || '')
     const titleEn   = post.title_en ? esc(post.title_en) : ''
     const summaryRo = esc(post.excerpt_ro || '')
@@ -61,13 +72,15 @@ export async function GET() {
     const published = toIso(post.published_at)
     const updated   = toIso(post.updated_at ?? post.published_at)
     const author    = post.author_name ? esc(post.author_name) : 'Redacția Transilvania Times'
+    const hasEn     = Boolean(post.content_en)
 
     return `
   <entry>
     <id>${url}</id>
     <title xml:lang="ro">${titleRo}</title>
     ${titleEn ? `<title xml:lang="en">${titleEn}</title>` : ''}
-    <link href="${url}" rel="alternate" type="text/html" />
+    <link href="${url}" rel="alternate" type="text/html" hreflang="ro" />
+    ${hasEn ? `<link href="${urlEn}" rel="alternate" type="text/html" hreflang="en" />` : ''}
     ${post.cover_image ? `<link href="${esc(post.cover_image)}" rel="enclosure" type="image/jpeg" />` : ''}
     <summary xml:lang="ro" type="text">${summaryRo}</summary>
     ${summaryEn ? `<summary xml:lang="en" type="text">${summaryEn}</summary>` : ''}
@@ -83,13 +96,13 @@ export async function GET() {
   <id>${SITE_URL}/atom.xml</id>
   <title>${esc(SITE_TITLE)}</title>
   <subtitle>${esc(SITE_DESCR)}</subtitle>
-  <link href="${SITE_URL}" rel="alternate" type="text/html" />
+  <link href="${SITE_URL}/" rel="alternate" type="text/html" />
   <link href="${SITE_URL}/atom.xml" rel="self" type="application/atom+xml" />
   <updated>${feedUpdated}</updated>
   <author>
     <name>${esc(SITE_TITLE)}</name>
     <email>${SITE_EMAIL}</email>
-    <uri>${SITE_URL}</uri>
+    <uri>${SITE_URL}/</uri>
   </author>
   <rights>© ${year} ${esc(SITE_TITLE)}. Toate drepturile rezervate.</rights>
   ${entries}

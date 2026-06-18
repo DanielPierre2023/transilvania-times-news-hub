@@ -1,15 +1,16 @@
 // app/sitemap-news.xml/route.ts
 //
-// B7: Google News sitemap — Google News requirements:
-//   • xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"
-//   • Required: <news:publication>, <news:publication_date> (ISO 8601 + TZ), <news:title>
-//   • Max 1000 URLs per sitemap
-//   • No <changefreq> or <priority> (Google ignores them in News sitemaps)
-//   • No hard 48-hour date filter — Google determines recency from
-//     <news:publication_date> itself. A date filter causes an empty sitemap on
-//     low-frequency publishing days, which Google reports as "Missing XML tag: url".
-//     Serving recent articles is correct; Google News ignores entries older than
-//     2 days when deciding what to surface in results.
+// Google News sitemap.
+//
+// v2 fix (June 8, 2026): URLs now include trailing slash to match site
+// canonical URLs and avoid "Page with redirect" reports in Search Console.
+// next.config.ts has trailingSlash: true, so /blog/foo redirects 308 to
+// /blog/foo/. The v1 sitemap omitted the slash, causing Google to report
+// every single news URL as a redirect.
+//
+// Also adds:
+//   • <image:image> tag with cover photo for richer News surfaces
+//   • image:image namespace declaration
 //
 // Submit in Google Search Console → Sitemaps → Add:
 //   https://transilvaniatimes.com/sitemap-news.xml
@@ -68,11 +69,9 @@ export async function GET() {
 
   // Fetch the 200 most recent published articles — no date cutoff.
   // Google News reads <news:publication_date> to determine recency.
-  // A hard cutoff here produces an empty sitemap on low-frequency publishing
-  // days, which causes the Google Search Console "Missing XML tag: url" error.
   const { data: posts, error } = await supabase
     .from('blog_posts')
-    .select('slug, title_ro, category, tags_ro, published_at')
+    .select('slug, title_ro, category, tags_ro, published_at, cover_image')
     .eq('status', 'published')
     .not('slug',     'is', null)
     .not('title_ro', 'is', null)
@@ -85,10 +84,17 @@ export async function GET() {
   }
 
   const urls = (posts ?? []).map(post => {
-    const loc      = `${SITE_URL}/blog/${post.slug}`
+    // FIX: trailing slash to match canonical URL and avoid 308 redirects
+    const loc      = `${SITE_URL}/blog/${post.slug}/`
     const title    = esc(post.title_ro || '')
     const pubDate  = toIso(post.published_at)
     const keywords = sanitizeKeywords(post.tags_ro, post.category)
+    const imageTag = post.cover_image
+      ? `    <image:image>
+      <image:loc>${esc(post.cover_image)}</image:loc>
+      <image:title>${title}</image:title>
+    </image:image>`
+      : ''
 
     return `  <url>
     <loc>${loc}</loc>
@@ -101,12 +107,14 @@ export async function GET() {
       <news:title>${title}</news:title>
       ${keywords ? `<news:keywords>${esc(keywords)}</news:keywords>` : ''}
     </news:news>
+${imageTag}
   </url>`
   }).join('\n')
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 ${urls}
 </urlset>`
 

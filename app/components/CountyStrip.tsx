@@ -138,7 +138,7 @@ export default function CountyStrip() {
                 Schimbă județul
               </button>
               <Link
-                href={`/judet/${county}`}
+                href={`/judet/${county}/`}
                 className="font-sans text-[11px] font-bold text-brand-red hover:underline inline-flex items-center gap-0.5"
               >
                 Vezi toate <ChevronRight className="w-3 h-3" />
@@ -182,7 +182,7 @@ export default function CountyStrip() {
           ) : articles.length === 0 ? (
             <p className="font-sans text-[13px] text-muted-foreground italic py-4">
               Niciun articol publicat încă din {countyLabel}.{' '}
-              <Link href={`/judet/${county}`} className="text-brand-red hover:underline">
+              <Link href={`/judet/${county}/`} className="text-brand-red hover:underline">
                 Vezi pagina județului
               </Link>
             </p>
@@ -191,7 +191,7 @@ export default function CountyStrip() {
               {articles.map(a => (
                 <Link
                   key={a.slug}
-                  href={`/blog/${a.slug}`}
+                  href={`/blog/${a.slug}/`}
                   className="group flex gap-3 items-start"
                 >
                   {a.cover_image && (

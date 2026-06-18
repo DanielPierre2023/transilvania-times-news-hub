@@ -12,10 +12,11 @@ export const metadata: Metadata = {
   title: 'Transilvania Times - News from the Heart of Transylvania',
   description: 'Latest news from Cluj, Transylvania and Romania - in English.',
   alternates: {
-    canonical: 'https://transilvaniatimes.com/en',
+    canonical: 'https://transilvaniatimes.com/en/',
     languages: {
-      ro: 'https://transilvaniatimes.com',
-      en: 'https://transilvaniatimes.com/en',
+      ro: 'https://transilvaniatimes.com/',
+      en: 'https://transilvaniatimes.com/en/',
+      'x-default': 'https://transilvaniatimes.com/',
     },
   },
 }
@@ -59,9 +60,9 @@ function fmtDate(dateStr: string | null): string {
   catch { return '' }
 }
 
-// All article links from EN page include ?lang=en so article page defaults to English
+// All article links from EN page point to the dedicated EN route
 function articleHref(slug: string): string {
-  return `/blog/${slug}?lang=en`
+  return `/en/blog/${slug}/`
 }
 
 export default async function HomePageEN() {

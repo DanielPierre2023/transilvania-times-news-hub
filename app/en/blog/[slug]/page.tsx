@@ -1,16 +1,16 @@
-// app/blog/[slug]/page.tsx
+// app/en/blog/[slug]/page.tsx
 //
-// Tier 3 (June 2026):
-//   - Editorial inline-related BLOCK at midpoint (image-left + headline-right pairs)
-//   - "Cele mai citite" sidebar with thumbnails (aktual24-style)
-//   - "Urmărește-ne" row at end of article with social icons + Google News badge
-//   - GoogleNewsBadge removed from article body
+// English article route. Distinct canonical URL: /en/blog/{slug}/
+// Paired with the Romanian route via hreflang.
+//
+// Created June 8, 2026 to fix bilingual SEO. Previously the EN view was
+// served at /blog/{slug}/?lang=en with the canonical pointing to the RO
+// URL — Google treated them as the same page and never indexed EN content.
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
-import { ro } from 'date-fns/locale'
+import { enUS } from 'date-fns/locale'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import ShareButtons from '@/app/components/ShareButtons'
@@ -29,10 +29,10 @@ export const revalidate = 60
 
 const SITE_URL = 'https://transilvaniatimes.com'
 
-const CAT_LABELS: Record<string, string> = {
-  news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
-  business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
-  education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+const CAT_LABELS_EN: Record<string, string> = {
+  news: 'News', politics: 'Politics', technology: 'Technology',
+  business: 'Business', culture: 'Culture', travel: 'Travel',
+  education: 'Education', sports: 'Sports', health: 'Health', opinion: 'Opinion',
 }
 
 interface MetaPost {
@@ -47,9 +47,7 @@ interface MetaPost {
   category:     string | null
   tags_ro:      string[] | null
   tags_en:      string[] | null
-  authors: {
-    slug: string
-  } | null
+  authors: { slug: string } | null
 }
 
 interface AuthorRecord {
@@ -93,14 +91,10 @@ interface Post {
 }
 
 export async function generateMetadata(
-  {
-    params,
-  }: {
-    params: Promise<{ slug: string }>
-  }
+  { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
-  const supabase  = await createSupabaseServerClient()
+  const supabase = await createSupabaseServerClient()
 
   const { data } = await supabase
     .from('blog_posts')
@@ -115,22 +109,22 @@ export async function generateMetadata(
   if (!data) return { title: 'Article Not Found' }
 
   const post        = data as unknown as MetaPost
-  const title       = post.title_ro || post.title_en || ''
-  const description = post.excerpt_ro || post.excerpt_en || ''
+  const title       = post.title_en || post.title_ro || ''
+  const description = post.excerpt_en || post.excerpt_ro || ''
   const image       = post.cover_image || ''
   const urlRo       = `${SITE_URL}/blog/${post.slug}/`
   const urlEn       = `${SITE_URL}/en/blog/${post.slug}/`
 
   const allTags = [
-    ...(post.tags_ro ?? []),
     ...(post.tags_en ?? []),
+    ...(post.tags_ro ?? []),
   ].filter((t, i, arr) => t && arr.indexOf(t) === i).slice(0, 10)
 
   return {
     title,
     description,
     alternates: {
-      canonical: urlRo,
+      canonical: urlEn,
       languages: {
         ro:          urlRo,
         en:          urlEn,
@@ -140,9 +134,9 @@ export async function generateMetadata(
     openGraph: {
       title,
       description,
-      url:           urlRo,
+      url:           urlEn,
       type:          'article',
-      locale:        'ro_RO',
+      locale:        'en_GB',
       images: image ? [{ url: image, width: 1200, height: 630 }] : [],
       publishedTime: post.published_at  ?? undefined,
       modifiedTime:  post.updated_at    ?? undefined,
@@ -150,7 +144,7 @@ export async function generateMetadata(
         ? [`${SITE_URL}/autor/${post.authors.slug}/`]
         : undefined,
       section:       post.category
-        ? (CAT_LABELS[post.category] ?? post.category)
+        ? (CAT_LABELS_EN[post.category] ?? post.category)
         : undefined,
       tags:          allTags.length > 0 ? allTags : undefined,
     },
@@ -163,23 +157,11 @@ export async function generateMetadata(
   }
 }
 
-export default async function ArticlePage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ slug: string }>
-  searchParams: Promise<{ lang?: string }>
-}) {
-  const { slug }            = await params
-  const { lang: langParam } = await searchParams
-
-  // Backward compatibility: old /blog/{slug}/?lang=en URLs 308-redirect
-  // to the new /en/blog/{slug}/ route for proper bilingual SEO.
-  if (langParam === 'en') {
-    redirect(`/en/blog/${slug}/`)
-  }
-
-  const defaultLang: 'ro' | 'en' = 'ro'
+export default async function ArticlePageEN(
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug } = await params
+  const defaultLang: 'ro' | 'en' = 'en'
 
   const supabase = await createSupabaseServerClient()
 
@@ -204,33 +186,32 @@ export default async function ArticlePage({
   if (error || !data) {
     return (
       <div className="max-w-3xl mx-auto px-6 py-20 text-center">
-        <h1 className="font-serif text-3xl font-bold text-foreground mb-4">Articol negăsit</h1>
-        <p className="font-sans text-muted-foreground mb-8">Articolul nu există sau a fost eliminat.</p>
-        <Link href="/" className="text-brand-red hover:underline font-sans text-sm">
-          ← Înapoi la pagina principală
+        <h1 className="font-serif text-3xl font-bold text-foreground mb-4">Article not found</h1>
+        <p className="font-sans text-muted-foreground mb-8">The article does not exist or has been removed.</p>
+        <Link href="/en/" className="text-brand-red hover:underline font-sans text-sm">
+          ← Back to homepage
         </Link>
       </div>
     )
   }
 
   const post       = data as unknown as Post
-  const articleUrl = `${SITE_URL}/blog/${post.slug}/`
+  const articleUrl = `${SITE_URL}/en/blog/${post.slug}/`
   const shareUrl   = articleUrl
-  const catLabel   = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
-  const tags       = (post.tags_ro || post.tags_en || []) as string[]
+  const catLabel   = post.category ? (CAT_LABELS_EN[post.category] || post.category).toUpperCase() : ''
+  const tags       = (post.tags_en || post.tags_ro || []) as string[]
 
   const author = post.authors ?? null
 
   let timeAgoStr = ''
   if (post.published_at) {
     try {
-      timeAgoStr = formatDistanceToNow(parseISO(post.published_at), { addSuffix: true, locale: ro })
+      timeAgoStr = formatDistanceToNow(parseISO(post.published_at), { addSuffix: true, locale: enUS })
     } catch { /* noop */ }
   }
 
   const typedSupabase = supabase as unknown as SupabaseClient
 
-  // Fetch 6 related (2 inline + 4 end block) and most-read in parallel.
   const [related, mostRead] = await Promise.all([
     getRelatedArticles(typedSupabase, post.id, post.county, post.tags_ro, 6),
     getMostRead(typedSupabase, post.id, 6),
@@ -249,15 +230,11 @@ export default async function ArticlePage({
   }))
 
   const authorName = author
-    ? (defaultLang === 'en' ? author.name_en : author.name_ro)
+    ? author.name_en
     : (post.author_name || 'Transilvania Times')
 
-  const articleTitle = defaultLang === 'en'
-    ? (post.title_en || post.title_ro || '')
-    : (post.title_ro || post.title_en || '')
-  const articleDescription = defaultLang === 'en'
-    ? (post.excerpt_en || post.excerpt_ro || '')
-    : (post.excerpt_ro || post.excerpt_en || '')
+  const articleTitle       = post.title_en || post.title_ro || ''
+  const articleDescription = post.excerpt_en || post.excerpt_ro || ''
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -270,11 +247,12 @@ export default async function ArticlePage({
     articleSection: post.category || 'news',
     wordCount: post.word_count || undefined,
     keywords: tags.join(', ') || undefined,
+    inLanguage: 'en',
     author: {
       '@type': 'Person',
       name: authorName,
       ...(author?.slug ? { url: `${SITE_URL}/autor/${author.slug}/` } : {}),
-      ...(author ? { description: defaultLang === 'en' ? author.bio_en : author.bio_ro } : {}),
+      ...(author ? { description: author.bio_en } : {}),
     },
     publisher: {
       '@type': 'Organization',
@@ -290,9 +268,9 @@ export default async function ArticlePage({
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Acasă', item: `${SITE_URL}/` },
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_URL}/en/` },
       ...(post.category
-        ? [{ '@type': 'ListItem', position: 2, name: CAT_LABELS[post.category] || post.category, item: `${SITE_URL}/categorie/${post.category}/` }]
+        ? [{ '@type': 'ListItem', position: 2, name: CAT_LABELS_EN[post.category] || post.category, item: `${SITE_URL}/categorie/${post.category}/` }]
         : []),
       {
         '@type': 'ListItem',
@@ -318,7 +296,7 @@ export default async function ArticlePage({
             <div className="flex items-center gap-2 mb-4">
               {post.is_breaking && (
                 <span className="inline-flex items-center gap-1 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-widest px-3 py-1">
-                  <span className="text-yellow-300">⚡</span> ULTIMA ORĂ
+                  <span className="text-yellow-300">⚡</span> BREAKING
                 </span>
               )}
               {post.category && (
@@ -386,7 +364,7 @@ export default async function ArticlePage({
             {post.sources && post.sources.length > 0 && (
               <div className="mt-6 pt-4 border-t border-foreground/[0.06]">
                 <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-2">
-                  Surse
+                  Sources
                 </p>
                 <div className="space-y-1">
                   {post.sources.map((src: string, i: number) => (
@@ -403,7 +381,7 @@ export default async function ArticlePage({
             {post.source_url && (!post.sources || post.sources.length === 0) && (
               <div className="mt-4">
                 <p className="font-sans text-[11px] text-muted-foreground">
-                  Sursă:{' '}
+                  Source:{' '}
                   <a href={post.source_url} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
                     {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
                   </a>
@@ -425,21 +403,22 @@ export default async function ArticlePage({
         {/* End-of-article related grid (4-up) */}
         {endBlockRelated && endBlockRelated.length > 0 && (
           <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-foreground/10 pb-12">
-            <SectionHeader className="mb-6">Articole similare</SectionHeader>
+            <SectionHeader className="mb-6">Related articles</SectionHeader>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               {endBlockRelated.map((rel) => {
                 const countyData = rel.county ? getCounty(rel.county) : null
                 return (
                   <Link
                     key={rel.id}
-                    href={`/blog/${rel.slug}/`}
+                    href={`/en/blog/${rel.slug}/`}
                     className="group"
                   >
                     {rel.cover_image && (
                       <div className="overflow-hidden mb-3 aspect-[4/3]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={rel.cover_image}
-                          alt={rel.title_ro || rel.title_en || ''}
+                          alt={rel.title_en || rel.title_ro || ''}
                           className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                         />
                       </div>
@@ -450,7 +429,7 @@ export default async function ArticlePage({
                       </div>
                     )}
                     <h4 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-3">
-                      {defaultLang === 'en' ? (rel.title_en || rel.title_ro) : (rel.title_ro || rel.title_en)}
+                      {rel.title_en || rel.title_ro}
                     </h4>
                   </Link>
                 )

@@ -1,5 +1,10 @@
 // app/rss.xml/route.ts
 //
+// v2 (June 8, 2026): URLs now include trailing slash to match site canonical
+// (next.config.ts has trailingSlash: true). Previously every feed item linked
+// to /blog/{slug} which returned 308 redirect, causing aggregators and Google
+// to follow redirects unnecessarily.
+//
 // B6: RSS 2.0 feed — Romanian edition (primary language)
 // Serves last 50 published articles.
 // Discovered via <link rel="alternate"> in app/layout.tsx.
@@ -64,7 +69,8 @@ export async function GET() {
   }
 
   const items = (posts ?? []).map(post => {
-    const url         = `${SITE_URL}/blog/${post.slug}`
+    // FIX: trailing slash to match canonical URL and avoid 308 redirects
+    const url         = `${SITE_URL}/blog/${post.slug}/`
     const title       = esc(post.title_ro || '')
     const description = esc(post.excerpt_ro || '')
     const pubDate     = toRfc2822(post.published_at)
@@ -96,7 +102,7 @@ export async function GET() {
   xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>${esc(SITE_TITLE)}</title>
-    <link>${SITE_URL}</link>
+    <link>${SITE_URL}/</link>
     <description>${esc(SITE_DESCR)}</description>
     <language>${SITE_LANG}</language>
     <atom:link href="${SITE_URL}/rss.xml" rel="self" type="application/rss+xml" />
@@ -108,7 +114,7 @@ export async function GET() {
     <image>
       <url>${SITE_URL}/assets/logos/tt-logo-rss.png</url>
       <title>${esc(SITE_TITLE)}</title>
-      <link>${SITE_URL}</link>
+      <link>${SITE_URL}/</link>
     </image>
     ${items}
   </channel>

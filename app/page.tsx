@@ -112,7 +112,7 @@ export default async function HomePage() {
 
           {/* LEFT — Large grayscale image (4 cols) */}
           <div className="lg:col-span-4 lg:border-r border-foreground/10">
-            <Link href={'/blog/' + heroMain.slug} className="block group h-full">
+            <Link href={'/blog/' + heroMain.slug + '/'} className="block group h-full">
               <div className="relative overflow-hidden h-full min-h-[300px] lg:min-h-full">
                 {heroMain.cover_image && (
                   <img
@@ -136,7 +136,7 @@ export default async function HomePage() {
                 )}
               </span>
             </div>
-            <Link href={'/blog/' + heroMain.slug}>
+            <Link href={'/blog/' + heroMain.slug + '/'}>
               <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-serif font-bold leading-[1.05] tracking-tight mb-6 text-foreground hover:text-brand-red transition-colors">
                 {getTitle(heroMain)}
               </h1>
@@ -158,7 +158,7 @@ export default async function HomePage() {
           {/* RIGHT — heroRight: image + category + title (4 cols) */}
           <div className="lg:col-span-4 flex flex-col">
             {heroRight ? (
-              <Link href={'/blog/' + heroRight.slug} className="group flex flex-col h-full">
+              <Link href={'/blog/' + heroRight.slug + '/'} className="group flex flex-col h-full">
                 <div className="relative overflow-hidden flex-1 min-h-[250px]">
                   {heroRight.cover_image && (
                     <img
@@ -201,7 +201,7 @@ export default async function HomePage() {
           {/* Col 1 — Thumbnail + text article */}
           <div className="p-6 lg:border-r border-foreground/10 flex flex-col">
             {secondaryText && (
-              <Link href={'/blog/' + secondaryText.slug} className="group">
+              <Link href={'/blog/' + secondaryText.slug + '/'} className="group">
                 {secondaryText.cover_image && (
                   <div className="relative overflow-hidden mb-4 aspect-[4/3] max-h-[180px]">
                     <img
@@ -243,7 +243,7 @@ export default async function HomePage() {
           {/* Col 2 — Large grayscale image + title below */}
           <div className="lg:border-r border-foreground/10 flex flex-col">
             {secondaryImage ? (
-              <Link href={'/blog/' + secondaryImage.slug} className="block group flex-1 flex flex-col">
+              <Link href={'/blog/' + secondaryImage.slug + '/'} className="block group flex-1 flex flex-col">
                 <div className="relative overflow-hidden flex-1 min-h-[280px]">
                   {secondaryImage.cover_image && (
                     <img
@@ -324,7 +324,7 @@ export default async function HomePage() {
         <div className="lg:col-span-4 lg:border-r border-foreground/10 p-6">
           <div className="grid grid-cols-2 gap-x-4 gap-y-5">
             {editorialLeft.map((post) => (
-              <Link key={post.id} href={'/blog/' + post.slug} className="group">
+              <Link key={post.id} href={'/blog/' + post.slug + '/'} className="group">
                 <div className="text-[9px] font-sans font-bold text-brand-red uppercase tracking-widest mb-1">
                   {getLabel(post.category)}
                 </div>
@@ -342,7 +342,7 @@ export default async function HomePage() {
         {/* CENTER — List of articles with thumbnail */}
         <div className="lg:col-span-4 lg:border-r border-foreground/10">
           {editorialCenter.map((post) => (
-            <Link key={post.id} href={'/blog/' + post.slug} className="group flex gap-3 p-4 border-b border-foreground/10 last:border-0">
+            <Link key={post.id} href={'/blog/' + post.slug + '/'} className="group flex gap-3 p-4 border-b border-foreground/10 last:border-0">
               {post.cover_image && (
                 <div className="w-24 h-20 shrink-0 overflow-hidden">
                   <img
@@ -369,7 +369,7 @@ export default async function HomePage() {
           <SponsorBanner />
           <div className="space-y-3">
             {editorialRight.map((post) => (
-              <Link key={post.id} href={'/blog/' + post.slug} className="group block p-3 border border-foreground/10 hover:border-brand-red transition-colors">
+              <Link key={post.id} href={'/blog/' + post.slug + '/'} className="group block p-3 border border-foreground/10 hover:border-brand-red transition-colors">
                 <div className="text-[9px] font-sans font-bold text-brand-red uppercase tracking-widest mb-1">
                   {getLabel(post.category)}
                 </div>
@@ -391,7 +391,7 @@ export default async function HomePage() {
           <div className="flex items-center gap-3 px-6 pt-8 pb-4">
             <div className="w-2 h-2 bg-brand-red" />
             <Link
-              href={'/categorie/' + cat}
+              href={'/categorie/' + cat + '/'}
               className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red hover:underline"
             >
               {getLabel(cat)}
@@ -421,7 +421,7 @@ export default async function HomePage() {
       {posts.length > 0 && (
         <div className="py-10 text-center border-b border-foreground/10">
           <Link
-            href="/categorie/news"
+            href="/categorie/news/"
             className="inline-block font-sans text-sm font-semibold text-brand-red hover:underline uppercase tracking-widest"
           >
             Toate articolele →

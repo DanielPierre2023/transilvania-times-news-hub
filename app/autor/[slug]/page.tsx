@@ -155,7 +155,7 @@ export default async function AuthorPage({
                   {author.specialties.map(spec => (
                     <Link
                       key={spec}
-                      href={`/categorie/${spec}`}
+                      href={`/categorie/${spec}/`}
                       className="text-[10px] font-sans font-bold uppercase tracking-wider text-muted-foreground border border-foreground/15 px-2 py-0.5 hover:text-brand-red hover:border-brand-red/30 transition-colors"
                     >
                       {CAT_LABELS[spec] || spec}
@@ -193,7 +193,7 @@ export default async function AuthorPage({
                   return (
                     <Link
                       key={article.id}
-                      href={`/blog/${article.slug}`}
+                      href={`/blog/${article.slug}/`}
                       className="group flex gap-4 items-start"
                     >
                       {article.cover_image && (
