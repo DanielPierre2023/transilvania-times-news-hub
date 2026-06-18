@@ -1,5 +1,20 @@
 'use client'
 
+// ============================================================================
+// Transilvania Times — Admin Layout
+// ============================================================================
+//
+// This layout wraps every route under /admin/*. Because /admin/login is also
+// under that subtree but is a *public* route with no admin chrome (no sidebar,
+// no logout button, no nav), we render a bare passthrough for that path
+// instead of the full admin shell.
+//
+// The pathname check is performed AFTER all hooks have been called, to comply
+// with React's Rules of Hooks (hooks must be invoked in the same order on
+// every render).
+//
+// ============================================================================
+
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -11,21 +26,42 @@ import {
 } from 'lucide-react'
 
 const NAV = [
-  { label: 'Dashboard',   href: '/admin/dashboard',  icon: LayoutDashboard },
-  { label: 'Editor AI',   href: '/admin/editor',      icon: PenLine },
+  { label: 'Dashboard',       href: '/admin/dashboard',   icon: LayoutDashboard },
+  { label: 'Articol Check',   href: '/admin/checker',      icon: PenLine },
+  { label: 'Editor AI',       href: '/admin/editor',      icon: PenLine },
   { label: 'Social Media',    href: '/admin/social',      icon: Share2 },
-  { label: 'Articole',    href: '/admin/articles',    icon: FileText },
-  { label: 'Scraper RSS', href: '/admin/scraper',     icon: Rss },
-  { label: 'Comentarii',  href: '/admin/comments',    icon: MessageSquare },
-  { label: 'Newsletter',  href: '/admin/newsletter',  icon: Mail },
-  { label: 'Abonați',     href: '/admin/subscribers', icon: Users },
-  { label: 'Publicitate', href: '/admin/sponsors',    icon: BarChart2 },
-  { label: 'Inbox',       href: '/admin/inbox',       icon: Inbox },
-  { label: 'Setări',      href: '/admin/settings',    icon: Settings },
-  { label: 'Observabilitate', href: '/admin/analytics', icon: BarChart2 },
+  { label: 'Articole',        href: '/admin/articles',    icon: FileText },
+  { label: 'Scraper RSS',     href: '/admin/scraper',     icon: Rss },
+  { label: 'Comentarii',      href: '/admin/comments',    icon: MessageSquare },
+  { label: 'Newsletter',      href: '/admin/newsletter',  icon: Mail },
+  { label: 'Abonați',         href: '/admin/subscribers', icon: Users },
+  { label: 'Publicitate',     href: '/admin/sponsors',    icon: BarChart2 },
+  { label: 'Inbox',           href: '/admin/inbox',       icon: Inbox },
+  { label: 'Setări',          href: '/admin/settings',    icon: Settings },
+  { label: 'Observabilitate', href: '/admin/analytics',   icon: BarChart2 },
 ]
 
+// Routes under /admin/* that must NOT receive the admin chrome (sidebar,
+// logout, user-email field). Keep in sync with PUBLIC_ADMIN_ROUTES in
+// middleware.ts.
+const BARE_LAYOUT_ROUTES = new Set<string>([
+  '/admin/login',
+])
+
+function isBareLayoutRoute(pathname: string): boolean {
+  // Trailing-slash-tolerant lookup — Netlify and Next.js can each normalise
+  // paths to include or strip a trailing slash, so we compare stripped form.
+  const stripped = pathname.length > 1 && pathname.endsWith('/')
+    ? pathname.slice(0, -1)
+    : pathname
+  return BARE_LAYOUT_ROUTES.has(stripped)
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  // -------------------------------------------------------------------------
+  // All hooks are called unconditionally, on every render, before any
+  // conditional return. This is required by React's Rules of Hooks.
+  // -------------------------------------------------------------------------
   const pathname = usePathname()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -36,12 +72,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
+  const bareLayout = isBareLayoutRoute(pathname)
+
   useEffect(() => {
+    // Skip the getUser() call on the login page — there is no session there
+    // and calling it would generate a network error in the browser console.
+    if (bareLayout) return
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setUserEmail(data.user.email || '')
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [bareLayout])
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -49,6 +90,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.refresh()
   }
 
+  // -------------------------------------------------------------------------
+  // Bare layout for public admin routes (login). No sidebar, no chrome.
+  // -------------------------------------------------------------------------
+  if (bareLayout) {
+    return <>{children}</>
+  }
+
+  // -------------------------------------------------------------------------
+  // Full admin layout with sidebar.
+  // -------------------------------------------------------------------------
   const Sidebar = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
