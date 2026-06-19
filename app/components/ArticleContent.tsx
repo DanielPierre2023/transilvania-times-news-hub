@@ -109,7 +109,7 @@ export default function ArticleContent({
   defaultLang,
   inlineRelated = [],
 }: ArticleContentProps) {
-  const router = useRouter()
+  const router   = useRouter()
   const pathname = usePathname()
   const [lang, setLang] = useState<'ro' | 'en'>(defaultLang)
 
@@ -118,19 +118,37 @@ export default function ArticleContent({
   }, [defaultLang])
 
   function switchLanguage(nextLang: 'ro' | 'en') {
-    setLang(nextLang)
+    if (nextLang === lang) return
 
-    const canonicalPath = pathname.endsWith('/') ? pathname : `${pathname}/`
-    const nextUrl = nextLang === 'en' ? `${canonicalPath}?lang=en` : canonicalPath
+    // Navigate to the correct canonical URL for the target language.
+    // This component is rendered on two distinct routes:
+    //   RO: /blog/{slug}/      → switching to EN goes to /en/blog/{slug}/
+    //   EN: /en/blog/{slug}/   → switching to RO goes to /blog/{slug}/
+    //
+    // We extract the slug from the current pathname rather than appending
+    // ?lang=en (the old approach), which caused a client redirect via the
+    // server-side redirect in /blog/[slug]/page.tsx — two hops instead of one.
+    const withSlash = pathname.endsWith('/') ? pathname : `${pathname}/`
 
-    router.replace(nextUrl, { scroll: false })
+    let targetUrl: string
+    if (nextLang === 'en') {
+      // /blog/some-slug/ → /en/blog/some-slug/
+      const slug = withSlash.replace(/^\/blog\//, '').replace(/\/$/, '')
+      targetUrl = `/en/blog/${slug}/`
+    } else {
+      // /en/blog/some-slug/ → /blog/some-slug/
+      const slug = withSlash.replace(/^\/en\/blog\//, '').replace(/\/$/, '')
+      targetUrl = `/blog/${slug}/`
+    }
+
+    router.push(targetUrl)
   }
 
   const title   = lang === 'ro' ? (titleRo   || titleEn)   : (titleEn   || titleRo)
   const summary = lang === 'ro' ? (summaryRo || summaryEn) : (summaryEn || summaryRo)
   const content = lang === 'ro' ? (contentRo || contentEn) : (contentEn || contentRo)
 
-  const hasBoth = (titleRo && titleEn) || (contentRo && contentEn)
+  const hasBoth = Boolean((titleRo && titleEn) || (contentRo && contentEn))
 
   const isAiGenerated = coverImageCredit
     ? coverImageCredit.toLowerCase().includes('generat') ||
@@ -174,7 +192,7 @@ export default function ArticleContent({
 
   return (
     <div>
-      {/* Language switcher */}
+      {/* Language switcher — navigates between /blog/slug/ and /en/blog/slug/ */}
       {hasBoth && (
         <div className="flex gap-1 mb-6">
           <button
@@ -249,7 +267,7 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Article body - paragraphs with one inline-related block injected at midpoint */}
+      {/* Article body — paragraphs with one inline-related block at midpoint */}
       {paragraphs.length > 0 && (
         <div
           className="prose prose-lg max-w-none font-serif text-foreground

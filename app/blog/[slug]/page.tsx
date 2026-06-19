@@ -5,6 +5,12 @@
 //   - "Cele mai citite" sidebar with thumbnails (aktual24-style)
 //   - "Urmărește-ne" row at end of article with social icons + Google News badge
 //   - GoogleNewsBadge removed from article body
+//
+// Fix (June 19, 2026):
+//   - Removed dead `defaultLang === 'en'` ternary branches (lines 252, 255–260,
+//     277, 453). This is the permanent RO route; defaultLang is always 'ro'.
+//     TypeScript 5.5+ flags const-value comparisons that can never be true as
+//     TS2367, breaking the build. Collapsed every branch to its RO value.
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
@@ -173,12 +179,15 @@ export default async function ArticlePage({
   const { slug }            = await params
   const { lang: langParam } = await searchParams
 
-  // Backward compatibility: old /blog/{slug}/?lang=en URLs 308-redirect
+  // Backward compatibility: old /blog/{slug}/?lang=en URLs redirect
   // to the new /en/blog/{slug}/ route for proper bilingual SEO.
   if (langParam === 'en') {
     redirect(`/en/blog/${slug}/`)
   }
 
+  // This is the permanent RO route. defaultLang is always 'ro'.
+  // Do NOT add defaultLang === 'en' comparisons here — TypeScript 5.5+
+  // flags them as TS2367 (impossible comparison) and breaks the build.
   const defaultLang: 'ro' | 'en' = 'ro'
 
   const supabase = await createSupabaseServerClient()
@@ -248,16 +257,10 @@ export default async function ArticlePage({
     cover_image: a.cover_image,
   }))
 
-  const authorName = author
-    ? (defaultLang === 'en' ? author.name_en : author.name_ro)
-    : (post.author_name || 'Transilvania Times')
-
-  const articleTitle = defaultLang === 'en'
-    ? (post.title_en || post.title_ro || '')
-    : (post.title_ro || post.title_en || '')
-  const articleDescription = defaultLang === 'en'
-    ? (post.excerpt_en || post.excerpt_ro || '')
-    : (post.excerpt_ro || post.excerpt_en || '')
+  // RO route — always use Romanian fields, fall back to EN only if RO is missing.
+  const authorName     = author ? author.name_ro : (post.author_name || 'Transilvania Times')
+  const articleTitle   = post.title_ro || post.title_en || ''
+  const articleDescription = post.excerpt_ro || post.excerpt_en || ''
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -270,11 +273,12 @@ export default async function ArticlePage({
     articleSection: post.category || 'news',
     wordCount: post.word_count || undefined,
     keywords: tags.join(', ') || undefined,
+    inLanguage: 'ro',
     author: {
       '@type': 'Person',
       name: authorName,
       ...(author?.slug ? { url: `${SITE_URL}/autor/${author.slug}/` } : {}),
-      ...(author ? { description: defaultLang === 'en' ? author.bio_en : author.bio_ro } : {}),
+      ...(author ? { description: author.bio_ro } : {}),
     },
     publisher: {
       '@type': 'Organization',
@@ -450,7 +454,7 @@ export default async function ArticlePage({
                       </div>
                     )}
                     <h4 className="font-serif text-sm font-semibold text-foreground group-hover:text-brand-red transition-colors leading-snug line-clamp-3">
-                      {defaultLang === 'en' ? (rel.title_en || rel.title_ro) : (rel.title_ro || rel.title_en)}
+                      {rel.title_ro || rel.title_en}
                     </h4>
                   </Link>
                 )

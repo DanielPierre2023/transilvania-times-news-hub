@@ -2,10 +2,16 @@
 //
 // B6: Added RSS and Atom feed discovery links in <head>.
 // Browsers, feed readers, and Google Discover auto-detect these.
+//
+// Fix (June 19, 2026):
+//   - lang attribute on <html> is now dynamic: "en" for /en/* routes, "ro"
+//     for everything else. Previously hardcoded as "ro", which meant Google
+//     and screen readers saw all EN pages declared as Romanian.
+//   - Reads x-pathname header set by middleware.ts (see that file).
 
 import type { Metadata } from 'next'
 import { Lora, Inter } from 'next/font/google'
-import Script from 'next/script'
+import { headers } from 'next/headers'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import LayoutShell from './components/LayoutShell'
 import { CookieConsentProvider } from './components/CookieConsentContext'
@@ -46,6 +52,12 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  // Determine page language from the current pathname (set by middleware.ts).
+  // /en/* routes get lang="en"; everything else stays lang="ro".
+  const headersList = await headers()
+  const pathname    = headersList.get('x-pathname') ?? '/'
+  const htmlLang    = pathname.startsWith('/en') ? 'en' : 'ro'
+
   const supabase = await createSupabaseServerClient()
   const { data: breaking } = await supabase
     .from('blog_posts')
@@ -60,7 +72,7 @@ export default async function RootLayout({
     .filter((t): t is string => Boolean(t))
 
   return (
-    <html lang="ro" className={`${lora.variable} ${inter.variable}`}>
+    <html lang={htmlLang} className={`${lora.variable} ${inter.variable}`}>
       <head>
         {/* Google AdSense verification */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
@@ -69,7 +81,6 @@ export default async function RootLayout({
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5809590003717527"
           crossOrigin="anonymous"
         />
-
         {/* B6: RSS + Atom feed discovery — auto-detected by browsers, Feedly, Google */}
         <link
           rel="alternate"

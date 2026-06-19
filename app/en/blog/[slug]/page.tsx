@@ -6,6 +6,15 @@
 // Created June 8, 2026 to fix bilingual SEO. Previously the EN view was
 // served at /blog/{slug}/?lang=en with the canonical pointing to the RO
 // URL — Google treated them as the same page and never indexed EN content.
+//
+// Fix (June 19, 2026):
+//   - Category link was pointing to /categorie/{cat}/ (RO page). No EN
+//     category pages exist yet, so the link now goes to /en/ to keep the
+//     reader in the English context.
+//   - County link was pointing to /judet/{county}/ (RO page). Same fix:
+//     removed the hyperlink, county label rendered as plain text since
+//     there are no EN county pages.
+//   - inLanguage: 'en' added to JSON-LD (was missing).
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
@@ -229,10 +238,8 @@ export default async function ArticlePageEN(
     cover_image: a.cover_image,
   }))
 
-  const authorName = author
-    ? author.name_en
-    : (post.author_name || 'Transilvania Times')
-
+  // EN route — always use English fields, fall back to RO only if EN is missing.
+  const authorName         = author ? author.name_en : (post.author_name || 'Transilvania Times')
   const articleTitle       = post.title_en || post.title_ro || ''
   const articleDescription = post.excerpt_en || post.excerpt_ro || ''
 
@@ -270,7 +277,7 @@ export default async function ArticlePageEN(
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_URL}/en/` },
       ...(post.category
-        ? [{ '@type': 'ListItem', position: 2, name: CAT_LABELS_EN[post.category] || post.category, item: `${SITE_URL}/categorie/${post.category}/` }]
+        ? [{ '@type': 'ListItem', position: 2, name: CAT_LABELS_EN[post.category] || post.category, item: `${SITE_URL}/en/` }]
         : []),
       {
         '@type': 'ListItem',
@@ -300,8 +307,11 @@ export default async function ArticlePageEN(
                 </span>
               )}
               {post.category && (
+                /* No EN category pages exist yet — link to EN homepage to keep
+                   the reader in the English context instead of sending them to
+                   the Romanian /categorie/ page. */
                 <Link
-                  href={'/categorie/' + post.category + '/'}
+                  href="/en/"
                   className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red hover:underline"
                 >
                   {catLabel}
@@ -310,13 +320,12 @@ export default async function ArticlePageEN(
               {(() => {
                 const countyData = post.county ? getCounty(post.county) : null
                 if (countyData) {
+                  /* No EN county pages exist yet — render as plain text label
+                     instead of linking to the Romanian /judet/ page. */
                   return (
-                    <Link
-                      href={'/judet/' + post.county + '/'}
-                      className="font-sans text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-brand-red transition-colors"
-                    >
+                    <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                       · {countyData.label}
-                    </Link>
+                    </span>
                   )
                 }
                 if (post.subcategory) {
@@ -400,7 +409,7 @@ export default async function ArticlePageEN(
           </div>
         </div>
 
-        {/* End-of-article related grid (4-up) */}
+        {/* End-of-article related grid (4-up) — links go to /en/blog/ to keep EN context */}
         {endBlockRelated && endBlockRelated.length > 0 && (
           <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-foreground/10 pb-12">
             <SectionHeader className="mb-6">Related articles</SectionHeader>

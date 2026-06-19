@@ -1,12 +1,15 @@
 // ============================================================================
-// Transilvania Times — Admin Route Middleware
+// Transilvania Times — Route Middleware
 // ============================================================================
 //
 // PURPOSE
-//   Gates everything under /admin/* behind a valid Supabase session, with the
-//   single exception of /admin/login (the login page itself must be reachable
-//   without a session, otherwise the entire admin is unreachable from a clean
-//   browser state).
+//   1. (All routes) Sets x-pathname response header so app/layout.tsx can
+//      read the current pathname server-side and set lang="en" on /en/* routes
+//      instead of the hardcoded lang="ro". Without this, every EN page is
+//      declared as Romanian to Google and screen readers.
+//
+//   2. (Admin routes only) Gates everything under /admin/* behind a valid
+//      Supabase session, with the single exception of /admin/login.
 //
 // WHY THIS VERSION
 //   The previous middleware redirected /admin/login back to /admin/login when
@@ -61,12 +64,24 @@ function isPublicAdminRoute(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // ── Non-admin routes ──────────────────────────────────────────────────────
+  // Just stamp x-pathname and pass through. No auth check, no Supabase call.
+  if (!pathname.startsWith('/admin')) {
+    const response = NextResponse.next()
+    response.headers.set('x-pathname', pathname)
+    return response
+  }
+
+  // ── Admin routes ──────────────────────────────────────────────────────────
+
   // Public routes must short-circuit BEFORE any cookie reading or Supabase
   // network call. If they didn't, an unauthenticated visit to /admin/login
   // would itself trigger the auth check, fail, redirect back to /admin/login,
   // and the browser would abort with ERR_TOO_MANY_REDIRECTS.
   if (isPublicAdminRoute(pathname)) {
-    return NextResponse.next()
+    const response = NextResponse.next()
+    response.headers.set('x-pathname', pathname)
+    return response
   }
 
   // Mutable response holder — Supabase's setAll() callback may replace it
@@ -128,17 +143,27 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
+  // Stamp x-pathname on authenticated admin responses too.
+  response.headers.set('x-pathname', pathname)
   return response
 }
 
 // ----------------------------------------------------------------------------
 // Matcher
 //
-// We deliberately scope the middleware to /admin/* only. The login-route
-// exemption is enforced INSIDE the middleware function above, not via the
-// matcher — keeping it in code means the same exemption logic also applies
+// Expanded from /admin/:path* to cover all page routes so x-pathname is
+// available everywhere layout.tsx needs it. Static assets and Next.js
+// internals are excluded to avoid unnecessary middleware overhead.
+//
+// Admin auth logic is enforced INSIDE the middleware function above, not via
+// the matcher — keeping it in code means the same exemption logic also applies
 // to any future internal redirect that ends up hitting the matcher.
 // ----------------------------------------------------------------------------
 export const config = {
-  matcher: ['/admin/:path*'],
+  matcher: [
+    // Exclude Next.js internals, static assets, and API routes.
+    // API routes don't need x-pathname and don't need admin auth checks;
+    // they handle their own auth internally.
+    '/((?!_next/static|_next/image|assets|favicon|api/).*)',
+  ],
 }

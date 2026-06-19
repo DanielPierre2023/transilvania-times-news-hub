@@ -60,7 +60,9 @@ function fmtDate(dateStr: string | null): string {
   catch { return '' }
 }
 
-// All article links from EN page point to the dedicated EN route
+// All article links from EN page point to the dedicated EN route.
+// Never append ?lang=en — that pattern causes a 3-hop redirect chain.
+// /en/blog/{slug}/ is the direct canonical EN URL.
 function articleHref(slug: string): string {
   return `/en/blog/${slug}/`
 }
@@ -292,7 +294,7 @@ export default async function HomePageEN() {
           {gridArticles.map((post, i) => (
             <ArticleCard
               key={post.id}
-              slug={post.slug + '?lang=en'}
+              slug={post.slug}
               category={post.category}
               subcategory={post.subcategory}
               title={getTitle(post)}
@@ -398,19 +400,19 @@ export default async function HomePageEN() {
         <section key={cat} className="border-b border-foreground/10">
           <div className="flex items-center gap-3 px-6 pt-8 pb-4">
             <div className="w-2 h-2 bg-brand-red" />
-            <Link
-              href={'/categorie/' + cat}
-              className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red hover:underline"
-            >
+            {/* No EN category pages exist — label is plain text, not a link.
+                Linking to /categorie/{cat}/ would send EN readers to the
+                Romanian category page. */}
+            <span className="font-sans font-bold text-[10px] uppercase tracking-[0.2em] text-brand-red">
               {getLabel(cat)}
-            </Link>
+            </span>
             <div className="flex-1 h-px bg-foreground/10" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 px-6 pb-6 gap-0">
             {catPosts.slice(0, 3).map((post, i) => (
               <ArticleCard
                 key={post.id}
-                slug={post.slug + '?lang=en'}
+                slug={post.slug}
                 category={post.category}
                 title={getTitle(post)}
                 timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
@@ -426,8 +428,9 @@ export default async function HomePageEN() {
 
       {posts.length > 0 && (
         <div className="py-10 text-center border-b border-foreground/10">
+          {/* No EN category index exists — link back to EN homepage */}
           <Link
-            href="/categorie/news"
+            href="/en/"
             className="inline-block font-sans text-sm font-semibold text-brand-red hover:underline uppercase tracking-widest"
           >
             All articles →

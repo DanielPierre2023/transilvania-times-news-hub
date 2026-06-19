@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, Search, MapPin, Mail, Phone, ChevronDown } from 'lucide-react'
+import { Menu, X, Search, Mail, Phone, ChevronDown } from 'lucide-react'
 import TrafficStats from './TrafficStats'
 import { COUNTIES } from '@/lib/counties'
 
@@ -61,6 +61,33 @@ function FooterNewsletter() {
 import WeatherWidget from './WeatherWidget'
 import CookieBanner from './CookieBanner'
 
+// ── Language switcher URL resolver ────────────────────────────────────────────
+// Context-aware: on article pages it switches to the same article in the other
+// language. On all other pages it switches to the appropriate homepage.
+function getLangSwitchUrl(pathname: string | null, targetLang: 'ro' | 'en'): string {
+  if (!pathname) return targetLang === 'en' ? '/en/' : '/'
+
+  if (targetLang === 'en') {
+    // /blog/some-slug/ → /en/blog/some-slug/
+    const articleMatch = pathname.match(/^\/blog\/([^/]+)\/?$/)
+    if (articleMatch) return `/en/blog/${articleMatch[1]}/`
+    // Already on EN, stay
+    if (pathname.startsWith('/en')) return pathname.endsWith('/') ? pathname : `${pathname}/`
+    // Everything else → EN homepage
+    return '/en/'
+  } else {
+    // /en/blog/some-slug/ → /blog/some-slug/
+    const enArticleMatch = pathname.match(/^\/en\/blog\/([^/]+)\/?$/)
+    if (enArticleMatch) return `/blog/${enArticleMatch[1]}/`
+    // /en/ or /en → RO homepage
+    if (pathname === '/en' || pathname === '/en/') return '/'
+    // Already on RO, stay
+    if (!pathname.startsWith('/en')) return pathname.endsWith('/') ? pathname : `${pathname}/`
+    // Everything else → RO homepage
+    return '/'
+  }
+}
+
 // ── Județe nav dropdown — hover to reveal county list (desktop) ──────────────
 function CountyNavDropdown({ pathname }: { pathname: string | null }) {
   const [open, setOpen] = useState(false)
@@ -90,9 +117,9 @@ function CountyNavDropdown({ pathname }: { pathname: string | null }) {
           {COUNTIES.map(c => (
             <Link
               key={c.slug}
-              href={`/judet/${c.slug}`}
+              href={`/judet/${c.slug}/`}
               className={`block font-sans text-[12px] px-4 py-2 transition-colors hover:bg-foreground/5 ${
-                pathname === `/judet/${c.slug}`
+                pathname === `/judet/${c.slug}` || pathname === `/judet/${c.slug}/`
                   ? 'text-brand-red font-bold'
                   : 'text-foreground/80 hover:text-foreground'
               }`}
@@ -107,16 +134,16 @@ function CountyNavDropdown({ pathname }: { pathname: string | null }) {
 }
 
 const NAV_LINKS = [
-  { href: '/categorie/news',       label: 'Știri',       labelEn: 'News' },
-  { href: '/categorie/politics',   label: 'Politică',    labelEn: 'Politics' },
-  { href: '/categorie/technology', label: 'Tehnologie',  labelEn: 'Technology' },
-  { href: '/categorie/business',   label: 'Afaceri',     labelEn: 'Business' },
-  { href: '/categorie/culture',    label: 'Cultură',     labelEn: 'Culture' },
-  { href: '/categorie/travel',     label: 'Călătorii',   labelEn: 'Travel' },
-  { href: '/categorie/education',  label: 'Educație',    labelEn: 'Education' },
-  { href: '/categorie/sports',     label: 'Sport',       labelEn: 'Sport' },
-  { href: '/categorie/health',     label: 'Sănătate',    labelEn: 'Health' },
-  { href: '/categorie/opinion',    label: 'Opinie',      labelEn: 'Opinion' },
+  { href: '/categorie/news/',       label: 'Știri',       labelEn: 'News' },
+  { href: '/categorie/politics/',   label: 'Politică',    labelEn: 'Politics' },
+  { href: '/categorie/technology/', label: 'Tehnologie',  labelEn: 'Technology' },
+  { href: '/categorie/business/',   label: 'Afaceri',     labelEn: 'Business' },
+  { href: '/categorie/culture/',    label: 'Cultură',     labelEn: 'Culture' },
+  { href: '/categorie/travel/',     label: 'Călătorii',   labelEn: 'Travel' },
+  { href: '/categorie/education/',  label: 'Educație',    labelEn: 'Education' },
+  { href: '/categorie/sports/',     label: 'Sport',       labelEn: 'Sport' },
+  { href: '/categorie/health/',     label: 'Sănătate',    labelEn: 'Health' },
+  { href: '/categorie/opinion/',    label: 'Opinie',      labelEn: 'Opinion' },
 ]
 
 interface LayoutShellProps {
@@ -131,6 +158,8 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
   const [searchOpen,  setSearchOpen]  = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
+  const isEnglish = pathname?.startsWith('/en') ?? false
+
   // Scroll shadow
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10)
@@ -144,6 +173,9 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
   if (isAdminRoute) {
     return <>{children}</>
   }
+
+  const roUrl = getLangSwitchUrl(pathname, 'ro')
+  const enUrl = getLangSwitchUrl(pathname, 'en')
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -188,20 +220,23 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
 
             {/* Left: language switcher + date + weather */}
             <div className="flex items-center gap-3 font-sans text-[11px] text-muted-foreground">
+              {/* Language switcher — context-aware: on article pages switches
+                  to the same article in the other language; elsewhere goes to
+                  the target language homepage. */}
               <div className="flex items-center gap-2">
                 <Link
-                  href="/"
+                  href={roUrl}
                   className={`uppercase tracking-wider transition-colors ${
-                    !pathname?.startsWith('/en') ? 'font-bold text-brand-red' : 'hover:text-brand-red'
+                    !isEnglish ? 'font-bold text-brand-red' : 'hover:text-brand-red'
                   }`}
                 >
                   RO
                 </Link>
                 <span className="text-foreground/20">|</span>
                 <Link
-                  href="/en"
+                  href={enUrl}
                   className={`uppercase tracking-wider transition-colors ${
-                    pathname?.startsWith('/en') ? 'font-bold text-brand-red' : 'hover:text-brand-red'
+                    isEnglish ? 'font-bold text-brand-red' : 'hover:text-brand-red'
                   }`}
                 >
                   EN
@@ -225,7 +260,7 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                     onChange={e => setSearchQuery(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter' && searchQuery.trim()) {
-                        window.location.href = `/cautare?q=${encodeURIComponent(searchQuery.trim())}`
+                        window.location.href = `/cautare/?q=${encodeURIComponent(searchQuery.trim())}`
                       }
                       if (e.key === 'Escape') {
                         setSearchOpen(false)
@@ -245,7 +280,7 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 </button>
               )}
               <Link
-                href="/contact"
+                href="/contact/"
                 className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] px-4 py-1.5 bg-brand-red text-white hover:bg-red-700 transition-colors"
               >
                 Susține-ne
@@ -256,7 +291,7 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
 
         {/* ── Masthead — big centered title ── */}
         <div className="py-5 text-center border-b border-foreground/[0.08]">
-          <Link href="/" className="inline-block">
+          <Link href={isEnglish ? '/en/' : '/'} className="inline-block">
             <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold italic text-brand-red tracking-tight">
               Transilvania Times
             </h1>
@@ -274,7 +309,8 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                   key={link.href}
                   href={link.href}
                   className={`font-sans text-[12px] font-medium px-4 py-3 transition-colors ${
-                    pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
+                    pathname === link.href || pathname === link.href.slice(0, -1) ||
+                    (link.href !== '/' && pathname?.startsWith(link.href.slice(0, -1)))
                       ? 'text-brand-red font-bold'
                       : 'text-foreground/70 hover:text-foreground'
                   }`}
@@ -306,7 +342,9 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 href={link.href}
                 onClick={() => setMobileOpen(false)}
                 className={`block font-sans text-[12px] font-bold uppercase tracking-wider py-2.5 border-b border-foreground/[0.06] transition-colors ${
-                  pathname === link.href ? 'text-brand-red' : 'text-muted-foreground'
+                  pathname === link.href || pathname === link.href.slice(0, -1)
+                    ? 'text-brand-red'
+                    : 'text-muted-foreground'
                 }`}
               >
                 {link.label}
@@ -321,10 +359,12 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 {COUNTIES.map(c => (
                   <Link
                     key={c.slug}
-                    href={`/judet/${c.slug}`}
+                    href={`/judet/${c.slug}/`}
                     onClick={() => setMobileOpen(false)}
                     className={`block font-sans text-[12px] py-1 transition-colors ${
-                      pathname === `/judet/${c.slug}` ? 'text-brand-red font-bold' : 'text-muted-foreground'
+                      pathname === `/judet/${c.slug}` || pathname === `/judet/${c.slug}/`
+                        ? 'text-brand-red font-bold'
+                        : 'text-muted-foreground'
                     }`}
                   >
                     {c.label}
@@ -366,16 +406,16 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
               </h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                 {[
-                  { href: '/categorie/news',       label: 'Știri' },
-                  { href: '/categorie/politics',   label: 'Politică' },
-                  { href: '/categorie/technology', label: 'Tehnologie' },
-                  { href: '/categorie/business',   label: 'Afaceri' },
-                  { href: '/categorie/culture',    label: 'Cultură' },
-                  { href: '/categorie/travel',     label: 'Călătorii' },
-                  { href: '/categorie/education',  label: 'Educație' },
-                  { href: '/categorie/sports',     label: 'Sport' },
-                  { href: '/categorie/health',     label: 'Sănătate' },
-                  { href: '/categorie/opinion',    label: 'Opinie' },
+                  { href: '/categorie/news/',       label: 'Știri' },
+                  { href: '/categorie/politics/',   label: 'Politică' },
+                  { href: '/categorie/technology/', label: 'Tehnologie' },
+                  { href: '/categorie/business/',   label: 'Afaceri' },
+                  { href: '/categorie/culture/',    label: 'Cultură' },
+                  { href: '/categorie/travel/',     label: 'Călătorii' },
+                  { href: '/categorie/education/',  label: 'Educație' },
+                  { href: '/categorie/sports/',     label: 'Sport' },
+                  { href: '/categorie/health/',     label: 'Sănătate' },
+                  { href: '/categorie/opinion/',    label: 'Opinie' },
                 ].map(cat => (
                   <Link key={cat.href} href={cat.href}
                     className="text-[13px] font-sans text-muted-foreground hover:text-brand-red transition-colors">
@@ -417,26 +457,26 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
           <div className="border-t border-foreground/10 pt-6 mb-6">
             <TrafficStats />
           </div>
-          
+
           {/* Bottom bar */}
           <div className="border-t border-foreground/10 pt-6 flex flex-col md:flex-row items-center justify-between gap-3">
             <p className="font-sans text-[11px] text-muted-foreground">
               © {new Date().getFullYear()} Transilvania Times. Toate drepturile rezervate.
             </p>
             <div className="flex items-center gap-4">
-              <Link href="/politica-confidentialitate"
+              <Link href="/politica-confidentialitate/"
                 className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                 Confidențialitate
               </Link>
-              <Link href="/termeni-si-conditii"
+              <Link href="/termeni-si-conditii/"
                 className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                 Termeni
               </Link>
-              <Link href="/despre"
+              <Link href="/despre/"
                 className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                 Despre
               </Link>
-              <Link href="/standarde-editoriale"
+              <Link href="/standarde-editoriale/"
                 className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                 Standarde
               </Link>
@@ -453,7 +493,7 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                   className="text-muted-foreground hover:text-brand-red transition-colors">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
                 </a>
-                </div>
+              </div>
             </div>
           </div>
         </div>
