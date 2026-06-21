@@ -2,15 +2,23 @@
 
 // app/admin/analytics/page.tsx
 //
-// v2 — Enhanced observability dashboard.
-// Changes from v1:
-//   - Shows article TITLES instead of raw URL paths
-//   - Adds city/region breakdown under Geography
-//   - Filters out /admin/* paths (admin work excluded from metrics)
-//   - Better traffic source labels (Facebook, Google, Google News, etc.)
-//   - Facebook vs Organic comparison widget
-//   - UTM campaign breakdown when UTM data exists
-//   - Keeps all existing cards, charts, and layout
+// v3 — Server-side aggregation fix.
+//
+// v2 fetched raw rows from site_analytics via the Supabase JS client and
+// aggregated everything in JavaScript. Supabase's PostgREST enforces a
+// server-side max_rows of 1,000 regardless of the client's .limit() value.
+// The 7-day window (~660 rows) fit under the cap and was accurate; the
+// 30-day window (~5,000+ rows) was silently truncated to 1,000, showing
+// 1.0k views / 730 visitors instead of the real 5,064 / 3,522.
+//
+// v3 calls a single RPC `get_analytics_data(p_period)` that runs all
+// aggregation in SQL on the server and returns one small JSON object.
+// No row limit issue, no client-side counting, scales to any table size.
+// The blog post title lookup stays client-side (small, bounded query).
+//
+// Everything else preserved: same cards, same charts, same layout, same
+// source classification colors, same FB vs Organic widget, same title
+// resolution, same admin path exclusion (now in SQL WHERE clause).
 
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
@@ -20,20 +28,6 @@ import {
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface AnalyticsRow {
-  page_path: string
-  referrer: string | null
-  browser: string | null
-  device_type: string | null
-  country: string | null
-  city: string | null
-  visitor_id: string | null
-  created_at: string
-  utm_source: string | null
-  utm_medium: string | null
-  utm_campaign: string | null
-}
 
 interface OverviewStats {
   views_24h: number; visitors_24h: number
@@ -61,41 +55,7 @@ const periodLabel: Record<Period, string> = {
   '30d': 'Ultima lună',
 }
 
-// Traffic source labels for the referrer field
-const SOURCE_LABELS: Record<string, string> = {
-  facebook: 'Facebook', direct: 'Direct', google: 'Google Search',
-  'google-news': 'Google News', twitter: 'Twitter / X', linkedin: 'LinkedIn',
-  instagram: 'Instagram', whatsapp: 'WhatsApp', reddit: 'Reddit',
-  bing: 'Bing', yahoo: 'Yahoo', duckduckgo: 'DuckDuckGo',
-  internal: 'Navigare internă', other: 'Altele',
-}
-
-function classifyReferrer(ref: string | null): string {
-  if (!ref) return 'direct'
-  const r = ref.toLowerCase().trim()
-  // Handle pre-classified labels stored in site_analytics
-  if (r === 'direct') return 'direct'
-  if (r === 'facebook') return 'facebook'
-  if (r === 'google') return 'google'
-  if (r === 'bing') return 'bing'
-  if (r === 'yahoo') return 'yahoo'
-  if (r === 'duckduckgo') return 'duckduckgo'
-  // Handle full URLs
-  if (r.includes('facebook.com') || r.includes('fb.com') || r.includes('fbclid')) return 'facebook'
-  if (r.includes('news.google')) return 'google-news'
-  if (r.includes('google')) return 'google'
-  if (r.includes('t.co') || r.includes('twitter') || r.includes('x.com')) return 'twitter'
-  if (r.includes('linkedin') || r.includes('lnkd.in')) return 'linkedin'
-  if (r.includes('instagram')) return 'instagram'
-  if (r.includes('whatsapp') || r.includes('wa.me')) return 'whatsapp'
-  if (r.includes('reddit')) return 'reddit'
-  if (r.includes('bing')) return 'bing'
-  if (r.includes('yahoo')) return 'yahoo'
-  if (r.includes('duckduckgo')) return 'duckduckgo'
-  if (r.includes('transilvaniatimes')) return 'internal'
-  if (r.includes('lovable')) return 'internal'
-  return 'other'
-}
+// ─── UI Components ────────────────────────────────────────────────────────────
 
 function Card({ icon: Icon, label, value, sub }: {
   icon: typeof Eye; label: string; value: string; sub?: string
@@ -110,6 +70,13 @@ function Card({ icon: Icon, label, value, sub }: {
       {sub && <p className="text-xs text-zinc-500 mt-0.5">{sub}</p>}
     </div>
   )
+}
+
+const SOURCE_COLORS: Record<string, string> = {
+  'Facebook': '#1877f2', 'Direct': '#dc2626', 'Google Search': '#4285f4',
+  'Google News': '#174ea6', 'Twitter / X': '#1da1f2', 'LinkedIn': '#0a66c2',
+  'Instagram': '#e4405f', 'WhatsApp': '#25d366', 'Bing': '#008373',
+  'Navigare internă': '#888', 'Altele': '#aaa',
 }
 
 function HorizBar({ items, maxItems = 10, colorFn }: {
@@ -136,6 +103,9 @@ function HorizBar({ items, maxItems = 10, colorFn }: {
           <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 w-12 text-right">
             {fmt(row.value)}
           </span>
+          {row.extra !== undefined && (
+            <span className="text-[10px] text-zinc-400 w-14 text-right">{fmt(row.extra)} unici</span>
+          )}
         </div>
       ))}
       {items.length === 0 && (
@@ -168,61 +138,6 @@ function SimpleTimeSeries({ data }: { data: DailyRow[] }) {
   )
 }
 
-// ─── Aggregation helpers ──────────────────────────────────────────────────────
-
-function groupBy(rows: AnalyticsRow[], key: keyof AnalyticsRow): TableRow[] {
-  const map = new Map<string, { count: number; uniques: Set<string> }>()
-  for (const r of rows) {
-    const k = String(r[key] || 'necunoscut')
-    const entry = map.get(k) || { count: 0, uniques: new Set<string>() }
-    entry.count++
-    if (r.visitor_id) entry.uniques.add(r.visitor_id)
-    map.set(k, entry)
-  }
-  return Array.from(map.entries())
-    .map(([label, v]) => ({ label, value: v.count, extra: v.uniques.size }))
-    .sort((a, b) => b.value - a.value)
-}
-
-function groupBySource(rows: AnalyticsRow[]): TableRow[] {
-  const map = new Map<string, number>()
-  for (const r of rows) {
-    const src = classifyReferrer(r.referrer)
-    map.set(src, (map.get(src) || 0) + 1)
-  }
-  return Array.from(map.entries())
-    .map(([label, value]) => ({ label: SOURCE_LABELS[label] || label, value }))
-    .sort((a, b) => b.value - a.value)
-}
-
-function buildTimeSeries(rows: AnalyticsRow[], daysBack: number): DailyRow[] {
-  const map = new Map<string, { views: number; uniques: Set<string> }>()
-  for (let i = daysBack - 1; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400000)
-    map.set(d.toISOString().substring(0, 10), { views: 0, uniques: new Set() })
-  }
-  for (const r of rows) {
-    const key = r.created_at.substring(0, 10)
-    const entry = map.get(key)
-    if (entry) {
-      entry.views++
-      if (r.visitor_id) entry.uniques.add(r.visitor_id)
-    }
-  }
-  return Array.from(map.entries())
-    .map(([day, v]) => ({ day, views: v.views, uniques: v.uniques.size }))
-    .sort((a, b) => a.day.localeCompare(b.day))
-}
-
-// ─── Source color map ─────────────────────────────────────────────────────────
-
-const SOURCE_COLORS: Record<string, string> = {
-  'Facebook': '#1877f2', 'Direct': '#dc2626', 'Google Search': '#4285f4',
-  'Google News': '#174ea6', 'Twitter / X': '#1da1f2', 'LinkedIn': '#0a66c2',
-  'Instagram': '#e4405f', 'WhatsApp': '#25d366', 'Bing': '#008373',
-  'Navigare internă': '#888', 'Altele': '#aaa',
-}
-
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
@@ -246,79 +161,44 @@ export default function AnalyticsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const periodMs = period === '24h' ? 86400000 : period === '7d' ? 604800000 : 2592000000
-    const since = new Date(Date.now() - periodMs).toISOString()
 
-    // Fetch all rows for the period — now includes city + UTM fields
-    const { data: rows } = await supabase
-      .from('site_analytics')
-      .select('page_path, referrer, browser, device_type, country, city, visitor_id, created_at, utm_source, utm_medium, utm_campaign')
-      .eq('is_bot', false)
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(50000)
+    // v3: ONE server-side RPC call replaces all the raw row fetching.
+    // The RPC runs SQL aggregation on the server and returns a single
+    // JSON object with all computed breakdowns. No row limit issue.
+    const { data: rpcResult, error: rpcError } = await supabase
+      .rpc('get_analytics_data', { p_period: period })
 
-    // Filter out admin panel activity — admin work is not reader traffic
-    const allData: AnalyticsRow[] = (rows || []) as AnalyticsRow[]
-    const data = allData.filter(r => !r.page_path.startsWith('/admin'))
-
-    // 30-day window for overview cards (also excluding admin)
-    const thirtyDaysAgo = new Date(Date.now() - 2592000000).toISOString()
-    const { data: allRows } = await supabase
-      .from('site_analytics')
-      .select('page_path, visitor_id, created_at, referrer')
-      .eq('is_bot', false)
-      .gte('created_at', thirtyDaysAgo)
-      .limit(50000)
-
-    const all = ((allRows || []) as { page_path: string; visitor_id: string | null; created_at: string; referrer: string | null }[])
-      .filter(r => !r.page_path.startsWith('/admin'))
-
-    if (all.length > 0) {
-      const now = Date.now()
-      const h24 = all.filter(r => new Date(r.created_at).getTime() > now - 86400000)
-      const d7 = all.filter(r => new Date(r.created_at).getTime() > now - 604800000)
-      const m5 = all.filter(r => new Date(r.created_at).getTime() > now - 300000)
-      setOverview({
-        views_24h: h24.length,
-        visitors_24h: new Set(h24.map(r => r.visitor_id).filter(Boolean)).size,
-        views_7d: d7.length,
-        visitors_7d: new Set(d7.map(r => r.visitor_id).filter(Boolean)).size,
-        views_30d: all.length,
-        visitors_30d: new Set(all.map(r => r.visitor_id).filter(Boolean)).size,
-        live_5min: new Set(m5.map(r => r.visitor_id).filter(Boolean)).size,
-      })
-    } else {
-      setOverview({ views_24h: 0, visitors_24h: 0, views_7d: 0, visitors_7d: 0, views_30d: 0, visitors_30d: 0, live_5min: 0 })
+    if (rpcError || !rpcResult) {
+      console.error('Analytics RPC failed:', rpcError?.message)
+      setLoading(false)
+      return
     }
 
-    // Aggregate charts
-    setPages(groupBy(data, 'page_path').slice(0, 15))
-    setSources(groupBySource(data))
-    setCountries(groupBy(data.filter(r => r.country), 'country'))
-    setCities(groupBy(data.filter(r => r.city), 'city').slice(0, 15))
-    setDevices(groupBy(data.filter(r => r.device_type), 'device_type'))
-    setBrowsers(groupBy(data.filter(r => r.browser), 'browser'))
+    const d = rpcResult as Record<string, unknown>
 
-    const daysBack = period === '24h' ? 1 : period === '7d' ? 7 : 30
-    setDaily(buildTimeSeries(data, daysBack))
+    // Overview cards
+    const ov = d.overview as OverviewStats
+    if (ov) setOverview(ov)
 
-    // Facebook vs Organic breakdown
-    let fb = 0, goog = 0, dir = 0, oth = 0
-    for (const r of data) {
-      const src = classifyReferrer(r.referrer)
-      if (src === 'facebook') fb++
-      else if (src === 'google' || src === 'google-news') goog++
-      else if (src === 'direct') dir++
-      else oth++
-    }
-    setFbVsOrganic({ facebook: fb, google: goog, direct: dir, other: oth })
+    // Breakdowns — all pre-aggregated by the RPC
+    setPages((d.pages as TableRow[]) || [])
+    setSources((d.sources as TableRow[]) || [])
+    setCountries((d.countries as TableRow[]) || [])
+    setCities((d.cities as TableRow[]) || [])
+    setDevices((d.devices as TableRow[]) || [])
+    setBrowsers((d.browsers as TableRow[]) || [])
+    setDaily((d.daily as DailyRow[]) || [])
 
-    // Fetch article titles for blog paths
-    const blogSlugs = data
-      .filter(r => r.page_path.startsWith('/blog/'))
-      .map(r => {
-        const parts = r.page_path.replace(/\/$/, '').split('/')
+    // FB vs Organic
+    const fb = d.fb_organic as { facebook: number; google: number; direct: number; other: number }
+    if (fb) setFbVsOrganic(fb)
+
+    // Blog post titles — small bounded query, stays client-side
+    const pageItems = (d.pages as TableRow[]) || []
+    const blogSlugs = pageItems
+      .filter(p => p.label.startsWith('/blog/'))
+      .map(p => {
+        const parts = p.label.replace(/\/$/, '').split('/')
         return parts[parts.length - 1] || ''
       })
       .filter(Boolean)
@@ -351,6 +231,7 @@ export default function AnalyticsPage() {
     if (path.startsWith('/categorie/')) return 'Categorie: ' + path.split('/').pop()
     if (path.startsWith('/judet/')) return 'Județ: ' + path.split('/').pop()
     if (path.startsWith('/autor/')) return 'Autor: ' + path.split('/').pop()
+    if (path.startsWith('/en/')) return '🇬🇧 ' + path
     return path
   }
 
@@ -416,7 +297,7 @@ export default function AnalyticsPage() {
       {/* Two-column grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-        {/* Top pages — now with TITLES instead of raw paths */}
+        {/* Top pages — with TITLES instead of raw paths */}
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5">
           <h2 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-4 flex items-center gap-2">
             <ArrowUpRight className="w-4 h-4" /> Pagini populare
