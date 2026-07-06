@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Save, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { Save, AlertCircle, CheckCircle2, Loader2, Key, Copy, CheckCircle, XCircle, Plus, Trash2, ExternalLink } from 'lucide-react'
 
 interface AutomationSettings {
   scraper_enabled: boolean
@@ -33,6 +33,16 @@ interface PipelineSnapshot {
   posts_published: number
   posts_draft: number
   last_publish: string | null
+}
+
+interface TokenRow {
+  id: string; token: string; editor_key: string; label: string
+  active: boolean; created_at: string; expires_at: string | null; last_used_at: string | null
+  author_name?: string
+}
+
+interface Author {
+  id: string; editor_key: string; name_ro: string
 }
 
 export default function SettingsPage() {
@@ -54,6 +64,14 @@ export default function SettingsPage() {
 
   // ── Pipeline snapshot (read-only context) ─────────────────────────────
   const [snap, setSnap] = useState<PipelineSnapshot | null>(null)
+
+  // ── Editor tokens ─────────────────────────────────────────────────────
+  const [tokens, setTokens] = useState<TokenRow[]>([])
+  const [tokenAuthors, setTokenAuthors] = useState<Author[]>([])
+  const [newEditorKey, setNewEditorKey] = useState('')
+  const [newLabel, setNewLabel] = useState('')
+  const [creatingToken, setCreatingToken] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -113,6 +131,17 @@ export default function SettingsPage() {
           posts_draft:        postRows.filter(p => p.status === 'draft').length,
           last_publish:       lastPublish,
         })
+
+        // Load editor tokens + authors
+        const [{ data: tData }, { data: aData }] = await Promise.all([
+          supabase.from('editor_tokens').select('*').order('created_at', { ascending: false }),
+          supabase.from('authors').select('id, editor_key, name_ro').eq('active', true).order('name_ro'),
+        ])
+        if (cancelled) return
+        const authorMap = new Map((aData || []).map((a: Author) => [a.editor_key, a]))
+        setTokens((tData || []).map((t: TokenRow) => ({ ...t, author_name: authorMap.get(t.editor_key)?.name_ro || t.editor_key })))
+        setTokenAuthors(aData as Author[] || [])
+        if (aData?.length && !newEditorKey) setNewEditorKey((aData as Author[])[0].editor_key)
       } catch (e) {
         if (!cancelled) setError(`Eroare la încărcare: ${(e as Error).message}`)
       } finally {
@@ -156,6 +185,48 @@ export default function SettingsPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  // ── Token management ───────────────────────────────────────────────────
+  const editorSiteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://transilvaniatimes.com'
+
+  async function loadTokens() {
+    const [{ data: tData }, { data: aData }] = await Promise.all([
+      supabase.from('editor_tokens').select('*').order('created_at', { ascending: false }),
+      supabase.from('authors').select('id, editor_key, name_ro').eq('active', true).order('name_ro'),
+    ])
+    const authorMap = new Map((aData || []).map((a: Author) => [a.editor_key, a]))
+    setTokens((tData || []).map((t: TokenRow) => ({ ...t, author_name: authorMap.get(t.editor_key)?.name_ro || t.editor_key })))
+    setTokenAuthors(aData as Author[] || [])
+  }
+
+  async function createToken() {
+    if (!newEditorKey) return
+    setCreatingToken(true); setError(null)
+    const author = tokenAuthors.find(a => a.editor_key === newEditorKey)
+    if (!author) { setError('Autor invalid.'); setCreatingToken(false); return }
+    const { error: insertErr } = await supabase.from('editor_tokens').insert({
+      author_id: author.id, editor_key: newEditorKey,
+      label: newLabel || `Link editor ${author.name_ro}`,
+    })
+    if (insertErr) { setError(insertErr.message); setCreatingToken(false); return }
+    setMsg('✓ Token creat.'); setNewLabel('')
+    setTimeout(() => setMsg(null), 3000)
+    setCreatingToken(false); loadTokens()
+  }
+
+  async function toggleToken(id: string, active: boolean) {
+    await supabase.from('editor_tokens').update({ active }).eq('id', id); loadTokens()
+  }
+
+  async function deleteToken(id: string) {
+    if (!confirm('Ștergi permanent acest token?')) return
+    await supabase.from('editor_tokens').delete().eq('id', id); loadTokens()
+  }
+
+  function copyLink(token: string) {
+    navigator.clipboard.writeText(`${editorSiteUrl}/editor/${token}`)
+    setCopied(token); setTimeout(() => setCopied(null), 2000)
   }
 
   // ── Format helpers ────────────────────────────────────────────────────
@@ -337,6 +408,77 @@ export default function SettingsPage() {
             <span className="text-white/40">Funcții Supabase</span>
             <span className="text-white/60">26 active</span>
           </div>
+        </div>
+      </Section>
+
+      <Section title="Tokenuri editor (linkuri partajabile)">
+        {/* Create new token */}
+        <div className="space-y-3 pb-4 border-b border-white/[0.07]">
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <label className="block font-sans text-[12px] text-white/50 mb-1.5">Editor</label>
+              <select value={newEditorKey} onChange={e => setNewEditorKey(e.target.value)}
+                className={inputCls}>
+                {tokenAuthors.map(a => <option key={a.editor_key} value={a.editor_key}>{a.name_ro}</option>)}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block font-sans text-[12px] text-white/50 mb-1.5">Etichetă (opțional)</label>
+              <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
+                placeholder="ex: Link personal Anamaria" className={inputCls} />
+            </div>
+            <button onClick={createToken} disabled={creatingToken || !newEditorKey}
+              className="flex items-center gap-2 font-sans text-[11px] px-4 py-2.5 bg-brand-red text-white hover:bg-red-700 disabled:opacity-50 transition-colors whitespace-nowrap">
+              {creatingToken ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Generează token
+            </button>
+          </div>
+        </div>
+
+        {/* Token list */}
+        <div className="space-y-2 pt-2">
+          <p className="font-sans text-[11px] text-white/30">
+            {tokens.filter(t => t.active).length} active / {tokens.length} total
+          </p>
+          {tokens.length === 0 && (
+            <p className="font-sans text-[12px] text-white/30 py-4 text-center">Niciun token creat.</p>
+          )}
+          {tokens.map(t => (
+            <div key={t.id} className={`border p-3 space-y-1 ${t.active ? 'border-white/10' : 'border-white/5 opacity-40'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-sans text-[13px] text-white font-bold">{t.author_name}</span>
+                  <span className={`font-sans text-[9px] uppercase tracking-wider px-1.5 py-0.5 ${t.active ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                    {t.active ? 'Activ' : 'Revocat'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => copyLink(t.token)} title="Copiază link"
+                    className="p-1.5 text-white/40 hover:text-white transition-colors">
+                    {copied === t.token ? <CheckCircle className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <a href={`${editorSiteUrl}/editor/${t.token}`} target="_blank" rel="noopener noreferrer"
+                    className="p-1.5 text-white/40 hover:text-white transition-colors" title="Deschide link">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <button onClick={() => toggleToken(t.id, !t.active)} title={t.active ? 'Revocă' : 'Reactivează'}
+                    className={`p-1.5 transition-colors ${t.active ? 'text-amber-400 hover:text-amber-300' : 'text-green-400 hover:text-green-300'}`}>
+                    {t.active ? <XCircle className="w-3.5 h-3.5" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                  </button>
+                  <button onClick={() => deleteToken(t.id)} title="Șterge"
+                    className="p-1.5 text-red-400/60 hover:text-red-400 transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="font-sans text-[11px] text-white/30">{t.label}</p>
+              <div className="flex gap-4 font-sans text-[10px] text-white/20">
+                <span>Creat: {fmtTime(t.created_at)}</span>
+                {t.last_used_at && <span>Ultima utilizare: {fmtTime(t.last_used_at)}</span>}
+                {t.expires_at && <span>Expiră: {fmtTime(t.expires_at)}</span>}
+              </div>
+            </div>
+          ))}
         </div>
       </Section>
     </div>
