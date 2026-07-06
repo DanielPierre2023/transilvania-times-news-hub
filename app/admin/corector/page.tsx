@@ -132,7 +132,6 @@ export default function CorectorPage() {
 
   // State — UI
   const [tab, setTab] = useState<Tab>('write')
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [proofing, setProofing] = useState(false)
@@ -245,15 +244,6 @@ export default function CorectorPage() {
   }
 
   // ── Apply accepted corrections to produce final content
-  function buildFinalContent(): ProofResult | null {
-    if (!proofResult?.ok) return null
-    // The proofResult already contains the fully corrected content.
-    // Rejected corrections need to be unapplied — for simplicity, we use
-    // the proofed content as-is (all corrections already applied by the AI).
-    // Individual reject would require diffing — phase 2.
-    return proofResult
-  }
-
   // ── Publish to blog_posts
   async function publish() {
     if (!selectedAuthor || !proofResult?.ok) return
@@ -480,7 +470,22 @@ export default function CorectorPage() {
               </div>
             )}
             <div className="flex gap-2">
-              <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="URL imagine sau caută Unsplash..."
+              <label className="px-3 py-2 text-sm bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 transition-colors flex items-center gap-1 cursor-pointer">
+                <Upload className="w-3.5 h-3.5" /> Încarcă imagine
+                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  setError('')
+                  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+                  const fileName = `cover-${Date.now()}.${ext}`
+                  const { data, error: upErr } = await supabase.storage.from('blog-covers').upload(fileName, file, { contentType: file.type, upsert: false })
+                  if (upErr) { setError(`Încărcare eșuată: ${upErr.message}`); return }
+                  const { data: urlData } = supabase.storage.from('blog-covers').getPublicUrl(data.path)
+                  setImageUrl(urlData.publicUrl)
+                  setImageCredit('')
+                }} />
+              </label>
+              <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="sau lipește URL imagine..."
                 className="flex-1 px-3 py-2 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg bg-transparent text-zinc-900 dark:text-white" />
               <button onClick={() => setShowUnsplash(!showUnsplash)}
                 className="px-3 py-2 text-sm bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 transition-colors flex items-center gap-1">
@@ -509,17 +514,22 @@ export default function CorectorPage() {
             )}
           </div>
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-3">
-            <button onClick={runProof} disabled={proofing || wc < 50}
-              className="px-6 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
-              {proofing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-              {proofing ? 'Se corectează...' : 'Corectează & Pregătește'}
-            </button>
-            <button onClick={() => saveDraft(false)} disabled={saving || !content}
-              className="px-4 py-2.5 bg-zinc-100 dark:bg-zinc-800 font-medium rounded-lg hover:bg-zinc-200 disabled:opacity-50 transition-colors flex items-center gap-2 text-sm">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvează ciornă
-            </button>
+          {/* Action buttons + explanation */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <button onClick={runProof} disabled={proofing || wc < 50}
+                className="px-6 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+                {proofing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                {proofing ? 'Se corectează...' : 'Corectează & Pregătește'}
+              </button>
+              <button onClick={() => saveDraft(false)} disabled={saving || !content}
+                className="px-4 py-2.5 bg-zinc-100 dark:bg-zinc-800 font-medium rounded-lg hover:bg-zinc-200 disabled:opacity-50 transition-colors flex items-center gap-2 text-sm">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvează ciornă
+              </button>
+            </div>
+            <p className="text-xs text-zinc-400">
+              AI-ul va corecta textul, va genera titlu sugerat, excerpt, rezumat (60-80 cuvinte), slug, 6-9 tag-uri SEO, meta title, meta description {translate ? 'și traducerea automată în ' + (language === 'ro' ? 'engleză' : 'română') : ''}.
+            </p>
           </div>
         </div>
       )}
@@ -623,68 +633,115 @@ export default function CorectorPage() {
       {/* ═══ TAB: PREVIEW ═══ */}
       {tab === 'preview' && proofResult?.ok && (
         <div className="space-y-4">
-          {/* Metadata preview */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 space-y-4">
-            <h2 className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Previzualizare articol</h2>
+          {/* Slug */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Slug (URL)</p>
+            <p className="text-sm font-mono text-zinc-600 dark:text-zinc-400">/blog/{proofResult.slug || '...'}</p>
+          </div>
 
-            {/* Title */}
+          {/* RO metadata */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 space-y-4">
+            <h2 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
+              🇷🇴 Versiunea Română
+            </h2>
+
             <div>
-              <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Titlu RO</p>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Titlu</p>
               <p className="text-xl font-bold font-serif text-zinc-900 dark:text-white">{proofResult.title_ro || title}</p>
             </div>
-            {proofResult.title_en && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Titlu EN</p>
-                <p className="text-lg font-serif text-zinc-700 dark:text-zinc-300">{proofResult.title_en}</p>
-              </div>
-            )}
 
-            {/* Excerpt */}
             <div>
-              <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Excerpt RO</p>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Excerpt (previzualizare card)</p>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 italic">{proofResult.excerpt_ro || '—'}</p>
             </div>
 
-            {/* Summary */}
             <div>
               <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">
-                Rezumat RO ({proofResult._meta?.summary_words || 0}w{proofResult._meta?.summary_in_range ? ' ✓' : ' ⚠'})
+                Rezumat ({proofResult._meta?.summary_words || 0} cuvinte{proofResult._meta?.summary_in_range ? ' ✓' : ' ⚠ — în afara intervalului 60-80'})
               </p>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">{proofResult.summary_ro || '—'}</p>
             </div>
 
-            {/* Tags */}
             <div>
-              <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Tags RO</p>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Tags SEO ({(proofResult.tags_ro || []).length})</p>
               <div className="flex flex-wrap gap-1">
                 {(proofResult.tags_ro || []).map((t, i) => (
-                  <span key={i} className="px-2 py-0.5 text-xs bg-zinc-100 dark:bg-zinc-800 rounded-full text-zinc-600 dark:text-zinc-400">{t}</span>
+                  <span key={i} className="px-2 py-0.5 text-xs bg-red-50 dark:bg-red-950 rounded-full text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800">{t}</span>
                 ))}
                 {(!proofResult.tags_ro || proofResult.tags_ro.length === 0) && <span className="text-xs text-zinc-400">—</span>}
               </div>
             </div>
 
-            {/* SEO */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-zinc-100 dark:border-zinc-800">
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Title</p>
+                <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Title ({(proofResult.seo_title_ro || '').length}/60 caractere)</p>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">{proofResult.seo_title_ro || '—'}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Description</p>
+                <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Description ({(proofResult.seo_description_ro || '').length}/160 caractere)</p>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">{proofResult.seo_description_ro || '—'}</p>
               </div>
             </div>
-
-            {/* Translation status */}
-            {proofResult._meta?.translated && (
-              <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                  <Globe className="w-3.5 h-3.5" /> Traducerea {language === 'ro' ? 'EN' : 'RO'} a fost generată
-                </p>
-              </div>
-            )}
           </div>
+
+          {/* EN metadata — only if translated */}
+          {proofResult._meta?.translated && (
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 space-y-4">
+              <h2 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
+                🇬🇧 English Version {proofResult.content_en ? '✓' : '— traducere eșuată'}
+              </h2>
+
+              {proofResult.title_en && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Title</p>
+                  <p className="text-lg font-serif text-zinc-900 dark:text-white">{proofResult.title_en}</p>
+                </div>
+              )}
+
+              {proofResult.excerpt_en && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Excerpt</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 italic">{proofResult.excerpt_en}</p>
+                </div>
+              )}
+
+              {proofResult.summary_en && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Summary</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{proofResult.summary_en}</p>
+                </div>
+              )}
+
+              {proofResult.tags_en && proofResult.tags_en.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Tags ({proofResult.tags_en.length})</p>
+                  <div className="flex flex-wrap gap-1">
+                    {proofResult.tags_en.map((t, i) => (
+                      <span key={i} className="px-2 py-0.5 text-xs bg-blue-50 dark:bg-blue-950 rounded-full text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Title ({(proofResult.seo_title_en || '').length}/60)</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{proofResult.seo_title_en || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Description ({(proofResult.seo_description_en || '').length}/160)</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{proofResult.seo_description_en || '—'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* No translation warning */}
+          {!proofResult._meta?.translated && translate && (
+            <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" /> Traducerea a fost solicitată dar nu a fost generată. Articolul va fi publicat doar în {language === 'ro' ? 'română' : 'engleză'}.
+            </div>
+          )}
 
           {/* Image reminder */}
           {!imageUrl && (
