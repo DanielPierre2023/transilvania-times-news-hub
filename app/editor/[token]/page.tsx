@@ -658,7 +658,7 @@ export default function EditorTokenPage() {
 
             {!imageUrl && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 flex items-center gap-2">
-                <ImageIcon className="w-4 h-4" /> Nicio imagine de copertă. Poți adăuga una din tab-ul „Scrie".
+                <ImageIcon className="w-4 h-4" /> Nicio imagine de copertă. Poți adăuga una din tab-ul &bdquo;Scrie&rdquo;.
               </div>
             )}
 

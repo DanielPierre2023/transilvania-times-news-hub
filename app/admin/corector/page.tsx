@@ -689,7 +689,7 @@ export default function CorectorPage() {
           {/* Image reminder */}
           {!imageUrl && (
             <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
-              <ImageIcon className="w-4 h-4" /> Nicio imagine de copertă. Poți adăuga una din tab-ul „Scrie".
+              <ImageIcon className="w-4 h-4" /> Nicio imagine de copertă. Poți adăuga una din tab-ul &bdquo;Scrie&rdquo;.
             </div>
           )}
 
