@@ -20,7 +20,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import {
   PenLine, CheckCircle, XCircle, Wand2, Send, Save, Eye,
   AlertTriangle, ChevronDown, ChevronUp, Image as ImageIcon,
-  Search, Globe, FileText, Loader2, X, RotateCcw, ShieldAlert
+  Upload, Globe, FileText, Loader2, X, RotateCcw, ShieldAlert
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -135,10 +135,10 @@ export default function EditorTokenPage() {
   const [success, setSuccess] = useState('')
   const [drafts, setDrafts] = useState<DraftRow[]>([])
   const [showDrafts, setShowDrafts] = useState(false)
-  const [showUnsplash, setShowUnsplash] = useState(false)
-  const [unsplashQuery, setUnsplashQuery] = useState('')
-  const [unsplashResults, setUnsplashResults] = useState<Array<{ url: string; credit: string; thumb: string }>>([])
+  const [uploading, setUploading] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const uploadRef = useRef<HTMLInputElement | null>(null)
 
   // ── Validate token on mount
   useEffect(() => {
@@ -279,20 +279,56 @@ export default function EditorTokenPage() {
     }
   }
 
-  // ── Unsplash search
-  async function searchUnsplash() {
-    if (!unsplashQuery) return
-    setUnsplashResults([])
+  // ── Image upload (same as ArticleEditor — blog-images bucket)
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setError('Selectați un fișier imagine.'); return }
+    if (file.size > 10 * 1024 * 1024) { setError('Imaginea trebuie să fie sub 10MB.'); return }
+    setUploading(true); setError('')
     try {
-      const res = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(unsplashQuery)}&per_page=9&orientation=landscape`, {
-        headers: { Authorization: `Client-ID ${process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY || ''}` },
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const fileName = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: upErr } = await supabase.storage.from('blog-images').upload(fileName, file, { contentType: file.type, upsert: false })
+      if (upErr) throw upErr
+      const { data: urlData } = supabase.storage.from('blog-images').getPublicUrl(fileName)
+      setImageUrl(urlData.publicUrl)
+      setSuccess('Imagine încărcată.')
+      setTimeout(() => setSuccess(''), 2000)
+    } catch (err) { setError(`Eroare upload: ${(err as Error).message}`) }
+    setUploading(false)
+    if (uploadRef.current) uploadRef.current.value = ''
+  }
+
+  // ── AI cover generation (same as ArticleEditor — tt-generate-cover)
+  async function generateCover() {
+    const imgTitle = title || proofResult?.title_ro || proofResult?.suggested_title
+    if (!imgTitle) { setError('Completează titlul sau rulează corectura mai întâi.'); return }
+    setGenerating(true); setError('')
+    try {
+      const { data: res, error: genErr } = await supabase.functions.invoke('tt-generate-cover', {
+        body: { title: imgTitle, summary: proofResult?.excerpt_ro || '', category }
       })
-      if (!res.ok) return
+      if (genErr) throw new Error(genErr.message)
+      if (res?.publicUrl) {
+        setImageUrl(res.publicUrl)
+        if (res.isAiGenerated !== false) setImageCredit('Imagine generată cu inteligență artificială')
+        setSuccess('Imagine generată.')
+        setTimeout(() => setSuccess(''), 2000)
+      } else {
+        throw new Error(res?.error || 'Eroare generare')
+      }
+    } catch (err) { setError(`Eroare: ${(err as Error).message}`) }
+    setGenerating(false)
+  }
+
+    const apiKey = process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY
+    try {
+        headers: { Authorization: `Client-ID ${apiKey}` },
+      })
       const data = await res.json()
-      setUnsplashResults((data.results || []).map((r: { urls: { regular: string; small: string }; user: { name: string } }) => ({
-        url: r.urls.regular, thumb: r.urls.small, credit: `Foto: ${r.user.name} / Unsplash`,
-      })))
-    } catch { /* silent */ }
+      const results = (data.results || []).map((r: { urls: { regular: string; small: string }; user: { name: string } }) => ({
+      }))
   }
 
   const wc = wordCount(content)
@@ -467,59 +503,49 @@ export default function EditorTokenPage() {
                 className="w-full px-1 py-2 text-sm leading-relaxed border-0 bg-transparent text-zinc-900 dark:text-white focus:outline-none resize-y font-serif" />
             </div>
 
-            {/* Image */}
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
-              <label className="block text-[10px] uppercase tracking-wide text-zinc-400 mb-2">
-                <ImageIcon className="w-3 h-3 inline" /> Imagine de copertă
-              </label>
+            {/* Image — same pattern as ArticleEditor */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 space-y-3">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-400 border-b border-zinc-100 dark:border-zinc-800 pb-2">Imagine copertă</p>
               {imageUrl && (
-                <div className="mb-3 relative">
-                  <img src={imageUrl} alt="Cover" className="w-full h-48 object-cover rounded-lg" />
+                <div className="relative">
+                  <img src={imageUrl} alt="Cover" className="w-full aspect-video object-cover rounded-lg" />
                   <button onClick={() => { setImageUrl(''); setImageCredit('') }}
-                    className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1"><X className="w-4 h-4" /></button>
-                  {imageCredit && <p className="text-[10px] text-zinc-400 mt-1">{imageCredit}</p>}
+                    className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white p-1.5 rounded-full transition-colors"><X className="w-3.5 h-3.5" /></button>
                 </div>
               )}
-              <div className="flex gap-2">
-                <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="URL imagine..."
-                  className="flex-1 px-3 py-2 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg bg-transparent text-zinc-900 dark:text-white" />
-                <button onClick={() => setShowUnsplash(!showUnsplash)}
-                  className="px-3 py-2 text-sm bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 transition-colors flex items-center gap-1">
-                  <Search className="w-3.5 h-3.5" /> Unsplash
-                </button>
+              <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://... sau încarcă / generează mai jos"
+                className="w-full px-3 py-2 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg bg-transparent text-zinc-900 dark:text-white" />
+              <input ref={uploadRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" id="editor-img-upload" />
+              <label htmlFor="editor-img-upload"
+                className={`flex items-center justify-center gap-2 w-full py-2.5 border rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors ${uploading ? 'border-zinc-200 text-zinc-300 cursor-not-allowed' : 'border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:text-zinc-700 hover:border-zinc-400'}`}>
+                {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Upload...</> : <><Upload className="w-3.5 h-3.5" /> De pe calculator</>}
+              </label>
+              <button onClick={generateCover} disabled={generating || (!title && !proofResult?.title_ro)}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors disabled:opacity-50">
+                {generating ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generează...</> : <><Wand2 className="w-3.5 h-3.5" /> Generează AI</>}
+              </button>
+              <div>
+                <label className="block text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Sursă / creditare fotografie</label>
+                <input value={imageCredit} onChange={e => setImageCredit(e.target.value)} placeholder="Imagine generată cu AI / © Reuters / Arhivă"
+                  className="w-full px-3 py-2 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg bg-transparent text-zinc-900 dark:text-white" />
               </div>
-              {showUnsplash && (
-                <div className="mt-3 space-y-3">
-                  <div className="flex gap-2">
-                    <input value={unsplashQuery} onChange={e => setUnsplashQuery(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && searchUnsplash()}
-                      placeholder="Caută imagini..." className="flex-1 px-3 py-2 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg bg-transparent" />
-                    <button onClick={searchUnsplash} className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700">Caută</button>
-                  </div>
-                  {unsplashResults.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      {unsplashResults.map((r, i) => (
-                        <button key={i} onClick={() => { setImageUrl(r.url); setImageCredit(r.credit); setShowUnsplash(false) }}
-                          className="rounded-lg overflow-hidden hover:ring-2 ring-red-500 transition-all">
-                          <img src={r.thumb} alt="" className="w-full h-24 object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
-            <div className="flex items-center gap-3">
-              <button onClick={runProof} disabled={proofing || wc < 50}
-                className="px-6 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
-                {proofing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                {proofing ? 'Se corectează...' : 'Corectează & Pregătește'}
-              </button>
-              <button onClick={() => saveDraft(false)} disabled={saving || !content}
-                className="px-4 py-2.5 bg-zinc-100 dark:bg-zinc-800 font-medium rounded-lg hover:bg-zinc-200 disabled:opacity-50 transition-colors flex items-center gap-2 text-sm">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvează ciornă
-              </button>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <button onClick={runProof} disabled={proofing || wc < 50}
+                  className="px-6 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+                  {proofing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                  {proofing ? 'Se corectează...' : 'Corectează & Pregătește'}
+                </button>
+                <button onClick={() => saveDraft(false)} disabled={saving || !content}
+                  className="px-4 py-2.5 bg-zinc-100 dark:bg-zinc-800 font-medium rounded-lg hover:bg-zinc-200 disabled:opacity-50 transition-colors flex items-center gap-2 text-sm">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvează ciornă
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400">
+                AI-ul va corecta textul, va genera titlu sugerat, excerpt, rezumat (60-80 cuvinte), slug, 6-9 tag-uri SEO, meta title, meta description {translate ? 'și traducerea automată în ' + (language === 'ro' ? 'engleză' : 'română') : ''}.
+              </p>
             </div>
           </div>
         )}
