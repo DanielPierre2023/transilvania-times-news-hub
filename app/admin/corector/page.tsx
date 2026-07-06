@@ -607,7 +607,7 @@ export default function CorectorPage() {
               <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">Titlu sugerat de AI</p>
               <p className="text-lg font-bold font-serif text-zinc-900 dark:text-white">{proofResult.suggested_title}</p>
               {proofResult.original_title && (
-                <p className="text-xs text-zinc-400 mt-1">Titlul tău original: „{proofResult.original_title}"</p>
+                <p className="text-xs text-zinc-400 mt-1">Titlul tău original: &bdquo;{proofResult.original_title}&rdquo;</p>
               )}
             </div>
           )}
