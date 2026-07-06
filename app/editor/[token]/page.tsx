@@ -322,15 +322,6 @@ export default function EditorTokenPage() {
     setGenerating(false)
   }
 
-    const apiKey = process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY
-    try {
-        headers: { Authorization: `Client-ID ${apiKey}` },
-      })
-      const data = await res.json()
-      const results = (data.results || []).map((r: { urls: { regular: string; small: string }; user: { name: string } }) => ({
-      }))
-  }
-
   const wc = wordCount(content)
 
   // ── AUTH GATES ──────────────────────────────────────────────────────────
