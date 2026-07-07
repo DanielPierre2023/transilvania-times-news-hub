@@ -14,7 +14,7 @@
 // URL: /editor/{uuid-token}
 // The token maps to an author via the editor_tokens table.
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import {
@@ -81,6 +81,24 @@ function wordCount(t: string): number {
   return t ? t.trim().split(/\s+/).filter(w => w.length > 0).length : 0
 }
 
+// Apply user-accepted corrections to the original text.
+// Corrections with accepted=false (rejected) are skipped.
+// Corrections with accepted=true or undefined (default accepted) are applied.
+// Each correction replaces the FIRST occurrence of `before` with `after`,
+// iterating in the order the corrector emitted them.
+function applyCorrections(originalText: string, corrections: Correction[]): string {
+  if (!originalText || !corrections?.length) return originalText
+  let result = originalText
+  for (const c of corrections) {
+    if (c.accepted === false) continue
+    if (!c.before || c.before === c.after) continue
+    const idx = result.indexOf(c.before)
+    if (idx === -1) continue // correction reference lost — skip silently
+    result = result.substring(0, idx) + c.after + result.substring(idx + c.before.length)
+  }
+  return result
+}
+
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-zinc-100 text-zinc-600', proofed: 'bg-amber-100 text-amber-700',
@@ -125,6 +143,15 @@ export default function EditorTokenPage() {
   // State — proof
   const [proofResult, setProofResult] = useState<ProofResult | null>(null)
   const [corrections, setCorrections] = useState<Correction[]>([])
+
+  // Recompute the final Romanian content whenever the user toggles corrections.
+  // The AI's `content_ro` had ALL corrections applied unconditionally; we
+  // instead start from the ORIGINAL user text and apply only the corrections
+  // the user has accepted. This is what actually goes to blog_posts.
+  const finalContent = useMemo(() => {
+    if (!proofResult?.ok || !corrections.length) return content
+    return applyCorrections(content, corrections)
+  }, [content, corrections, proofResult])
 
   // State — UI
   const [tab, setTab] = useState<Tab>('write')
@@ -244,11 +271,11 @@ export default function EditorTokenPage() {
     try {
       const pr = proofResult
       const slug = pr.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 60) + '-' + Math.random().toString(36).substring(2, 8)
-      const readingTime = Math.max(1, Math.round((pr.word_count || wordCount(content)) / 200))
+      const readingTime = Math.max(1, Math.round(wordCount(finalContent) / 200))
 
       const row: Record<string, unknown> = {
         slug,
-        title_ro: pr.title_ro || title, content_ro: pr.content_ro || content,
+        title_ro: pr.title_ro || title, content_ro: finalContent,
         excerpt_ro: pr.excerpt_ro || '', summary_ro: pr.summary_ro || '',
         tags_ro: pr.tags_ro || [], seo_title_ro: pr.seo_title_ro || '',
         seo_description_ro: pr.seo_description_ro || '',
@@ -662,6 +689,15 @@ export default function EditorTokenPage() {
                 <div>
                   <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1">SEO Description</p>
                   <p className="text-sm text-zinc-600">{proofResult.seo_description_ro || '—'}</p>
+                </div>
+              </div>
+              <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-2">
+                  Conținut final ({wordCount(finalContent)} cuvinte
+                  {corrections.length > 0 && ` — ${corrections.filter(c => c.accepted !== false).length}/${corrections.length} corecturi aplicate`})
+                </p>
+                <div className="max-h-96 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 rounded-lg p-3 border border-zinc-100 dark:border-zinc-800">
+                  <pre className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap font-sans leading-relaxed">{finalContent}</pre>
                 </div>
               </div>
               {proofResult._meta?.translated && (
