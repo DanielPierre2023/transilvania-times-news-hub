@@ -86,6 +86,12 @@ function wordCount(t: string): number {
 // Corrections with accepted=true or undefined (default accepted) are applied.
 // Each correction replaces the FIRST occurrence of `before` with `after`,
 // iterating in the order the corrector emitted them.
+//
+// Idempotency guard: if the `after` string is already present at the location
+// where `before` would be found (i.e. an earlier correction has already applied
+// the same fix, or overlapping corrections would double-insert), skip silently.
+// This prevents cases like „...porunca" → „...poruncă" being applied on top of
+// an earlier correction that already added the closing quote, producing „...""
 function applyCorrections(originalText: string, corrections: Correction[]): string {
   if (!originalText || !corrections?.length) return originalText
   let result = originalText
@@ -94,6 +100,9 @@ function applyCorrections(originalText: string, corrections: Correction[]): stri
     if (!c.before || c.before === c.after) continue
     const idx = result.indexOf(c.before)
     if (idx === -1) continue // correction reference lost — skip silently
+    // Idempotency: if `after` already appears at this position, the correction
+    // has already been applied (by an earlier overlapping correction). Skip.
+    if (result.substring(idx, idx + c.after.length) === c.after) continue
     result = result.substring(0, idx) + c.after + result.substring(idx + c.before.length)
   }
   return result
@@ -605,32 +614,65 @@ export default function EditorTokenPage() {
               <h2 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-3">Corecturi propuse</h2>
               {corrections.length === 0 && <p className="text-sm text-zinc-400">Nicio corectură necesară. Textul este impecabil.</p>}
               <div className="space-y-3 max-h-96 overflow-y-auto">
-                {corrections.map((c, i) => (
-                  <div key={i} className={`p-3 rounded-lg border ${c.accepted !== false ? 'border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/30' : 'border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/30'}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 text-sm space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${c.kind === 'format' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                            {c.kind === 'format' ? 'FORMAT' : 'TEXT'}
-                          </span>
-                          <span className="text-zinc-500 text-xs">{c.reason}</span>
+                {corrections.map((c, i) => {
+                  const isAccepted = c.accepted !== false // default true
+                  return (
+                    <div key={i}
+                      className={`p-3 rounded-lg border-2 transition-all ${
+                        isAccepted
+                          ? 'border-green-500 bg-green-50 dark:bg-green-950/40 shadow-sm'
+                          : 'border-red-400 bg-red-50 dark:bg-red-950/40 opacity-60'
+                      }`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 text-sm space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${c.kind === 'format' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                              {c.kind === 'format' ? 'FORMAT' : 'TEXT'}
+                            </span>
+                            <span className="text-zinc-500 text-xs">{c.reason}</span>
+                            <span className={`ml-auto px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                              isAccepted ? 'bg-green-600 text-white' : 'bg-red-500 text-white'
+                            }`}>
+                              {isAccepted ? '✓ Acceptată' : '✕ Respinsă'}
+                            </span>
+                          </div>
+                          {c.before && <p className="text-red-600 line-through text-xs font-mono bg-red-50 dark:bg-red-950/50 px-2 py-1 rounded">{c.before}</p>}
+                          {c.after && <p className="text-green-700 text-xs font-mono bg-green-50 dark:bg-green-950/50 px-2 py-1 rounded">{c.after}</p>}
                         </div>
-                        {c.before && <p className="text-red-600 line-through text-xs font-mono bg-red-50 dark:bg-red-950/50 px-2 py-1 rounded">{c.before}</p>}
-                        {c.after && <p className="text-green-700 text-xs font-mono bg-green-50 dark:bg-green-950/50 px-2 py-1 rounded">{c.after}</p>}
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button onClick={() => { const u = [...corrections]; u[i] = { ...c, accepted: true }; setCorrections(u) }}
-                          className={`p-1 rounded ${c.accepted !== false ? 'text-green-600 bg-green-100' : 'text-zinc-400 hover:text-green-600'}`}>
-                          <CheckCircle className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => { const u = [...corrections]; u[i] = { ...c, accepted: false }; setCorrections(u) }}
-                          className={`p-1 rounded ${c.accepted === false ? 'text-red-600 bg-red-100' : 'text-zinc-400 hover:text-red-600'}`}>
-                          <XCircle className="w-4 h-4" />
-                        </button>
+                        <div className="flex flex-col gap-1 shrink-0">
+                          <button
+                            onClick={() => {
+                              const u = [...corrections]
+                              u[i] = { ...c, accepted: true }
+                              setCorrections(u)
+                            }}
+                            title="Acceptă această corectură"
+                            className={`p-1.5 rounded transition-colors ${
+                              isAccepted
+                                ? 'bg-green-600 text-white'
+                                : 'bg-zinc-100 text-zinc-500 hover:bg-green-100 hover:text-green-700'
+                            }`}>
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              const u = [...corrections]
+                              u[i] = { ...c, accepted: false }
+                              setCorrections(u)
+                            }}
+                            title="Respinge această corectură"
+                            className={`p-1.5 rounded transition-colors ${
+                              !isAccepted
+                                ? 'bg-red-600 text-white'
+                                : 'bg-zinc-100 text-zinc-500 hover:bg-red-100 hover:text-red-700'
+                            }`}>
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 
