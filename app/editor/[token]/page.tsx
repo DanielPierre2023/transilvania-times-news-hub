@@ -45,6 +45,7 @@ interface ProofResult {
   tags_ro?: string[]; seo_title_ro?: string; seo_description_ro?: string
   title_en?: string; content_en?: string; excerpt_en?: string; summary_en?: string
   tags_en?: string[]; seo_title_en?: string; seo_description_en?: string
+  corrected_content?: string
   _meta?: { elapsed_s: number; summary_words: number; summary_in_range: boolean; translated: boolean }
 }
 
@@ -166,6 +167,7 @@ export default function EditorTokenPage() {
   const [tab, setTab] = useState<Tab>('write')
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [metaLoading, setMetaLoading] = useState(false)
   const [proofing, setProofing] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -247,13 +249,21 @@ export default function EditorTokenPage() {
     setProofResult(null); setCorrections([]); setTab('write'); setError(''); setSuccess('')
   }
 
-  // ── Run proof
+  // ── Run proof (two-phase)
+  //
+  // Phase 1 ('correct') returns corrections fast; the Corectură tab opens as
+  // soon as they land. Phase 2 ('metadata') runs in the background on the
+  // corrected content — translation + metadata (English-first). The Preview
+  // tab unlocks when phase 2 completes. Each phase gets its own gateway
+  // budget, so one slow AI call no longer kills the whole pipeline.
   async function runProof() {
     if (!content || content.length < 300) { setError('Textul trebuie să aibă minim 300 de caractere.'); return }
     setProofing(true); setError('')
     try {
+      // Phase 1 — correction
       const { data, error: fnErr } = await supabase.functions.invoke('tt-proof-article', {
         body: {
+          phase: 'correct',
           text: content, title: title || undefined,
           author_name: auth?.author_name || 'Redacția',
           category, county: county || undefined,
@@ -262,14 +272,40 @@ export default function EditorTokenPage() {
       })
       if (fnErr) throw new Error(fnErr.message)
       if (!data?.ok) throw new Error(data?.error || 'Corectura a eșuat.')
+
       setProofResult(data as ProofResult)
       setCorrections((data.corrections || []).map((c: Correction) => ({ ...c, accepted: true })))
       setTab('review')
+      setProofing(false)
+
+      // Phase 2 — metadata, in the background on the corrected content
+      setMetaLoading(true)
+      try {
+        const { data: metaData, error: metaErr } = await supabase.functions.invoke('tt-proof-article', {
+          body: {
+            phase: 'metadata',
+            text: data.corrected_content || content,
+            title: title || undefined,
+            author_name: auth?.author_name || 'Redacția',
+            category, county: county || undefined,
+            language, translate,
+          },
+        })
+        if (metaErr) throw new Error(metaErr.message)
+        if (!metaData?.ok) throw new Error(metaData?.error || 'Generarea metadatelor a eșuat.')
+        // Merge: metadata payload on top of the phase-1 result, keeping corrections
+        setProofResult(prev => ({ ...(prev || {}), ...(metaData as ProofResult), corrections: prev?.corrections || [] }))
+      } catch (me) {
+        setError(`Metadatele nu au putut fi generate: ${(me as Error).message}. Corecturile rămân valabile — apasă din nou pe Corectează pentru a reîncerca.`)
+      } finally {
+        setMetaLoading(false)
+      }
+
       await saveDraft(true)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
       setProofing(false)
+      setMetaLoading(false)
     }
   }
 
@@ -683,9 +719,10 @@ export default function EditorTokenPage() {
               </div>
             )}
 
-            <button onClick={() => setTab('preview')}
-              className="px-6 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2">
-              <Eye className="w-4 h-4" /> Previzualizare & Trimitere
+            <button onClick={() => setTab('preview')} disabled={metaLoading}
+              className="px-6 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+              {metaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+              {metaLoading ? 'Se generează metadatele...' : 'Previzualizare & Trimitere'}
             </button>
           </div>
         )}
