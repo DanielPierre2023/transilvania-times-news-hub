@@ -67,11 +67,17 @@ export default function ArticlesPage() {
     const update: Record<string, unknown> = { status: newStatus }
     if (newStatus === 'published') update.published_at = new Date().toISOString()
 
-    await supabase.from('blog_posts').update(update).eq('id', article.id)
+    const { error } = await supabase.from('blog_posts').update(update).eq('id', article.id)
+    if (error) {
+      // Surfaces the DB-level "no source" gate (see enforce_source_before_publish
+      // trigger) instead of silently doing nothing when the update is rejected.
+      alert(`Nu s-a putut publica: ${error.message}`)
+      return
+    }
 
     // Trigger ISR revalidation
     if (newStatus === 'published') {
-      fetch(`/api/revalidate?secret=${process.env.NEXT_PUBLIC_REVALIDATION_SECRET ?? 'tt-revalidate-2026'}&slug=${article.slug}`, { method: 'POST' })
+      fetch(`/api/revalidate?slug=${article.slug}`, { method: 'POST' })
     }
     load()
   }

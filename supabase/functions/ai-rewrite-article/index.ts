@@ -11,8 +11,12 @@ const corsHeaders = {
  * All rewrite operations now go through enqueue-rewrite-article → process-rewrite-job.
  * This stub redirects any remaining calls to the authoritative pipeline.
  */
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { article_id, editor = 'daniel_dobos' } = await req.json();

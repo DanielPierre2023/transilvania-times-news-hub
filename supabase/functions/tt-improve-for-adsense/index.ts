@@ -13,6 +13,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { requireAdmin } from "../_shared/requireAdmin.ts"
 
 const OPENAI_MODEL = "gpt-4o"
 const CALL_TIMEOUT_MS = 120000
@@ -503,15 +504,15 @@ function buildSystemPrompt(): string {
     "Never add a direct quotation unless the exact quote is present in the internal base material or the current article and is clearly attributable to a person/group in the article.",
     "If quote integrity risk is medium or high, remove direct quotes that are not exactly supported. Convert them to cautious indirect wording or remove them.",
     "If similarity risk is medium or high, do not paraphrase sentence-by-sentence. Re-architect the article with a new lead, new paragraph order, new sentence structure, no copied rhythm, no copied hooks, and no copied closing lines.",
-    "Use actor-based attribution only: 'locuitorii semnalează', 'potrivit programului de colectare', 'operatorul Supercom este vizat de sesizare', 'autoritățile locale pot clarifica'.",
+    "Use actor-based attribution only, tied to the actual people/organizations named in THIS article's base material — e.g. 'locuitorii semnalează', 'potrivit programului de colectare', 'autoritățile locale pot clarifica'. Never name a specific company, official, or institution unless that exact name appears in this article's own base material.",
     "If a claim cannot be tied to a real actor or concrete fact in the story, remove it or soften it.",
     "For news articles, enforce strict inverted pyramid: paragraph 1 answers what happened, where, who is involved/affected, when/duration if known, and why it matters. Later paragraphs add concrete context and what remains unclear.",
-    "CRITICAL LENGTH RULE: If the current Romanian article has at least 250 words, return a full Romanian article of 350 to 550 words, with at least 6 paragraphs. Do not compress it into a brief.",
-    "CRITICAL LENGTH RULE: If the current English article has at least 250 words, return a full English article of 300 to 520 words, with at least 6 paragraphs. Do not compress it into a brief.",
+    "CRITICAL LENGTH RULE: If the current Romanian article has at least 250 words, return a full Romanian article of 350 to 550 words, with at least 6 paragraphs. Do not compress it into a brief. Length is secondary to accuracy — if the base material does not support that length without padding, return the longest article the facts actually support and explain the shortfall in editorial_notes rather than inventing content to fill the gap.",
+    "CRITICAL LENGTH RULE: If the current English article has at least 250 words, return a full English article of 300 to 520 words, with at least 6 paragraphs. Do not compress it into a brief. Length is secondary to accuracy — if the base material does not support that length without padding, return the longest article the facts actually support and explain the shortfall in editorial_notes rather than inventing content to fill the gap.",
     "Use restrained local-news language. Avoid outrage, exaggeration, advocacy, generic endings, slogans, rhetorical questions, and AI-style filler.",
     "STRICT NO-GO PHRASES OR IDEAS: systemic weaknesses, broader inefficiency, uncomfortable questions, not the first violation, frequently criticized, government officials, public contracts, local governments do not respond, silence is eloquent, stricter supervision has never been clearer, accountability demands, residents losing trust, literally and figuratively, no options, someone in authority, public health will suffer.",
-    "Do not write broad unsupported claims about Supercom's history, repeated criticism, systemic negligence, public contracts, contractual obligations, local government failure, or loss of institutional trust unless the base material explicitly proves them and the claim is essential. In normal news output, remove them.",
-    "The correct safe angle is narrow: vegetal waste reportedly remained uncollected on Petru Maior Street; residents complain about smell and discomfort; collection timing is mentioned; operator Supercom is involved; what remains unclear is why collection did not happen and what response follows.",
+    "Do not write broad unsupported claims about any named organization's history, repeated criticism, systemic negligence, public contracts, contractual obligations, local government failure, or loss of institutional trust unless THIS article's base material explicitly proves them and the claim is essential. In normal news output, remove them.",
+    "The correct safe angle is always the narrowest one THIS article's own base material directly supports: state only what happened, who is involved, what remains unclear, and what response (if any) has followed. Never borrow specifics — street names, company names, complaint details — from any article other than the one currently being rewritten.",
     "Romanian text must use natural Romanian journalistic prose with diacritics and no English word leaks.",
     "Do not include the source URL inside the article body.",
     "Quality target after rewriting: full article, clean 5W lead, neutral tone, quote risk low, similarity lower, added value through useful local context, no editorial no-go phrases.",
@@ -536,7 +537,7 @@ function buildUserPrompt(
       : "Rewrite this article as a stronger AdSense-ready Transilvania Times newsroom article.",
     "This must be a complete publishable news article, not a summary, not a brief, and not an opinion column.",
     "IMPORTANT: The source/original text below is internal base material. Do not cite it publicly. Do not write 'sursa citată' or similar wording.",
-    "IMPORTANT: Remove or neutralize the article's editorial no-go claims, especially: systemic weaknesses, broader inefficiency, uncomfortable questions, Supercom history/repeated criticism, government/local authority failure, public contracts, loss of trust, calls for stricter oversight.",
+    "IMPORTANT: Remove or neutralize the article's editorial no-go claims, especially: systemic weaknesses, broader inefficiency, uncomfortable questions, a named organization's history/repeated criticism, government/local authority failure, public contracts, loss of trust, calls for stricter oversight — unless THIS article's own base material explicitly and directly supports the specific claim.",
     "",
     "EXPECTED ARTICLE TYPE: " + articleType,
     "EXPECTED EDITOR KEY: " + editorKey,
@@ -635,6 +636,9 @@ async function generateImprovement(
 serve(async function (req: Request) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (req.method !== "POST") return plain("Method Not Allowed", 405)
+
+  const denied = await requireAdmin(req)
+  if (denied) return denied
 
   try {
     const SUPABASE_URL = getEnv("SUPABASE_URL")

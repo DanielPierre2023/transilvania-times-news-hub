@@ -16,7 +16,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import { ro } from 'date-fns/locale'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import ShareButtons from '@/app/components/ShareButtons'
@@ -211,15 +211,13 @@ export default async function ArticlePage({
     .single()
 
   if (error || !data) {
-    return (
-      <div className="max-w-3xl mx-auto px-6 py-20 text-center">
-        <h1 className="font-serif text-3xl font-bold text-foreground mb-4">Articol negăsit</h1>
-        <p className="font-sans text-muted-foreground mb-8">Articolul nu există sau a fost eliminat.</p>
-        <Link href="/" className="text-brand-red hover:underline font-sans text-sm">
-          ← Înapoi la pagina principală
-        </Link>
-      </div>
-    )
+    // PREVIOUSLY this rendered a 200 OK page with "Articolul nu există" —
+    // a soft 404. Google and other crawlers treat a 200 as "this URL is
+    // real content," which both wastes crawl budget on dead URLs and risks
+    // the page getting indexed as thin/duplicate content. notFound() makes
+    // Next.js render app/not-found.tsx (or the default) with a real 404
+    // status.
+    notFound()
   }
 
   const post       = data as unknown as Post
@@ -227,6 +225,34 @@ export default async function ArticlePage({
   const shareUrl   = articleUrl
   const catLabel   = post.category ? (CAT_LABELS[post.category] || post.category).toUpperCase() : ''
   const tags       = (post.tags_ro || post.tags_en || []) as string[]
+
+  // Correction notice (G5) — fetched separately from the main query above,
+  // deliberately fault-tolerant: correction_note/corrected_at only exist
+  // once tt-g5-corrections.sql has been run. If that migration hasn't
+  // shipped yet, this query errors and correction stays null — the article
+  // still renders normally. Bundling these columns into the main SELECT
+  // above would mean a missing migration 404s every single article on the
+  // site instead of just hiding one small notice.
+  // Untyped cast: these columns don't exist in the generated Database type
+  // yet (src/integrations/supabase/types.ts is generated from the live
+  // schema, which won't have them until tt-g5-corrections.sql runs), so the
+  // strictly-typed client would infer `never` for this select and fail to
+  // compile. `as unknown as` sidesteps that without loosening the rest of
+  // the file's typing.
+  let correction: { correction_note: string; corrected_at: string } | null = null
+  try {
+    const { data: correctionData } = await (supabase
+      .from('blog_posts')
+      .select('correction_note, corrected_at')
+      .eq('id', post.id)
+      .not('correction_note', 'is', null)
+      .maybeSingle() as unknown as Promise<{ data: { correction_note: string | null; corrected_at: string | null } | null }>)
+    if (correctionData?.correction_note && correctionData?.corrected_at) {
+      correction = correctionData as { correction_note: string; corrected_at: string }
+    }
+  } catch {
+    // Column doesn't exist yet or query failed — no correction shown.
+  }
 
   const author = post.authors ?? null
 
@@ -366,6 +392,7 @@ export default async function ArticlePage({
               authorName={post.author_name}
               author={author}
               publishedAt={post.published_at}
+              updatedAt={post.updated_at}
               timeAgoStr={timeAgoStr}
               defaultLang={defaultLang}
               inlineRelated={inlineRelated}
@@ -411,6 +438,23 @@ export default async function ArticlePage({
                   <a href={post.source_url} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
                     {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
                   </a>
+                </p>
+              </div>
+            )}
+
+            {correction && (
+              // Fulfils the promise on /standarde-editoriale: substantive
+              // corrections "sunt marcate vizibil la sfârșitul articolului
+              // cu data corecției și natura modificării."
+              <div className="mt-6 pt-4 border-t-2 border-brand-red/30 bg-brand-red/[0.03] px-4 py-3">
+                <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-brand-red mb-1">
+                  Corecție —{' '}
+                  <time dateTime={correction.corrected_at}>
+                    {new Date(correction.corrected_at).toLocaleDateString('ro-RO', { year: 'numeric', month: 'long', day: 'numeric' })}
+                  </time>
+                </p>
+                <p className="font-sans text-[13px] text-foreground/80 leading-relaxed">
+                  {correction.correction_note}
                 </p>
               </div>
             )}

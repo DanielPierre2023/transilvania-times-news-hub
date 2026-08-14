@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 
 export const revalidate = 3600
@@ -52,14 +53,22 @@ export async function generateMetadata(
   if (!data) return { title: 'Autor negăsit' }
   const author = data as unknown as { name_ro: string; title_ro: string; bio_ro: string; slug: string }
 
+  // PREVIOUSLY missing the trailing slash. next.config.ts sets
+  // trailingSlash: true, so /autor/{slug} 308-redirects to /autor/{slug}/ —
+  // the canonical tag was pointing at a URL that immediately redirects
+  // elsewhere, which undermines the canonical signal instead of reinforcing
+  // it (Google has to follow the redirect and reconcile two different
+  // "canonical" URLs for the same page).
+  const canonicalUrl = `${SITE_URL}/autor/${author.slug}/`
+
   return {
     title: `${author.name_ro} — ${author.title_ro}`,
     description: author.bio_ro.slice(0, 155),
-    alternates: { canonical: `${SITE_URL}/autor/${author.slug}` },
+    alternates: { canonical: canonicalUrl },
     openGraph: {
       title: author.name_ro,
       description: author.bio_ro.slice(0, 155),
-      url: `${SITE_URL}/autor/${author.slug}`,
+      url: canonicalUrl,
       type: 'profile',
     },
   }
@@ -81,15 +90,9 @@ export default async function AuthorPage({
     .single()
 
   if (authorErr || !authorData) {
-    return (
-      <div className="max-w-3xl mx-auto px-6 py-20 text-center">
-        <h1 className="font-serif text-3xl font-bold text-foreground mb-4">Autor negăsit</h1>
-        <p className="font-sans text-muted-foreground mb-8">Această pagină nu există.</p>
-        <Link href="/" className="text-brand-red hover:underline font-sans text-sm">
-          ← Înapoi la pagina principală
-        </Link>
-      </div>
-    )
+    // Was a 200 OK soft-404 (see app/blog/[slug]/page.tsx for the full
+    // rationale) — now a real HTTP 404 via app/not-found.tsx.
+    notFound()
   }
 
   const author = authorData as unknown as Author

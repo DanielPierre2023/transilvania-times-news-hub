@@ -63,8 +63,12 @@ ARTICLES TO ANALYZE:
 ${articleSummaries}`;
 }
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -127,7 +131,7 @@ serve(async (req) => {
 
     const resend = new Resend(resendKey);
     let sentCount = 0;
-    const errors: string[] = [];
+    let failedCount = 0;
 
     const batchSize = 10;
     for (let i = 0; i < recipients.length; i += batchSize) {
@@ -151,8 +155,10 @@ serve(async (req) => {
           });
           sentCount++;
         } catch (e) {
+          // Log the failing address server-side only — never echo subscriber PII
+          // back in the HTTP response.
           console.error(`Failed to send to ${contact.email}:`, e);
-          errors.push(contact.email);
+          failedCount++;
         }
       });
       await Promise.all(promises);
@@ -171,7 +177,7 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, sentCount, errors, recipientCount: recipients.length }), {
+    return new Response(JSON.stringify({ success: true, sentCount, failedCount, recipientCount: recipients.length }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

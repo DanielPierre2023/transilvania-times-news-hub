@@ -384,7 +384,7 @@ export default function EditorPage() {
     const { data: saved, error } = await supabase.from('blog_posts').insert(payload as never).select('id, slug').single()
     if (error || !saved) { flash(`Eroare: ${error?.message}`); setSaving(false); return }
     if (newStatus === 'published') {
-      await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${saved.slug}`, { method: 'POST' })
+      await fetch(`/api/revalidate?slug=${saved.slug}`, { method: 'POST' })
       flash('✓ Publicat și live pe site')
     } else {
       flash('✓ Salvat ca ciornă')

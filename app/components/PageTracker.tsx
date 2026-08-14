@@ -76,8 +76,11 @@ export default function PageTracker() {
   const lastPath = useRef('')
 
   useEffect(() => {
-    // Skip admin pages, API routes, and static assets
-    if (pathname.startsWith('/admin') || pathname.startsWith('/api') || pathname.startsWith('/_next')) return
+    // Skip admin pages, editor token pages (the path itself contains the
+    // live editor_tokens.token value — logging it hands out a working
+    // editor session to anyone who reads site_analytics), API routes, and
+    // static assets.
+    if (pathname.startsWith('/admin') || pathname.startsWith('/editor') || pathname.startsWith('/api') || pathname.startsWith('/_next')) return
     // Deduplicate: don't track same path twice in a row (React double-render)
     if (pathname === lastPath.current) return
     lastPath.current = pathname

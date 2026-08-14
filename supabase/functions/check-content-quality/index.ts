@@ -133,11 +133,15 @@ function ngramOverlap(set1: Set<string>, set2: Set<string>): number {
   return (overlap / set1.size) * 100;
 }
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   try {
-    const { content, language = 'en', check_plagiarism = true } = await req.json();
+    const { content, language = 'en', check_plagiarism = true, source_text = '' } = await req.json();
     if (!content || content.length < 100) {
       return new Response(JSON.stringify({ error: 'Content too short for quality check' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -148,13 +152,28 @@ serve(async (req) => {
     const adversarial = await adversarialCheck(content);
     const combinedAiScore = Math.round(heuristic.score * 0.4 + adversarial.score * 0.6);
 
-    let plagiarismScore = 0;
+    // Plagiarism has two distinct exposures and both are checked:
+    //   1. Overlap with the ACTUAL SOURCE this article was rewritten from — this is
+    //      the real legal exposure (unlicensed derivative of copyrighted wire copy).
+    //   2. Overlap with our own recently-published archive — catches accidental
+    //      self-duplication (e.g. the same wire story scraped from two feeds).
+    // The reported score is the WORSE of the two, since either alone is a problem.
+    let archiveOverlapScore = 0;
+    let sourceOverlapScore = 0;
     if (check_plagiarism) {
+      const newNgrams = extractNgrams(content, 5);
+
+      if (source_text && source_text.length >= 100) {
+        try {
+          const sourceNgrams = extractNgrams(source_text, 5);
+          sourceOverlapScore = Math.round(ngramOverlap(newNgrams, sourceNgrams) * 10) / 10;
+        } catch (e) { console.error('Source overlap check failed:', e); }
+      }
+
       try {
         const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
         const { data: existingPosts } = await supabaseAdmin.from('blog_posts').select('content_en, content_ro').eq('status', 'published').order('created_at', { ascending: false }).limit(50);
         if (existingPosts && existingPosts.length > 0) {
-          const newNgrams = extractNgrams(content, 5);
           let maxOverlap = 0;
           for (const post of existingPosts) {
             const postContent = language === 'ro' ? (post.content_ro || '') : (post.content_en || '');
@@ -163,16 +182,20 @@ serve(async (req) => {
             const overlap = ngramOverlap(newNgrams, postNgrams);
             maxOverlap = Math.max(maxOverlap, overlap);
           }
-          plagiarismScore = Math.round(maxOverlap * 10) / 10;
+          archiveOverlapScore = Math.round(maxOverlap * 10) / 10;
         }
-      } catch (e) { console.error('Plagiarism check failed:', e); }
+      } catch (e) { console.error('Archive plagiarism check failed:', e); }
     }
 
-    const passed = combinedAiScore <= 50 && plagiarismScore <= 50;
+    const plagiarismScore = Math.max(archiveOverlapScore, sourceOverlapScore);
+    const passed = combinedAiScore <= 50 && plagiarismScore <= 25;
 
     return new Response(JSON.stringify({
       ai_score: combinedAiScore, heuristic_score: heuristic.score, heuristic_breakdown: heuristic.breakdown,
-      adversarial_score: adversarial.score, adversarial_flags: adversarial.flags, plagiarism_score: plagiarismScore, passed,
+      adversarial_score: adversarial.score, adversarial_flags: adversarial.flags,
+      plagiarism_score: plagiarismScore,
+      source_overlap_score: sourceOverlapScore, archive_overlap_score: archiveOverlapScore,
+      passed,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (e) {
     return new Response(JSON.stringify({ error: (e as Error).message }), {

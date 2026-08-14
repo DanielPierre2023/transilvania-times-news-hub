@@ -6,8 +6,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { article_id, editor = 'daniel_dobos' } = await req.json();

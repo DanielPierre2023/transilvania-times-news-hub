@@ -41,8 +41,12 @@ const EDITORS: Record<string, { name: string; system: string; persona: string }>
 };
 
 const WORD_COUNT_RULES = (wordCount: number) => `
-MANDATORY WORD COUNT — THIS IS YOUR #1 PRIORITY:
-Your article MUST contain at least ${Math.round(wordCount * 0.85)} words. Target: ${wordCount} words.
+LENGTH GUIDANCE (secondary to accuracy — never pad to hit this):
+Aim for roughly ${wordCount} words if the facts support it. It is correct and expected for a
+story to run shorter than this when the underlying facts run out — a well-sourced ${Math.round(wordCount * 0.4)}-word
+article beats a padded ${wordCount}-word one. Do not restate the summary or lede as body text to add
+length, do not invent context, examples, or reactions to reach the target, and do not repeat the
+same point in different words. If you cannot add a new specific fact to a paragraph, cut it.
 `;
 
 const WRITING_RULES = `
@@ -111,8 +115,12 @@ async function expandArticle(apiKey: string, content: string, targetWords: numbe
   return data.choices?.[0]?.message?.content || content;
 }
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { prompt, word_count = 1800, editor = 'daniel_dobos', category = 'technology' } = await req.json();

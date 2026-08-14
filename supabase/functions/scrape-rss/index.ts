@@ -12,6 +12,81 @@ function extractText(xml: string, tag: string): string {
   return match ? match[1].trim() : '';
 }
 
+/**
+ * SSRF guard for outbound fetches in this function.
+ *
+ * This function accepts an arbitrary URL (the RSS feed URL, and then every
+ * <link> it parses out of that feed's items) and fetches it server-side from
+ * inside the Supabase edge runtime. Without validation, a malicious or
+ * compromised feed_url could point this function at:
+ *   - cloud metadata endpoints (169.254.169.254) to steal instance credentials
+ *   - internal-only hosts/IPs (10.x, 172.16-31.x, 192.168.x, 127.x, localhost)
+ *   - non-http(s) schemes (file:, gopher:, etc.)
+ * requireAdmin() already restricts *who* can call this endpoint, but an SSRF
+ * guard is defense-in-depth against a compromised admin session or a
+ * malicious feed masquerading as a legitimate RSS source.
+ */
+function isSafeExternalUrl(rawUrl: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  if (u.username || u.password) return false;
+
+  const host = u.hostname.toLowerCase();
+
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+
+  // IPv4 literal checks (private/reserved/loopback/link-local, incl. cloud metadata).
+  const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [a, b] = [parseInt(ipv4Match[1], 10), parseInt(ipv4Match[2], 10)];
+    if (a === 127) return false; // loopback
+    if (a === 10) return false; // private
+    if (a === 172 && b >= 16 && b <= 31) return false; // private
+    if (a === 192 && b === 168) return false; // private
+    if (a === 169 && b === 254) return false; // link-local incl. cloud metadata
+    if (a === 0) return false;
+  }
+
+  // IPv6 loopback / link-local / unique-local literals.
+  if (host === '::1' || host === '[::1]') return false;
+  if (host.startsWith('fe80:') || host.startsWith('[fe80:')) return false;
+  if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('[fc') || host.startsWith('[fd')) return false;
+
+  return true;
+}
+
+const FETCH_TIMEOUT_MS = 10000;
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5MB cap, well above any legitimate article/feed page
+
+/**
+ * Reads a Response body up to a byte cap, aborting the stream once exceeded,
+ * so a malicious/oversized endpoint can't exhaust memory or runtime.
+ */
+async function readCapped(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return await res.text();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let out = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      try { await reader.cancel(); } catch { /* ignore */ }
+      break;
+    }
+    out += decoder.decode(value, { stream: true });
+  }
+  return out;
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<[^>]+>/g, ' ')
@@ -27,6 +102,7 @@ function stripHtml(html: string): string {
  * Falls back to RSS snippet if fetch fails.
  */
 async function fetchFullArticle(url: string): Promise<{ body: string; wordCount: number }> {
+  if (!isSafeExternalUrl(url)) return { body: '', wordCount: 0 };
   try {
     const res = await fetch(url, {
       headers: {
@@ -34,10 +110,15 @@ async function fetchFullArticle(url: string): Promise<{ body: string; wordCount:
         'Accept': 'text/html,application/xhtml+xml',
       },
       redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return { body: '', wordCount: 0 };
+    // Redirects are followed automatically by fetch; re-validate the final
+    // landing URL so a feed can't redirect a safe-looking link to an
+    // internal/blocked host after the initial check.
+    if (!isSafeExternalUrl(res.url)) return { body: '', wordCount: 0 };
 
-    const html = await res.text();
+    const html = await readCapped(res, MAX_RESPONSE_BYTES);
 
     // Extract main content using common article selectors
     // Try <article> first, then common content divs
@@ -88,15 +169,31 @@ async function fetchFullArticle(url: string): Promise<{ body: string; wordCount:
   }
 }
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
+
   try {
     const { feed_url } = await req.json();
+    if (!feed_url || !isSafeExternalUrl(feed_url)) {
+      return new Response(JSON.stringify({ error: 'Invalid or disallowed feed_url' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     const res = await fetch(feed_url, {
       headers: { 'User-Agent': 'TransilvaniaTimes-RSS/1.0' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    const xml = await res.text();
+    if (!isSafeExternalUrl(res.url)) {
+      return new Response(JSON.stringify({ error: 'Feed redirected to a disallowed host' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const xml = await readCapped(res, MAX_RESPONSE_BYTES);
     const articles: Array<{
       title: string;
       url: string;

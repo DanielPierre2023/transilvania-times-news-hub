@@ -70,8 +70,12 @@ const ROMANIAN_RULES = `REGULI PENTRU ROMÂNĂ (OBLIGATORII):
 8. NU începe cu o referință la dată precum "Sâmbătă, 21 martie 2026" sau "Astăzi". Începe cu ȘTIREA.
 9. Tags RO: 6-9 taguri SEO lowercase cu cratimă în ROMÂNĂ. Exemplu: ["sanatate-digitala-romania", "reforma-spitale-2026"]. NU: ["Sănătate Digitală", "Reforma Spitalelor"]. FIECARE tag TREBUIE să fie cu cratimă, lowercase, 2-5 cuvinte.`;
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   let jobId: string | null = null;
@@ -215,7 +219,13 @@ MASTER HUMANIZING CONSTRAINTS:
 - English version: ${sourceLang === 'en' ? 'The source was English — you MUST completely rebuild every sentence. Zero overlap with any original phrasing.' : 'Build naturally from the facts.'}
 - Romanian version: write NATIVELY in Romanian as a native Romanian journalist. Use Romanian headline conventions (subject-verb inversion). ${sourceLang === 'ro' ? 'The source was Romanian — you MUST completely rebuild every sentence in Romanian. Zero overlap with any original phrasing.' : 'Do NOT translate from the English version. Build independently from the facts with different structure, different opening, different narrative flow.'}
 - Both versions must be independently structured (different paragraph order, different opening hooks, different narrative flow).
-- Each version must be 1200+ words of continuous prose.
+- LENGTH IS SECONDARY TO ACCURACY. Aim for around 1200 words when the extracted facts support it,
+  but never pad: do not restate the summary as body text, do not invent context, quotes, reactions,
+  statistics, or "what happens next" speculation that the extracted facts don't contain, and do not
+  repeat the same point in different phrasing to add length. A well-sourced 400-word article is
+  correct and preferable to a padded 1200-word one when the source material is thin. Every sentence
+  must trace back to a fact actually present in the extracted-facts list above — do not add specificity
+  (numbers, percentages, named institutions, attributed claims) that was not in that list.
 - PARAGRAPH FORMAT: Separate every paragraph with a blank line (two newlines: \\n\\n). Each paragraph must be 2-4 sentences. Do NOT use single newlines within paragraphs.
 - Lead paragraph: Answer Who/What/Where/When. Opening sentence max 35 words. Active voice.
 - Summary: 2-3 sentences, news wire abstract — who did what, where, when, why it matters.
@@ -279,22 +289,54 @@ Respond with valid JSON:
 
     // ═══════════════════════════════════════════════════
     // QUALITY GATE
+    //
+    // ai_score is 0 = definitely human-written, 100 = definitely AI-generated
+    // (see check-content-quality). A HIGH score is the bad outcome, so it must
+    // gate review on aiScore > threshold, not < threshold — this was previously
+    // inverted, which meant the most AI-sounding articles auto-published and
+    // the most human-sounding ones were flagged for review.
+    //
+    // The gate FAILS CLOSED: if the quality check errors, times out, or returns
+    // an incomplete result, that counts as "could not verify" and routes to
+    // human review — it must never silently pass as if the check succeeded.
+    //
+    // source_text is passed so plagiarism is checked against the actual wire
+    // copy this article was rewritten from, not just our own back-catalog.
     // ═══════════════════════════════════════════════════
     let aiScore: number | null = null;
     let plagiarismScore: number | null = null;
+    let qualityCheckFailed = false;
     try {
       const qualityUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/check-content-quality`;
       const qRes = await fetch(qualityUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
-        body: JSON.stringify({ content: contentEn, language: 'en', check_plagiarism: true }),
+        body: JSON.stringify({
+          content: contentEn,
+          language: 'en',
+          check_plagiarism: true,
+          source_text: (sourceContent || '').slice(0, 20000),
+        }),
       });
       const qData = await qRes.json();
-      aiScore = qData.ai_score ?? null;
-      plagiarismScore = qData.plagiarism_score ?? null;
-    } catch (e) { console.error('Quality check failed:', (e as Error).message); }
+      if (!qRes.ok || qData.error) {
+        qualityCheckFailed = true;
+        console.error(`[${jobId}] Quality check returned an error:`, qData.error || qRes.status);
+      } else {
+        aiScore = typeof qData.ai_score === 'number' ? qData.ai_score : null;
+        plagiarismScore = typeof qData.plagiarism_score === 'number' ? qData.plagiarism_score : null;
+        if (aiScore === null || plagiarismScore === null) qualityCheckFailed = true;
+      }
+    } catch (e) {
+      qualityCheckFailed = true;
+      console.error(`[${jobId}] Quality check failed:`, (e as Error).message);
+    }
 
-    const needsReview = (aiScore !== null && aiScore < 50) || (plagiarismScore !== null && plagiarismScore > 25) || isThinSource;
+    const needsReview =
+      qualityCheckFailed ||
+      (aiScore !== null && aiScore > 50) ||
+      (plagiarismScore !== null && plagiarismScore > 25) ||
+      isThinSource;
     const finalStatus = needsReview ? 'needs_review' : 'rewritten';
 
     // Auto-generate cover image via generate-cover-image edge function

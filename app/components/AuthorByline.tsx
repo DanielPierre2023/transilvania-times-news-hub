@@ -18,10 +18,12 @@ interface AuthorBylineProps {
   author: AuthorData | null
   authorName: string | null   // fallback when no author record
   timeAgoStr: string
+  publishedAt?: string | null   // ISO timestamp — renders as <time dateTime>
+  updatedAt?: string | null     // ISO timestamp, if the article was revised
   lang: 'ro' | 'en'
 }
 
-export default function AuthorByline({ author, authorName, timeAgoStr, lang }: AuthorBylineProps) {
+export default function AuthorByline({ author, authorName, timeAgoStr, publishedAt, updatedAt, lang }: AuthorBylineProps) {
   const displayName = author
     ? (lang === 'ro' ? author.name_ro : author.name_en)
     : (authorName || 'Transilvania Times')
@@ -62,7 +64,30 @@ export default function AuthorByline({ author, authorName, timeAgoStr, lang }: A
           </p>
         )}
         {timeAgoStr && (
-          <p className="font-sans text-[11px] text-muted-foreground">{timeAgoStr}</p>
+          // PREVIOUSLY a plain <p> with only the human-readable relative
+          // string ("acum 3 ore") — no machine-readable timestamp anywhere
+          // in the article DOM. Search engines and AI answer engines (AEO)
+          // both rely on a proper <time dateTime> to resolve "how old is
+          // this" and "was it updated" reliably; a relative string alone is
+          // ambiguous the moment the page is cached, translated, or read by
+          // something other than a human at render time.
+          publishedAt ? (
+            <time
+              dateTime={publishedAt}
+              title={updatedAt && updatedAt !== publishedAt ? undefined : new Date(publishedAt).toISOString()}
+              className="font-sans text-[11px] text-muted-foreground"
+            >
+              {timeAgoStr}
+              {updatedAt && updatedAt !== publishedAt && (
+                <span className="text-muted-foreground/70">
+                  {' '}· {lang === 'ro' ? 'actualizat' : 'updated'}{' '}
+                  <time dateTime={updatedAt}>{new Date(updatedAt).toISOString().slice(0, 10)}</time>
+                </span>
+              )}
+            </time>
+          ) : (
+            <p className="font-sans text-[11px] text-muted-foreground">{timeAgoStr}</p>
+          )
         )}
       </div>
     </div>

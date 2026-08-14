@@ -12,19 +12,35 @@ function FooterNewsletter() {
   const [email,    setEmail]    = useState('')
   const [subbed,   setSubbed]   = useState(false)
   const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
 
   async function subscribe(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim()) return
     setLoading(true)
+    setError('')
     try {
-      await fetch('/api/newsletter/subscribe', {
+      // PREVIOUSLY called setSubbed(true) unconditionally after the fetch
+      // resolved, without checking res.ok — fetch() only throws on a network
+      // failure, not on a 400/500 response, so a rejected or failed
+      // subscription (invalid email, DB error, etc.) still showed "✓ Abonare
+      // confirmată!" to the visitor. This is the newsletter form that's
+      // actually live on every page (via LayoutShell), so that false
+      // positive was real, not theoretical.
+      const res = await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), language: 'ro' }),
       })
-      setSubbed(true)
-    } catch { /* silent */ }
+      if (res.ok) {
+        setSubbed(true)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || 'Nu am putut finaliza abonarea. Încearcă din nou.')
+      }
+    } catch {
+      setError('Nu am putut finaliza abonarea. Verifică conexiunea și încearcă din nou.')
+    }
     setLoading(false)
   }
 
@@ -53,6 +69,9 @@ function FooterNewsletter() {
           >
             {loading ? '...' : 'Abonează-te acum'}
           </button>
+          {error && (
+            <p className="font-sans text-[11px] text-white">{error}</p>
+          )}
         </form>
       )}
     </div>
@@ -159,6 +178,18 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
   const [searchQuery, setSearchQuery] = useState('')
 
   const isEnglish = pathname?.startsWith('/en') ?? false
+
+  // PREVIOUSLY this masthead was always an <h1>, on every page. LayoutShell
+  // wraps the whole site, so every page got a second <h1> on top of its own:
+  // the article headline on /blog/[slug]/, the lead-story headline on the
+  // homepage itself (app/page.tsx has its own <h1> for the top story), the
+  // category/author page heading, etc. Multiple/duplicate <h1>s dilute the
+  // page's primary-topic signal for both classic SEO and AI answer engines
+  // (AEO), which use the single h1 as the strongest hint of what the page is
+  // actually about. The masthead is branding, not the page's topic, on every
+  // route including the homepage — so it's never the h1; it's a styled <p>
+  // that links home, same as before visually.
+  const MastheadTag = 'p' as const
 
   // Scroll shadow
   useEffect(() => {
@@ -292,9 +323,9 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
         {/* ── Masthead — big centered title ── */}
         <div className="py-5 text-center border-b border-foreground/[0.08]">
           <Link href={isEnglish ? '/en/' : '/'} className="inline-block">
-            <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold italic text-brand-red tracking-tight">
+            <MastheadTag className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold italic text-brand-red tracking-tight">
               Transilvania Times
-            </h1>
+            </MastheadTag>
           </Link>
         </div>
 

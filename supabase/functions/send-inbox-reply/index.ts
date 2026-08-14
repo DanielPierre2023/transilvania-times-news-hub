@@ -10,8 +10,12 @@ const corsHeaders = {
 
 const SITE = "https://transilvaniatimes.com";
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { messageId, replyText } = await req.json();

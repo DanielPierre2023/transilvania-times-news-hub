@@ -22,11 +22,21 @@ export default function SiteFooter() {
   const [subscribed, setSubscribed] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  const [error, setError] = useState('')
+
   async function handleSubscribe() {
     if (!email || !email.includes('@')) return
     setLoading(true)
+    setError('')
     try {
-      const res = await fetch('/api/newsletter', {
+      // Same fix as app/components/SiteFooter.tsx: the real route is
+      // /api/newsletter/subscribe, not /api/newsletter. Note this component
+      // (despite the filename) isn't imported anywhere in app/ today — it's
+      // dead code, a near-duplicate of SiteFooter.tsx (even its exported
+      // function is named SiteFooter). Fixed for correctness/consistency in
+      // case it's wired up later; flagged separately as a dead-code cleanup
+      // candidate.
+      const res = await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
@@ -34,9 +44,12 @@ export default function SiteFooter() {
       if (res.ok) {
         setSubscribed(true)
         setEmail('')
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || 'Nu am putut finaliza abonarea. Încearcă din nou.')
       }
     } catch {
-      // silent fail
+      setError('Nu am putut finaliza abonarea. Verifică conexiunea și încearcă din nou.')
     } finally {
       setLoading(false)
     }
@@ -124,6 +137,9 @@ export default function SiteFooter() {
                   >
                     {loading ? 'Se procesează...' : 'Abonează-te Acum'}
                   </button>
+                  {error && (
+                    <p className="text-white text-[11px] font-sans">{error}</p>
+                  )}
                 </div>
               )}
             </div>

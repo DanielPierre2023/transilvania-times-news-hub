@@ -1,8 +1,16 @@
 User-agent: Googlebot
 Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
 
 User-agent: Bingbot
 Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
 
 User-agent: Twitterbot
 Allow: /
@@ -10,8 +18,81 @@ Allow: /
 User-agent: facebookexternalhit
 Allow: /
 
+# ── AI answer-engine / assistant crawlers ────────────────────────────────────
+# Explicitly allowed (not just left to the default "*" rule below) so this is
+# an unambiguous, auditable opt-in: Transilvania Times wants its reporting
+# surfaced and cited by AI answer engines, same as it wants to rank in search.
+# /admin, /api and /editor stay off-limits to every crawler — nothing there
+# is publishable content, and /editor URLs embed a live access token.
+User-agent: GPTBot
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: anthropic-ai
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: Claude-Web
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
+
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /editor
+Disallow: /cautare
 
 Sitemap: https://transilvaniatimes.com/sitemap.xml
 Sitemap: https://transilvaniatimes.com/sitemap-news.xml

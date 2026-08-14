@@ -41,17 +41,22 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     ? `Ultimele știri și articole din județul ${county.label}, publicate pe Transilvania Times.`
     : `Știri naționale și internaționale relevante pentru cititorii din Transilvania.`
 
+  // Trailing slash added — next.config.ts has trailingSlash: true, so the
+  // bare URL 308-redirects to this one; the canonical tag needs to point to
+  // the URL the site actually serves, not one that immediately redirects.
+  const canonicalUrl = `https://transilvaniatimes.com/judet/${county.slug}/`
+
   return {
     title,
     description,
     alternates: {
-      canonical: `https://transilvaniatimes.com/judet/${county.slug}`,
+      canonical: canonicalUrl,
     },
     openGraph: {
       title,
       description,
       type: 'website',
-      url: `https://transilvaniatimes.com/judet/${county.slug}`,
+      url: canonicalUrl,
     },
   }
 }

@@ -67,14 +67,21 @@ export async function GET() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  // Fetch the 200 most recent published articles — no date cutoff.
-  // Google News reads <news:publication_date> to determine recency.
+  // PREVIOUSLY fetched the 200 most recent articles with no date cutoff.
+  // Google's News sitemap spec requires only articles published in the last
+  // 48 hours — anything older should be dropped from THIS sitemap (it stays
+  // in the regular sitemap.xml). Serving stale articles here doesn't just
+  // fail validation: a News sitemap that doesn't honor the window signals
+  // to Google that the feed isn't curated to spec.
+  const newsWindowCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+
   const { data: posts, error } = await supabase
     .from('blog_posts')
     .select('slug, title_ro, category, tags_ro, published_at, cover_image')
     .eq('status', 'published')
     .not('slug',     'is', null)
     .not('title_ro', 'is', null)
+    .gte('published_at', newsWindowCutoff)
     .order('published_at', { ascending: false })
     .limit(200)
 

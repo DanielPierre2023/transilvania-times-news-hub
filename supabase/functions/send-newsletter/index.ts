@@ -10,8 +10,12 @@ const corsHeaders = {
 
 const SITE = "https://transilvaniatimes.com";
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { campaignId } = await req.json();
@@ -62,7 +66,7 @@ serve(async (req) => {
 
     const resend = new Resend(resendKey);
     let sentCount = 0;
-    const errors: string[] = [];
+    let failedCount = 0;
 
     const footerByLang: Record<string, string> = {
       en: `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;font-size:12px;color:#888;">
@@ -94,8 +98,12 @@ serve(async (req) => {
           });
           sentCount++;
         } catch (e) {
+          // Log the failing address server-side only (visible in Supabase function
+          // logs to an admin) — it must never be echoed back in the HTTP response,
+          // since that response body is not a private admin-only channel by
+          // construction and subscriber emails are PII.
           console.error(`Failed to send to ${contact.email}:`, e);
-          errors.push(contact.email);
+          failedCount++;
         }
       });
       await Promise.all(promises);
@@ -105,7 +113,7 @@ serve(async (req) => {
       status: "sent", sent_at: new Date().toISOString(), recipient_count: sentCount,
     }).eq("id", campaignId);
 
-    return new Response(JSON.stringify({ success: true, sentCount, errors }), {
+    return new Response(JSON.stringify({ success: true, sentCount, failedCount }), {
       status: 200, headers: { "Content-Type": "application/json", ...corsHeaders },
     });
   } catch (error) {

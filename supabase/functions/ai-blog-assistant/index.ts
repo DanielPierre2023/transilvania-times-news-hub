@@ -21,8 +21,12 @@ const ACTION_PROMPTS: Record<string, string> = {
   free_chat: "You are a helpful AI blog writing assistant. Respond to the user's request about the blog content.",
 };
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { action, content, prompt } = await req.json();

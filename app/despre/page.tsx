@@ -16,11 +16,11 @@ const CAT_LABELS: Record<string, string> = {
 export const metadata: Metadata = {
   title: 'Despre Transilvania Times',
   description: 'Jurnalism independent din inima Transilvaniei. Misiunea editorială, echipa și standardele noastre.',
-  alternates: { canonical: `${SITE_URL}/despre` },
+  alternates: { canonical: `${SITE_URL}/despre/` },
   openGraph: {
     title: 'Despre Transilvania Times',
     description: 'Jurnalism independent din inima Transilvaniei.',
-    url: `${SITE_URL}/despre`,
+    url: `${SITE_URL}/despre/`,
     type: 'website',
   },
 }

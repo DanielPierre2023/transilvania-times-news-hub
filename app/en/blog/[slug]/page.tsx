@@ -20,6 +20,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import { enUS } from 'date-fns/locale'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import ShareButtons from '@/app/components/ShareButtons'
@@ -193,15 +194,9 @@ export default async function ArticlePageEN(
     .single()
 
   if (error || !data) {
-    return (
-      <div className="max-w-3xl mx-auto px-6 py-20 text-center">
-        <h1 className="font-serif text-3xl font-bold text-foreground mb-4">Article not found</h1>
-        <p className="font-sans text-muted-foreground mb-8">The article does not exist or has been removed.</p>
-        <Link href="/en/" className="text-brand-red hover:underline font-sans text-sm">
-          ← Back to homepage
-        </Link>
-      </div>
-    )
+    // Was a 200 OK soft-404 (see the RO route for the full rationale) —
+    // now a real HTTP 404 via app/not-found.tsx.
+    notFound()
   }
 
   const post       = data as unknown as Post
@@ -209,6 +204,24 @@ export default async function ArticlePageEN(
   const shareUrl   = articleUrl
   const catLabel   = post.category ? (CAT_LABELS_EN[post.category] || post.category).toUpperCase() : ''
   const tags       = (post.tags_en || post.tags_ro || []) as string[]
+
+  // Correction notice (G5) — see app/blog/[slug]/page.tsx for the full
+  // rationale on why this is a separate, fault-tolerant query rather than
+  // part of the main SELECT above.
+  let correction: { correction_note: string; corrected_at: string } | null = null
+  try {
+    const { data: correctionData } = await (supabase
+      .from('blog_posts')
+      .select('correction_note, corrected_at')
+      .eq('id', post.id)
+      .not('correction_note', 'is', null)
+      .maybeSingle() as unknown as Promise<{ data: { correction_note: string | null; corrected_at: string | null } | null }>)
+    if (correctionData?.correction_note && correctionData?.corrected_at) {
+      correction = correctionData as { correction_note: string; corrected_at: string }
+    }
+  } catch {
+    // Column doesn't exist yet or query failed — no correction shown.
+  }
 
   const author = post.authors ?? null
 
@@ -349,6 +362,7 @@ export default async function ArticlePageEN(
               authorName={post.author_name}
               author={author}
               publishedAt={post.published_at}
+              updatedAt={post.updated_at}
               timeAgoStr={timeAgoStr}
               defaultLang={defaultLang}
               inlineRelated={inlineRelated}
@@ -394,6 +408,20 @@ export default async function ArticlePageEN(
                   <a href={post.source_url} target="_blank" rel="noopener noreferrer nofollow" className="hover:text-brand-red underline">
                     {(() => { try { return new URL(post.source_url!).hostname } catch { return post.source_url } })()}
                   </a>
+                </p>
+              </div>
+            )}
+
+            {correction && (
+              <div className="mt-6 pt-4 border-t-2 border-brand-red/30 bg-brand-red/[0.03] px-4 py-3">
+                <p className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-brand-red mb-1">
+                  Correction —{' '}
+                  <time dateTime={correction.corrected_at}>
+                    {new Date(correction.corrected_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                  </time>
+                </p>
+                <p className="font-sans text-[13px] text-foreground/80 leading-relaxed">
+                  {correction.correction_note}
                 </p>
               </div>
             )}

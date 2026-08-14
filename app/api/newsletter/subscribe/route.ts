@@ -280,16 +280,19 @@ export async function POST(req: NextRequest) {
         confirmed: false,
       })
 
-    if (error) {
-      // Already subscribed — still send welcome email
-      if (error.code !== '23505') {
-        console.error('[newsletter] Supabase insert error:', error.message)
-        return NextResponse.json({ error: 'Could not subscribe. Please try again.' }, { status: 500 })
-      }
+    const alreadySubscribed = !!error && error.code === '23505'
+
+    if (error && !alreadySubscribed) {
+      console.error('[newsletter] Supabase insert error:', error.message)
+      return NextResponse.json({ error: 'Could not subscribe. Please try again.' }, { status: 500 })
     }
 
-    // Send welcome email via Resend
-    const resendKey = process.env.RESEND_API_KEY
+    // PREVIOUSLY the welcome email sent unconditionally, including on the
+    // duplicate-key path — so repeatedly POSTing the same address (or a
+    // stranger's address) mail-bombed the recipient with identical welcome
+    // emails from the site's own domain with no rate limit. It now sends
+    // exactly once, on first subscription only.
+    const resendKey = !alreadySubscribed ? process.env.RESEND_API_KEY : null
     if (resendKey) {
       const subject = lang === 'en'
         ? 'Welcome to Transilvania Times Newsletter'

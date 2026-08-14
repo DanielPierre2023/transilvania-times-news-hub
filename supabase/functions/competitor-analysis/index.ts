@@ -1,4 +1,5 @@
 import { callGemini } from '../_shared/gemini.ts';
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,6 +8,9 @@ const corsHeaders = {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { topic, industry, companySize, currentTools } = await req.json();

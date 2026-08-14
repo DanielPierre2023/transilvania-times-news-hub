@@ -1,16 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/supabase/admin-auth'
 
 // POST /api/rewrite — proxies rewrite requests to Anthropic API
 // This exists because the Anthropic API blocks browser-side CORS requests.
 // The checker page calls this route instead of api.anthropic.com directly.
+//
+// PREVIOUSLY this had no auth and no maximum input length — anyone could loop
+// it with arbitrarily large `text` to drain CLAUDE_API_KEY's budget, and the
+// prompt is fully attacker-steerable text, so it doubled as a free general-
+// purpose LLM proxy for third parties. Now gated on admin auth (only
+// app/admin/checker calls this) with a hard length ceiling.
+const MAX_TEXT_LENGTH = 20000 // ~5k words — generous for a single article, not for abuse
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAdmin()
+    if (!auth.ok) return auth.response
+
     const body = await req.json()
     const { text, issues } = body as { text: string; issues: string[] }
 
     if (!text || text.length < 20) {
       return NextResponse.json({ error: 'Text prea scurt.' }, { status: 400 })
+    }
+    if (text.length > MAX_TEXT_LENGTH) {
+      return NextResponse.json({ error: `Text prea lung (max ${MAX_TEXT_LENGTH} caractere).` }, { status: 400 })
+    }
+    if (Array.isArray(issues) && issues.length > 50) {
+      return NextResponse.json({ error: 'Prea multe probleme raportate.' }, { status: 400 })
     }
 
     const apiKey = process.env.CLAUDE_API_KEY

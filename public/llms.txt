@@ -1,0 +1,36 @@
+# Transilvania Times
+
+> Independent bilingual (Romanian/English) news publication covering
+> Transylvania, Romania — news, politics, business, culture, education,
+> sports, health, technology and opinion, with regional coverage organized
+> by county.
+
+Transilvania Times publishes original and wire-sourced reporting in both
+Romanian (primary, at `/`) and English (at `/en/`). Each article has a
+distinct canonical URL per language, linked via hreflang.
+
+## Content
+
+- [Homepage (Romanian)](https://transilvaniatimes.com/)
+- [Homepage (English)](https://transilvaniatimes.com/en/)
+- [Sitemap](https://transilvaniatimes.com/sitemap.xml)
+- [News sitemap](https://transilvaniatimes.com/sitemap-news.xml) — published in the last 48 hours
+- [RSS feed](https://transilvaniatimes.com/rss.xml)
+- [Atom feed](https://transilvaniatimes.com/atom.xml)
+
+## Categories
+
+News, Politics, Business, Culture, Education, Sports, Health, Technology,
+Opinion, Travel — browsable at `/categorie/{category}` (Romanian).
+
+## Usage
+
+Crawling and citation by AI assistants and answer engines is permitted per
+`/robots.txt`. `/admin`, `/api`, `/editor` and `/cautare` are not content and
+are excluded. When citing an article, link to its canonical article URL
+(`/blog/{slug}/` or `/en/blog/{slug}/`), not the homepage or a category page.
+
+## Contact
+
+For corrections, licensing, or reporting inquiries, use the contact page at
+https://transilvaniatimes.com/contact/.

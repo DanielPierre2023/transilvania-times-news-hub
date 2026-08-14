@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin } from '@/lib/supabase/admin-auth'
 
 const SITE_URL = 'https://transilvaniatimes.com'
 const FROM     = 'Transilvania Times <no-reply@transilvaniatimes.com>'
+
+// recipientName is interpolated directly into the email HTML below (see
+// mediaKitHtml). PREVIOUSLY it was not escaped, so a caller could supply
+// something like `</p><h1>...</h1><a href="...">` and this route would send
+// it as a DKIM-signed phishing email from no-reply@transilvaniatimes.com.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 interface Pricing {
   slot: string
@@ -210,10 +224,18 @@ function mediaKitHtml(
 
 export async function POST(req: NextRequest) {
   try {
+    // PREVIOUSLY unauthenticated — anyone could use this as a free, DKIM-
+    // signed email relay. Only the admin sponsors page calls it.
+    const auth = await requireAdmin()
+    if (!auth.ok) return auth.response
+
     const { recipientName, recipientEmail, language = 'ro', slotsOffered } = await req.json()
 
     if (!recipientName?.trim() || !recipientEmail?.trim()) {
       return NextResponse.json({ error: 'Name and email are required' }, { status: 400 })
+    }
+    if (recipientName.length > 200) {
+      return NextResponse.json({ error: 'Name too long' }, { status: 400 })
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -247,7 +269,7 @@ export async function POST(req: NextRequest) {
       ? 'Transilvania Times — Media Kit & Advertising Rates 2026'
       : 'Transilvania Times — Media Kit & Tarife Publicitate 2026'
 
-    const html = mediaKitHtml(recipientName.trim(), lang, pricing)
+    const html = mediaKitHtml(escapeHtml(recipientName.trim()), lang, pricing)
 
     const resendRes = await fetch('https://api.resend.com/emails', {
       method: 'POST',

@@ -95,8 +95,12 @@ async function generateWithOpenAI(prompt: string, apiKey: string): Promise<Uint8
   return bytes;
 }
 
+import { requireAdmin } from "../_shared/requireAdmin.ts";
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   try {
     const { title, excerpt } = await req.json();

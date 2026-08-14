@@ -219,7 +219,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
       if (created) router.replace(`/admin/articles/${created.id}/edit`)
     }
     if (newStatus === 'published' || data.status === 'published') {
-      await fetch(`/api/revalidate?secret=tt-revalidate-2026&slug=${finalSlug}`, { method: 'POST' })
+      await fetch(`/api/revalidate?slug=${finalSlug}`, { method: 'POST' })
     }
     setSaving(false)
     flash(newStatus === 'published' ? '✓ Publicat și live' : '✓ Salvat')

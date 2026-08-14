@@ -1,12 +1,14 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import { ro } from 'date-fns/locale'
 import ArticleCard from '@/app/components/ArticleCard'
 
 export const revalidate = 300
 
+const SITE_URL = 'https://transilvaniatimes.com'
 const PAGE_SIZE = 12
 
 const CAT_LABELS: Record<string, string> = {
@@ -40,12 +42,38 @@ interface PageProps {
   searchParams: Promise<{ page?: string; sub?: string }>
 }
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { category } = await params
+  const { page: pageStr, sub } = await searchParams
+  const page = Math.max(1, parseInt(pageStr || '1', 10))
   const label = CAT_LABELS[category] || category
+
+  // PREVIOUSLY no canonical tag at all on this route — /categorie/news,
+  // /categorie/news?page=2, and /categorie/news?sub=regional all rendered
+  // with no <link rel="canonical">, so Next.js emitted none. That leaves
+  // Google to guess which of several near-duplicate URLs (same category,
+  // different page/sub combinations) is the "real" one.
+  //
+  // Rule: a sub-filtered view is a strict subset of the full category, so
+  // it canonicalizes to the unfiltered page 1 (consolidates ranking signal
+  // instead of competing with it) and is kept out of the index — it's still
+  // fully crawlable/linkable, just not something we want ranking on its own.
+  // An unfiltered page is self-canonical, including the page number for
+  // page > 1 — Google deprecated rel=prev/next in 2019 and now recommends
+  // self-referencing canonicals per paginated page rather than collapsing
+  // everything onto page 1.
+  const baseUrl = `${SITE_URL}/categorie/${category}/`
+  const canonical = sub
+    ? baseUrl
+    : page > 1
+      ? `${baseUrl}?page=${page}`
+      : baseUrl
+
   return {
     title: `${label} — Transilvania Times`,
     description: `Ultimele știri din categoria ${label} pe Transilvania Times.`,
+    alternates: { canonical },
+    robots: sub ? { index: false, follow: true } : undefined,
   }
 }
 
@@ -79,6 +107,22 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
 
   const posts = ((data ?? []) as unknown as Post[])
   const totalPages = Math.ceil((count ?? 0) / PAGE_SIZE)
+
+  // PREVIOUSLY a bogus/mistyped category slug (or a page number past the
+  // last real page) rendered a 200 OK "Niciun articol găsit" page — a soft
+  // 404 that wastes crawl budget and can get indexed as thin/duplicate
+  // content. Real 404s now:
+  //   - !sub && count === 0: this category has never had a published
+  //     article — not filtered zero, an actually nonexistent category.
+  //     (Deliberately NOT gated on the hardcoded CAT_LABELS list — the live
+  //     data has an 11th category, "community", with no entry in that map,
+  //     so a static allowlist would 404 a real page. count===0 is derived
+  //     from the actual blog_posts rows instead.)
+  //   - page > 1 with zero results but the category itself is real
+  //     (count > 0): asking for a page beyond the last one.
+  if ((!sub && (count ?? 0) === 0) || (page > 1 && posts.length === 0 && (count ?? 0) > 0)) {
+    notFound()
+  }
 
   function timeAgo(d: string | null) {
     if (!d) return ''

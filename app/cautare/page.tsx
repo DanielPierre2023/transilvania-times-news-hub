@@ -39,19 +39,47 @@ export default async function SearchPage({ searchParams }: PageProps) {
   let posts: Post[] = []
 
   if (query.length >= 2) {
+    // PREVIOUSLY this interpolated the raw user query straight into a
+    // PostgREST .or() filter string (`title_ro.ilike.%${query}%,...`). A
+    // search term containing a comma or a PostgREST operator token could
+    // inject additional filter clauses — a filter-injection hole, not just a
+    // performance problem. .textSearch() sends the query as a bound
+    // parameter to Postgres's full-text search, so there is no string
+    // concatenated into the filter at all. It also runs against the
+    // search_ro/search_en generated tsvector columns (see the SQL
+    // remediation, PART 5.2), which are indexed — the old leading-wildcard
+    // ILIKE could not use any index and forced a full seq scan on every
+    // search.
     const supabase = await createSupabaseServerClient()
-    const { data, error } = await supabase
-      .from('blog_posts')
-      .select('id, slug, title_ro, title_en, cover_image, category, subcategory, excerpt_ro, published_at')
-      .eq('status', 'published')
-      .or(
-        `title_ro.ilike.%${query}%,title_en.ilike.%${query}%,category.ilike.%${query}%,excerpt_ro.ilike.%${query}%`
-      )
-      .order('published_at', { ascending: false })
-      .limit(24)
+    const selectCols = 'id, slug, title_ro, title_en, cover_image, category, subcategory, excerpt_ro, published_at'
 
-    if (error) console.error('[SearchPage]', error.message)
-    posts = ((data ?? []) as unknown as Post[])
+    const [{ data: roData, error: roErr }, { data: enData, error: enErr }] = await Promise.all([
+      supabase
+        .from('blog_posts')
+        .select(selectCols)
+        .eq('status', 'published')
+        .textSearch('search_ro', query, { type: 'websearch', config: 'romanian' })
+        .order('published_at', { ascending: false })
+        .limit(24),
+      supabase
+        .from('blog_posts')
+        .select(selectCols)
+        .eq('status', 'published')
+        .textSearch('search_en', query, { type: 'websearch', config: 'english' })
+        .order('published_at', { ascending: false })
+        .limit(24),
+    ])
+
+    if (roErr) console.error('[SearchPage] search_ro', roErr.message)
+    if (enErr) console.error('[SearchPage] search_en', enErr.message)
+
+    const merged = new Map<string, Post>()
+    for (const p of [...(roData ?? []), ...(enData ?? [])] as unknown as Post[]) {
+      merged.set(p.id, p)
+    }
+    posts = Array.from(merged.values())
+      .sort((a, b) => (b.published_at || '').localeCompare(a.published_at || ''))
+      .slice(0, 24)
   }
 
   function timeAgo(d: string | null) {

@@ -6,11 +6,11 @@ const SITE_URL = 'https://transilvaniatimes.com'
 export const metadata: Metadata = {
   title: 'Standarde Editoriale — Transilvania Times',
   description: 'Procesul editorial, politica de verificare a faptelor, corecții și transparență AI la Transilvania Times.',
-  alternates: { canonical: `${SITE_URL}/standarde-editoriale` },
+  alternates: { canonical: `${SITE_URL}/standarde-editoriale/` },
   openGraph: {
     title: 'Standarde Editoriale — Transilvania Times',
     description: 'Procesul editorial, verificarea faptelor și politica de corecții.',
-    url: `${SITE_URL}/standarde-editoriale`,
+    url: `${SITE_URL}/standarde-editoriale/`,
     type: 'website',
   },
 }
@@ -64,6 +64,10 @@ export default function EditorialStandardsPage() {
           <h2 className="font-serif text-xl font-bold text-foreground mb-4">Corecții și retractări</h2>
           <p className="font-serif text-[17px] leading-[1.8] text-foreground text-justify mb-5">
             Când identificăm o eroare într-un articol publicat, o corectăm prompt și transparent. Corecturile minore (greșeli tipografice, erori de formatare) sunt aplicate fără notificare separată. Corecturile de substanță (cifre greșite, nume incorect, context lipsă) sunt marcate vizibil la sfârșitul articolului cu data corecției și natura modificării.
+            {' '}Istoricul complet al corecturilor este disponibil pe{' '}
+            <Link href="/corectii/" className="text-brand-red hover:underline">
+              pagina de corecții
+            </Link>.
           </p>
           <p className="font-serif text-[17px] leading-[1.8] text-foreground text-justify">
             În cazuri excepționale — când un articol conține erori care îi invalidează substanța — articolul este retractat, iar retractarea este publicată în locul articolului original cu o explicație completă. Cititorii pot semnala erori la adresa de contact a redacției.

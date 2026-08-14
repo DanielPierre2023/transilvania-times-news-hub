@@ -20,6 +20,7 @@ interface ArticleContentProps {
   authorName: string | null
   author?: AuthorData | null
   publishedAt: string | null
+  updatedAt?: string | null
   timeAgoStr: string
   defaultLang: 'ro' | 'en'
   inlineRelated?: InlineRelatedItem[]
@@ -104,7 +105,8 @@ export default function ArticleContent({
   coverImageCredit,
   authorName,
   author,
-  publishedAt: _publishedAt,
+  publishedAt,
+  updatedAt,
   timeAgoStr,
   defaultLang,
   inlineRelated = [],
@@ -240,6 +242,8 @@ export default function ArticleContent({
           author={author ?? null}
           authorName={authorName}
           timeAgoStr={timeAgoStr}
+          publishedAt={publishedAt}
+          updatedAt={updatedAt}
           lang={lang}
         />
       </div>

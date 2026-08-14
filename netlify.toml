@@ -45,6 +45,15 @@
   [headers.values]
     Cache-Control = "private, no-cache, no-store, must-revalidate"
 
+# ── Cache — editor token pages (the URL itself embeds a live, bearer-style
+# editor_tokens.token — a CDN or shared cache serving a stale copy hands that
+# token to the next visitor of the same URL) ─────────────────────────────────
+
+[[headers]]
+  for = "/editor/*"
+  [headers.values]
+    Cache-Control = "private, no-cache, no-store, must-revalidate"
+
 # ── Security + cache — all pages ─────────────────────────────────────────────
 # More-specific rules above take precedence over this catch-all.
 

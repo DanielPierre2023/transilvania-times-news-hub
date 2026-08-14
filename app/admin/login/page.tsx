@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -15,6 +15,16 @@ export default function AdminLoginPage() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
+
+  // Reads location.search directly (rather than useSearchParams) so this
+  // stays a plain client component with no Suspense boundary requirement.
+  // Set by middleware.ts when a signed-in but non-admin user hits /admin/*.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('error') === 'not_admin') {
+      setError('Acest cont nu are drepturi de administrator.')
+      supabase.auth.signOut()
+    }
+  }, [supabase])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()

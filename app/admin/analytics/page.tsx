@@ -165,8 +165,15 @@ export default function AnalyticsPage() {
     // v3: ONE server-side RPC call replaces all the raw row fetching.
     // The RPC runs SQL aggregation on the server and returns a single
     // JSON object with all computed breakdowns. No row limit issue.
+    //
+    // Calls the admin-only wrapper, not get_analytics_data() directly — the
+    // P0 SQL remediation (PART 1, 3.1/3.3) revokes EXECUTE on the underlying
+    // function from anon AND authenticated, because it was reachable with
+    // just the public anon key. get_analytics_data_admin() re-checks
+    // has_role(auth.uid(), 'admin') itself and then delegates to it, so this
+    // page keeps working for a signed-in admin and nobody else.
     const { data: rpcResult, error: rpcError } = await supabase
-      .rpc('get_analytics_data', { p_period: period })
+      .rpc('get_analytics_data_admin', { p_period: period })
 
     if (rpcError || !rpcResult) {
       console.error('Analytics RPC failed:', rpcError?.message)

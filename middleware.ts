@@ -35,6 +35,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import type { CookieOptions } from '@supabase/ssr'
+import { isAdmin } from '@/lib/supabase/admin-auth'
 
 // ----------------------------------------------------------------------------
 // Public admin routes — reachable without an authenticated session.
@@ -140,6 +141,19 @@ export async function middleware(request: NextRequest) {
     if (normalised !== '/admin') {
       loginUrl.searchParams.set('next', pathname)
     }
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // Being signed in is necessary but not sufficient. Previously this was the
+  // ONLY gate on /admin/*, which meant any Supabase account — not just an
+  // admin's — reached the full admin panel; the only thing standing in the
+  // way was RLS on the underlying tables, not an actual authorization check.
+  // Public signup is disabled today, which is why this hasn't been exploited,
+  // but a role check does not belong contingent on a dashboard toggle.
+  const admin = await isAdmin(supabase, userId)
+  if (!admin) {
+    const loginUrl = new URL('/admin/login', request.url)
+    loginUrl.searchParams.set('error', 'not_admin')
     return NextResponse.redirect(loginUrl)
   }
 
