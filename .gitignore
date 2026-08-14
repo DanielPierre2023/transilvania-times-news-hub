@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Next.js build output and incremental typecheck cache — neither belongs in
+# version control (regenerated every build; was previously untracked only
+# by luck, since nothing had generated them locally before).
+.next
+*.tsbuildinfo
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
