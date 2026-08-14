@@ -1,0 +1,47 @@
+name: CI
+
+# PREVIOUSLY there was no CI at all — the first signal that the build was
+# broken was Netlify failing the deploy, after a push to main. This catches
+# the same class of failure (broken package-lock.json vs package.json,
+# TypeScript errors, lint errors) on every push and pull request, before
+# it reaches a deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # npm ci fails fast if package-lock.json doesn't match package.json —
+      # exactly the drift found and fixed in this repo on 2026-08-14.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          # Placeholder values so `next build` can complete static analysis
+          # without real secrets. Server-only env vars used at request time
+          # (not build time) don't need real values here; if the build starts
+          # failing because it needs a real key at build time, add it as a
+          # GitHub Actions secret rather than hardcoding it in this file.
+          NEXT_PUBLIC_SUPABASE_URL: 'https://placeholder.supabase.co'
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: 'placeholder'
