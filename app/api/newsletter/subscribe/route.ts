@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAnonClient } from '@/lib/supabase/service'
 
 const SITE_URL = 'https://transilvaniatimes.com'
 const FROM     = 'Transilvania Times <no-reply@transilvaniatimes.com>'
@@ -267,10 +267,7 @@ export async function POST(req: NextRequest) {
 
     const lang = ['ro', 'en'].includes(language) ? language : 'ro'
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createSupabaseAnonClient()
 
     // Single opt-in: the welcome email below already tells the subscriber they
     // are subscribed (no "please confirm" step), and the weekly digest only

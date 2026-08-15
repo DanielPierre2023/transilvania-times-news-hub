@@ -23,7 +23,7 @@
 // (blog_posts.is_breaking = true). Manual override available.
 
 import { useState, useEffect, useCallback } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Download, RefreshCw, Image as ImageIcon, Radio } from 'lucide-react'
 
 // ─── FORMATS ──────────────────────────────────────────────────────────────────
@@ -501,10 +501,7 @@ export default function SocialPage() {
   const [imageData, setImageData] = useState('')
   const [logoUrl] = useState('/assets/logos/logo-transilvania-times.png')
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   useEffect(() => {
     supabase

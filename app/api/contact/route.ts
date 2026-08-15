@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAnonClient } from '@/lib/supabase/service'
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,10 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message too long (max 5000 characters)' }, { status: 400 })
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createSupabaseAnonClient()
 
     const { error } = await supabase
       .from('contact_messages')

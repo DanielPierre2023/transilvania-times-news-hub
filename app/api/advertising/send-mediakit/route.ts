@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAnonClient } from '@/lib/supabase/service'
 import { requireAdmin } from '@/lib/supabase/admin-auth'
 
 const SITE_URL = 'https://transilvaniatimes.com'
@@ -246,10 +246,7 @@ export async function POST(req: NextRequest) {
     const lang: 'ro' | 'en' = language === 'en' ? 'en' : 'ro'
 
     // Use service role to read pricing
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createSupabaseAnonClient()
 
     const { data: pricing } = await supabase
       .from('ad_pricing')

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Trash2, CheckCircle, XCircle, Download } from 'lucide-react'
 
 interface Subscriber {
@@ -20,10 +20,7 @@ export default function SubscribersPage() {
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   async function load() {
     setLoading(true)

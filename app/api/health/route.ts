@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAnonClient } from '@/lib/supabase/service'
 
 // F5: lightweight health/uptime endpoint. Returns 200 when the app is up and
 // can reach the database, 503 otherwise. Point an external uptime monitor
@@ -15,10 +15,7 @@ export async function GET() {
   let dbError: string | null = null
 
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    )
+    const supabase = createSupabaseAnonClient()
     // Cheapest possible read: a HEAD count with limit 1 on published posts.
     const { error } = await supabase
       .from('blog_posts')

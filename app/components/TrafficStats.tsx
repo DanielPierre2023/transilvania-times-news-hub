@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Eye, Users, TrendingUp } from 'lucide-react'
 
 interface Stats {
@@ -19,10 +19,7 @@ export default function TrafficStats() {
   const [stats, setStats] = useState<Stats | null>(null)
 
   useEffect(() => {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createSupabaseBrowserClient()
     supabase.from('public_site_stats').select('*').single().then(({ data }) => {
       if (data) setStats(data as Stats)
     })

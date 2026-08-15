@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 // Unsubscribe endpoint for the newsletter. The weekly digest footer links to
 // /dezabonare?email=<address>, whose page POSTs here. Marks the subscriber
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Server error' }, { status: 500 })
     }
 
-    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey)
+    const supabase = createSupabaseServiceClient()
 
     // Always respond success even if the address isn't found — never disclose
     // whether a given email is on the list.

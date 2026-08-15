@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { FileText, Clock, MessageSquare, Users, Rss, TrendingUp, CheckCircle, AlertCircle } from 'lucide-react'
 
@@ -31,10 +31,7 @@ export default function DashboardPage() {
   const [recent, setRecent] = useState<RecentArticle[]>([])
   const [loading, setLoading] = useState(true)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   useEffect(() => {
     async function load() {
