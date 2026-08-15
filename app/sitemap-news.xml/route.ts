@@ -17,7 +17,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import type { Database } from '@/src/integrations/supabase/types'
+import type { Database } from '@/lib/database.types'
 
 export const revalidate = 300 // 5 minutes — stays fresh for breaking news
 

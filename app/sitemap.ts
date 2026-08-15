@@ -17,7 +17,7 @@
 
 import type { MetadataRoute } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import type { Database } from '@/src/integrations/supabase/types'
+import type { Database } from '@/lib/database.types'
 import { COUNTIES } from '@/lib/counties'
 
 export const revalidate = 3600
