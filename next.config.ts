@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
         hostname: 'zimpimoierpsocnmnizm.supabase.co',
         pathname: '/storage/v1/object/public/**',
       },
+      {
+        // Cover images for ~176 articles are hosted on Unsplash; next/image
+        // must be allowed to optimize them or they fail to render.
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+        pathname: '/**',
+      },
     ],
   },
 

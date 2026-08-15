@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, format, parseISO } from 'date-fns'
 import { ro } from 'date-fns/locale'
 import Link from 'next/link'
+import Image from 'next/image'
 import ArticleCard from './components/ArticleCard'
 import SponsorBanner from './components/SponsorBanner'
 import CountyStrip from './components/CountyStrip'
@@ -146,10 +147,13 @@ export default async function HomePage() {
             <Link href={'/blog/' + heroMain.slug + '/'} className="block group h-full">
               <div className="relative overflow-hidden h-full min-h-[300px] lg:min-h-full">
                 {heroMain.cover_image && (
-                  <img
+                  <Image
                     src={heroMain.cover_image}
                     alt={getTitle(heroMain)}
-                    className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                    fill
+                    priority
+                    sizes="(max-width: 1024px) 100vw, 33vw"
+                    className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                   />
                 )}
               </div>
@@ -192,10 +196,12 @@ export default async function HomePage() {
               <Link href={'/blog/' + heroRight.slug + '/'} className="group flex flex-col h-full">
                 <div className="relative overflow-hidden flex-1 min-h-[250px]">
                   {heroRight.cover_image && (
-                    <img
+                    <Image
                       src={heroRight.cover_image}
                       alt={getTitle(heroRight)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 33vw"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                     />
                   )}
                 </div>
@@ -235,10 +241,12 @@ export default async function HomePage() {
               <Link href={'/blog/' + secondaryText.slug + '/'} className="group">
                 {secondaryText.cover_image && (
                   <div className="relative overflow-hidden mb-4 aspect-[4/3] max-h-[180px]">
-                    <img
+                    <Image
                       src={secondaryText.cover_image}
                       alt={getTitle(secondaryText)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 33vw"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                     />
                     <div className="absolute bottom-0 left-0 bg-brand-red text-white px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest">
                       {getLabel(secondaryText.category)}
@@ -277,10 +285,12 @@ export default async function HomePage() {
               <Link href={'/blog/' + secondaryImage.slug + '/'} className="block group flex-1 flex flex-col">
                 <div className="relative overflow-hidden flex-1 min-h-[280px]">
                   {secondaryImage.cover_image && (
-                    <img
+                    <Image
                       src={secondaryImage.cover_image}
                       alt={getTitle(secondaryImage)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 33vw"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                     />
                   )}
                   <div className="absolute bottom-0 left-0 bg-brand-red text-white px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest">
@@ -376,9 +386,11 @@ export default async function HomePage() {
             <Link key={post.id} href={'/blog/' + post.slug + '/'} className="group flex gap-3 p-4 border-b border-foreground/10 last:border-0">
               {post.cover_image && (
                 <div className="w-24 h-20 shrink-0 overflow-hidden">
-                  <img
+                  <Image
                     src={post.cover_image}
                     alt={getTitle(post)}
+                    width={96}
+                    height={80}
                     className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
                   />
                 </div>

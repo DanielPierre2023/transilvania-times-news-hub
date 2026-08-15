@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { getCountyShortLabel } from '@/lib/counties'
 
 interface ArticleCardProps {
@@ -47,11 +48,13 @@ export default function ArticleCard({
       <div className={`group ${className}`}>
         {image && (
           <Link href={href}>
-            <div className="overflow-hidden mb-3">
-              <img
+            <div className="relative aspect-[4/3] overflow-hidden mb-3">
+              <Image
                 src={image}
                 alt={title}
-                className="w-full h-full object-cover grayscale transition-all duration-700 group-hover:grayscale-0 group-hover:scale-[1.02] aspect-[4/3]"
+                fill
+                sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                className="object-cover grayscale transition-all duration-700 group-hover:grayscale-0 group-hover:scale-[1.02]"
               />
             </div>
           </Link>
@@ -108,9 +111,11 @@ export default function ArticleCard({
         </div>
         {image && (
           <Link href={href} className="shrink-0">
-            <img
+            <Image
               src={image}
               alt={title}
+              width={80}
+              height={64}
               className="w-20 h-16 object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
             />
           </Link>
@@ -148,11 +153,13 @@ export default function ArticleCard({
   return (
     <div className={`group ${className}`}>
       {image && (
-        <Link href={href} className="block overflow-hidden mb-3 relative">
-          <img
+        <Link href={href} className="block overflow-hidden mb-3 relative aspect-[4/3]">
+          <Image
             src={image}
             alt={title}
-            className="w-full object-cover grayscale transition-all duration-700 group-hover:grayscale-0 group-hover:scale-[1.02] aspect-[4/3]"
+            fill
+            sizes="(max-width: 768px) 100vw, 25vw"
+            className="object-cover grayscale transition-all duration-700 group-hover:grayscale-0 group-hover:scale-[1.02]"
           />
           {category && (
             <span className="absolute bottom-2 left-2 bg-brand-red text-white text-[10px] font-sans font-bold uppercase tracking-wider px-2 py-0.5">
