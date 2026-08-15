@@ -103,7 +103,38 @@ export default async function HomePage() {
     return Object.entries(groups)
   })()
 
+  const SITE_URL = 'https://transilvaniatimes.com'
+
+  // D7: homepage structured data — publisher identity + sitelinks search box.
+  // The homepage previously carried no JSON-LD at all.
+  const organizationLd = {
+    '@context': 'https://schema.org',
+    '@type': 'NewsMediaOrganization',
+    name: 'Transilvania Times',
+    url: `${SITE_URL}/`,
+    logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.png`, width: 200, height: 200 },
+    description: 'Jurnalism independent din inima Transilvaniei.',
+  }
+  const websiteLd = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Transilvania Times',
+    url: `${SITE_URL}/`,
+    inLanguage: 'ro',
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${SITE_URL}/cautare/?q={search_term_string}`,
+      },
+      'query-input': 'required name=search_term_string',
+    },
+  }
+
   return (
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteLd) }} />
     <div className="max-w-7xl mx-auto border-x border-foreground/10">
 
       {/* ═══ SECTION 1: 3-ZONE EDITORIAL SPREAD ═══ */}
@@ -429,5 +460,6 @@ export default async function HomePage() {
         </div>
       )}
     </div>
+    </>
   )
 }
