@@ -272,12 +272,19 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
+    // Single opt-in: the welcome email below already tells the subscriber they
+    // are subscribed (no "please confirm" step), and the weekly digest only
+    // mails rows where confirmed = true. So the row must be marked confirmed at
+    // signup — otherwise every subscriber sits unconfirmed forever and the
+    // digest has zero recipients (the exact bug this fixes). is_active defaults
+    // to true at the DB level.
     const { error } = await supabase
       .from('newsletter_subscribers')
       .insert({
-        email:     email.trim().toLowerCase(),
-        language:  lang,
-        confirmed: false,
+        email:        email.trim().toLowerCase(),
+        language:     lang,
+        confirmed:    true,
+        confirmed_at: new Date().toISOString(),
       })
 
     const alreadySubscribed = !!error && error.code === '23505'
