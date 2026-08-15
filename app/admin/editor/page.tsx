@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Wand2, Save, Globe, RefreshCw, Upload, X, Loader2 } from 'lucide-react'
 
 // ─── EDITORS ─────────────────────────────────────────────────────────────────
@@ -118,10 +118,7 @@ function ImageSection({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -240,10 +237,7 @@ export default function EditorPage() {
   const [saving, setSaving]         = useState(false)
   const [msg, setMsg]               = useState('')
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 5000) }
 

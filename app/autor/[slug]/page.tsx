@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 
@@ -51,7 +52,7 @@ export async function generateMetadata(
     .single()
 
   if (!data) return { title: 'Autor negăsit' }
-  const author = data as unknown as { name_ro: string; title_ro: string; bio_ro: string; slug: string }
+  const author = data
 
   // PREVIOUSLY missing the trailing slash. next.config.ts sets
   // trailingSlash: true, so /autor/{slug} 308-redirects to /autor/{slug}/ —
@@ -95,7 +96,7 @@ export default async function AuthorPage({
     notFound()
   }
 
-  const author = authorData as unknown as Author
+  const author = authorData
 
   // Fetch articles by this author
   const { data: posts } = await supabase
@@ -106,7 +107,7 @@ export default async function AuthorPage({
     .order('published_at', { ascending: false })
     .limit(50)
 
-  const articles = (posts ?? []) as unknown as AuthorPost[]
+  const articles = (posts ?? [])
 
   // JSON-LD for author
   const personLd = {
@@ -200,11 +201,13 @@ export default async function AuthorPage({
                       className="group flex gap-4 items-start"
                     >
                       {article.cover_image && (
-                        <div className="w-24 h-16 md:w-32 md:h-20 overflow-hidden shrink-0">
-                          <img
+                        <div className="relative w-24 h-16 md:w-32 md:h-20 overflow-hidden shrink-0">
+                          <Image
                             src={article.cover_image}
                             alt={article.title_ro || article.title_en || ''}
-                            className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                            fill
+                            sizes="(max-width: 768px) 96px, 128px"
+                            className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                           />
                         </div>
                       )}

@@ -74,7 +74,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
     if (enErr) console.error('[SearchPage] search_en', enErr.message)
 
     const merged = new Map<string, Post>()
-    for (const p of [...(roData ?? []), ...(enData ?? [])] as unknown as Post[]) {
+    for (const p of [...(roData ?? []), ...(enData ?? [])]) {
       merged.set(p.id, p)
     }
     posts = Array.from(merged.values())

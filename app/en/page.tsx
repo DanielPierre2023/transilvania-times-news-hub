@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, format, parseISO } from 'date-fns'
 import { enUS } from 'date-fns/locale'
 import Link from 'next/link'
+import Image from 'next/image'
 import ArticleCard from '@/app/components/ArticleCard'
 import type { Metadata } from 'next'
 import SponsorBanner from '@/app/components/SponsorBanner'
@@ -77,7 +78,7 @@ export default async function HomePageEN() {
     .limit(50)
 
   if (error) console.error('[HomePageEN]', error.message)
-  const posts = ((data ?? []) as unknown as Post[])
+  const posts = ((data ?? []))
 
   const heroMain        = posts[0]  ?? null
   const heroRight       = posts[1]  ?? null
@@ -133,10 +134,13 @@ export default async function HomePageEN() {
             <Link href={articleHref(heroMain.slug)} className="block group h-full">
               <div className="relative overflow-hidden h-full min-h-[300px] lg:min-h-full">
                 {heroMain.cover_image && (
-                  <img
+                  <Image
                     src={heroMain.cover_image}
                     alt={getTitle(heroMain)}
-                    className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                    fill
+                    priority
+                    sizes="(max-width: 1024px) 100vw, 33vw"
+                    className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                   />
                 )}
               </div>
@@ -176,10 +180,12 @@ export default async function HomePageEN() {
               <Link href={articleHref(heroRight.slug)} className="group flex flex-col h-full">
                 <div className="relative overflow-hidden flex-1 min-h-[250px]">
                   {heroRight.cover_image && (
-                    <img
+                    <Image
                       src={heroRight.cover_image}
                       alt={getTitle(heroRight)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 33vw"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                     />
                   )}
                 </div>
@@ -214,10 +220,12 @@ export default async function HomePageEN() {
               <Link href={articleHref(secondaryText.slug)} className="group">
                 {secondaryText.cover_image && (
                   <div className="relative overflow-hidden mb-4 aspect-[4/3] max-h-[180px]">
-                    <img
+                    <Image
                       src={secondaryText.cover_image}
                       alt={getTitle(secondaryText)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 33vw"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                     />
                     <div className="absolute bottom-0 left-0 bg-brand-red text-white px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest">
                       {getLabel(secondaryText.category)}
@@ -251,10 +259,12 @@ export default async function HomePageEN() {
               <Link href={articleHref(secondaryImage.slug)} className="block group flex-1 flex flex-col">
                 <div className="relative overflow-hidden flex-1 min-h-[280px]">
                   {secondaryImage.cover_image && (
-                    <img
+                    <Image
                       src={secondaryImage.cover_image}
                       alt={getTitle(secondaryImage)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 33vw"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                     />
                   )}
                   <div className="absolute bottom-0 left-0 bg-brand-red text-white px-2 py-1 text-[9px] font-sans font-bold uppercase tracking-widest">
@@ -338,12 +348,14 @@ export default async function HomePageEN() {
                 href={articleHref(post.slug)}
                 className={'flex gap-4 py-4 group cursor-pointer' + (i < editorialCenter.length - 1 ? ' border-b border-dotted border-foreground/15' : '')}
               >
-                <div className="w-[120px] shrink-0 aspect-[4/3] overflow-hidden">
+                <div className="relative w-[120px] shrink-0 aspect-[4/3] overflow-hidden">
                   {post.cover_image ? (
-                    <img
+                    <Image
                       src={post.cover_image}
                       alt={getTitle(post)}
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                      fill
+                      sizes="120px"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                     />
                   ) : (
                     <div className="w-full h-full bg-foreground/10" />

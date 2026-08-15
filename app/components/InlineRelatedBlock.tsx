@@ -1,5 +1,6 @@
 // app/components/InlineRelatedBlock.tsx
 import Link from 'next/link'
+import Image from 'next/image'
 
 export interface InlineRelatedItem {
   id: string
@@ -38,11 +39,13 @@ export default function InlineRelatedBlock({ articles, lang = 'ro' }: Props) {
               className="flex gap-3 group no-underline items-start"
             >
               {article.cover_image && (
-                <div className="w-28 h-20 sm:w-32 sm:h-24 shrink-0 overflow-hidden bg-foreground/[0.05]">
-                  <img
+                <div className="relative w-28 h-20 sm:w-32 sm:h-24 shrink-0 overflow-hidden bg-foreground/[0.05]">
+                  <Image
                     src={article.cover_image}
                     alt=""
-                    className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+                    fill
+                    sizes="128px"
+                    className="object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
                   />
                 </div>
               )}

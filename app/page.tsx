@@ -68,7 +68,7 @@ export default async function HomePage() {
     .limit(50)
 
   if (error) console.error('[HomePage]', error.message)
-  const posts = ((data ?? []) as unknown as Post[])
+  const posts = ((data ?? []))
 
   const heroMain        = posts[0]  ?? null
   const heroRight       = posts[1]  ?? null

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 interface Comment {
   id: string
@@ -24,10 +24,7 @@ export default function CommentSection({ articleId, lang = 'ro' }: CommentSectio
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   const t = {
     title:        lang === 'ro' ? 'Comentarii' : 'Comments',

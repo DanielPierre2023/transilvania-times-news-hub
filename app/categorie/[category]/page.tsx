@@ -105,7 +105,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
 
   if (error) console.error('[CategoryPage]', error.message)
 
-  const posts = ((data ?? []) as unknown as Post[])
+  const posts = ((data ?? []))
   const totalPages = Math.ceil((count ?? 0) / PAGE_SIZE)
 
   // PREVIOUSLY a bogus/mistyped category slug (or a page number past the

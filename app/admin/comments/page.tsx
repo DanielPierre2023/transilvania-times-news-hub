@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Check, X, Trash2, ExternalLink } from 'lucide-react'
 
 interface Comment {
@@ -19,10 +19,7 @@ export default function CommentsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'pending' | 'approved' | 'all'>('pending')
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   const load = useCallback(async () => {
     setLoading(true)

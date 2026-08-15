@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { X, MapPin, ChevronRight } from 'lucide-react'
 import { COUNTIES, getCountyLabel } from '@/lib/counties'
 
@@ -195,11 +196,13 @@ export default function CountyStrip() {
                   className="group flex gap-3 items-start"
                 >
                   {a.cover_image && (
-                    <div className="w-20 h-16 shrink-0 overflow-hidden">
-                      <img
+                    <div className="relative w-20 h-16 shrink-0 overflow-hidden">
+                      <Image
                         src={a.cover_image}
                         alt={a.title_ro || a.title_en || ''}
-                        className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+                        fill
+                        sizes="80px"
+                        className="object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
                       />
                     </div>
                   )}

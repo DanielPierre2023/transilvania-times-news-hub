@@ -43,7 +43,7 @@ export default async function DesprePage() {
     .eq('active', true)
     .order('created_at', { ascending: true })
 
-  const authors = (authorsData ?? []) as unknown as Author[]
+  const authors = (authorsData ?? [])
 
   const orgLd = {
     '@context': 'https://schema.org',

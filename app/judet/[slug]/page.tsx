@@ -93,7 +93,7 @@ export default async function CountyPage({ params, searchParams }: PageProps) {
 
   if (error) console.error('[CountyPage]', error.message)
 
-  const posts = ((data ?? []) as unknown as Post[])
+  const posts = ((data ?? []))
   const totalPages = Math.ceil((count ?? 0) / PAGE_SIZE)
 
   function timeAgo(d: string | null) {

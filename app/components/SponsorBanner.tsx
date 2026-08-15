@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 interface Banner {
   id: string
@@ -29,10 +29,7 @@ export default function SponsorBanner({ slot = 'sidebar-homepage' }: SponsorBann
   const [banner, setBanner] = useState<Banner | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createSupabaseBrowserClient()
 
   useEffect(() => {
     async function fetchBanner() {

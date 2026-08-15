@@ -704,6 +704,7 @@ export type Database = {
           confirmation_token: string | null
           confirmed: boolean
           confirmed_at: string | null
+          county: string | null
           created_at: string
           email: string
           id: string
@@ -711,12 +712,14 @@ export type Database = {
           language: string | null
           name: string | null
           unsubscribed_at: string | null
+          weather_alerts: boolean
         }
         Insert: {
           confirmation_sent_at?: string | null
           confirmation_token?: string | null
           confirmed?: boolean
           confirmed_at?: string | null
+          county?: string | null
           created_at?: string
           email: string
           id?: string
@@ -724,12 +727,14 @@ export type Database = {
           language?: string | null
           name?: string | null
           unsubscribed_at?: string | null
+          weather_alerts?: boolean
         }
         Update: {
           confirmation_sent_at?: string | null
           confirmation_token?: string | null
           confirmed?: boolean
           confirmed_at?: string | null
+          county?: string | null
           created_at?: string
           email?: string
           id?: string
@@ -737,6 +742,7 @@ export type Database = {
           language?: string | null
           name?: string | null
           unsubscribed_at?: string | null
+          weather_alerts?: boolean
         }
         Relationships: []
       }

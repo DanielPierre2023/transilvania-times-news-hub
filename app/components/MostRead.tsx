@@ -1,5 +1,6 @@
 // app/components/MostRead.tsx
 import Link from 'next/link'
+import Image from 'next/image'
 import SectionHeader from './SectionHeader'
 import { getCounty } from '@/lib/counties'
 
@@ -56,11 +57,13 @@ export default function MostRead({ articles, locale = 'ro' }: Props) {
                   </h4>
                 </div>
                 {article.cover_image && (
-                  <div className="w-20 h-20 shrink-0 overflow-hidden bg-foreground/[0.05]">
-                    <img
+                  <div className="relative w-20 h-20 shrink-0 overflow-hidden bg-foreground/[0.05]">
+                    <Image
                       src={article.cover_image}
                       alt=""
-                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+                      fill
+                      sizes="80px"
+                      className="object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
                     />
                   </div>
                 )}

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAnonClient } from '@/lib/supabase/service'
+import { isValidCounty } from '@/lib/counties'
 
 const SITE_URL = 'https://transilvaniatimes.com'
 const FROM     = 'Transilvania Times <no-reply@transilvaniatimes.com>'
@@ -267,6 +268,12 @@ export async function POST(req: NextRequest) {
 
     const lang = ['ro', 'en'].includes(language) ? language : 'ro'
 
+    // G2: capture the reader's county from the tt_county_pref cookie (set by the
+    // homepage county strip) so the per-county digest can segment by it. Silent —
+    // no signup friction; null when they haven't picked a county.
+    const countyPref = req.cookies.get('tt_county_pref')?.value?.trim().toLowerCase()
+    const county = countyPref && isValidCounty(countyPref) ? countyPref : null
+
     const supabase = createSupabaseAnonClient()
 
     // Single opt-in: the welcome email below already tells the subscriber they
@@ -282,6 +289,7 @@ export async function POST(req: NextRequest) {
         language:     lang,
         confirmed:    true,
         confirmed_at: new Date().toISOString(),
+        ...(county ? { county } : {}),
       })
 
     const alreadySubscribed = !!error && error.code === '23505'

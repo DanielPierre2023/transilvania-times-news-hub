@@ -20,6 +20,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import { enUS } from 'date-fns/locale'
 import Link from 'next/link'
+import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -118,7 +119,7 @@ export async function generateMetadata(
 
   if (!data) return { title: 'Article Not Found' }
 
-  const post        = data as unknown as MetaPost
+  const post        = data
   const title       = post.title_en || post.title_ro || ''
   const description = post.excerpt_en || post.excerpt_ro || ''
   const image       = post.cover_image || ''
@@ -199,7 +200,7 @@ export default async function ArticlePageEN(
     notFound()
   }
 
-  const post       = data as unknown as Post
+  const post       = data
   const articleUrl = `${SITE_URL}/en/blog/${post.slug}/`
   const shareUrl   = articleUrl
   const catLabel   = post.category ? (CAT_LABELS_EN[post.category] || post.category).toUpperCase() : ''
@@ -451,12 +452,13 @@ export default async function ArticlePageEN(
                     className="group"
                   >
                     {rel.cover_image && (
-                      <div className="overflow-hidden mb-3 aspect-[4/3]">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                      <div className="relative overflow-hidden mb-3 aspect-[4/3]">
+                        <Image
                           src={rel.cover_image}
                           alt={rel.title_en || rel.title_ro || ''}
-                          className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+                          fill
+                          sizes="(max-width: 768px) 50vw, 25vw"
+                          className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
                         />
                       </div>
                     )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Camera, Bot } from 'lucide-react'
 import AuthorByline, { type AuthorData } from './AuthorByline'
 import InlineRelatedBlock, { type InlineRelatedItem } from './InlineRelatedBlock'
@@ -251,11 +252,14 @@ export default function ArticleContent({
       {/* Cover image */}
       {coverImage && (
         <div className="mb-8">
-          <div className="overflow-hidden">
-            <img
+          <div className="relative aspect-video overflow-hidden">
+            <Image
               src={coverImage}
               alt={title || ''}
-              className="w-full aspect-video object-cover"
+              fill
+              priority
+              sizes="(max-width: 768px) 100vw, 768px"
+              className="object-cover"
             />
           </div>
 
