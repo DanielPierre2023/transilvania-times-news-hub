@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 
 export default function UnsubscribeClient() {
   const params = useSearchParams()
@@ -74,7 +75,7 @@ export default function UnsubscribeClient() {
       )}
 
       <div className="mt-10 pt-6 border-t border-foreground/10">
-        <a href="/" className="font-sans text-sm text-brand-red hover:underline">{t.back}</a>
+        <Link href="/" className="font-sans text-sm text-brand-red hover:underline">{t.back}</Link>
       </div>
     </div>
   )
