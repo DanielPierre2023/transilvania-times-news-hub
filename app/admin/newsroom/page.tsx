@@ -100,7 +100,21 @@ export default function NewsroomPage() {
 
   async function invokeRaw(fn: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     const { data, error: e } = await supabase.functions.invoke(fn, { body })
-    if (e) throw new Error(e.message)
+    if (e) {
+      // supabase-js sets a generic "non-2xx status code" message and hides the
+      // function's real JSON body ({error:"..."}) inside error.context (the raw
+      // Response). Dig it out so failures name the actual step + cause.
+      let detail = ''
+      const ctx = (e as { context?: unknown }).context
+      if (ctx && typeof (ctx as Response).json === 'function') {
+        try {
+          const b = await (ctx as Response).clone().json() as Record<string, unknown>
+          if (b && typeof b.error === 'string') detail = b.error
+        } catch { /* not JSON — try text below */ }
+        if (!detail) { try { const t = await (ctx as Response).text(); if (t) detail = t.slice(0, 300) } catch { /* ignore */ } }
+      }
+      throw new Error(`${fn}: ${detail || e.message}`)
+    }
     return (data || {}) as Record<string, unknown>
   }
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -279,7 +293,7 @@ export default function NewsroomPage() {
   // branded intro → anchor window + lower-thirds + burned captions + ticker →
   // CTA endcard. Free, in-browser (canvas + MediaRecorder).
   // ════════════════════════════════════════════════════════════════════════
-  const INTRO = 2.2, OUTRO = 3.2
+  const INTRO = 4.2, OUTRO = 3.2
   const C = { parchment: '#FBF4E4', ink: '#2B1710', sepia: '#512A1A', crimson: '#CA2222', gold: '#C9A45E', paper: '#F6ECD6' }
 
   function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
@@ -299,6 +313,38 @@ export default function NewsroomPage() {
     ctx.save(); rr(ctx, x, y, w, h, 14); ctx.clip()
     ctx.drawImage(v, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh)
     ctx.restore()
+  }
+
+  // ── cinematic-intro helpers (shared look with the standalone intro clip) ──
+  const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
+  const segN = (t: number, a: number, b: number) => clampN((t - a) / (b - a), 0, 1)
+  const easeOutN = (x: number) => 1 - Math.pow(1 - x, 3)
+  const TILT_G = -0.42
+  function projGlobe(lat: number, lon: number, rot: number) {
+    const la = lat * Math.PI / 180, lo = lon * Math.PI / 180 + rot
+    const x = Math.cos(la) * Math.sin(lo)
+    const y0 = Math.sin(la), z0 = Math.cos(la) * Math.cos(lo)
+    const y = y0 * Math.cos(TILT_G) - z0 * Math.sin(TILT_G)
+    const z = y0 * Math.sin(TILT_G) + z0 * Math.cos(TILT_G)
+    return { x, y, z }
+  }
+  type IntroParticle = { x: number; y: number; r: number; sp: number; a: number; tw: number }
+  function seedIntroParticles(w: number, h: number): IntroParticle[] {
+    const arr: IntroParticle[] = []
+    const n = Math.round((w * h) / 16000)
+    for (let i = 0; i < n; i++) arr.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.6 + 0.3, sp: Math.random() * 0.02 + 0.004, a: Math.random() * 0.5 + 0.15, tw: Math.random() * Math.PI * 2 })
+    return arr
+  }
+  function letterSpacedC(ctx: CanvasRenderingContext2D, str: string, sp: number, x: number, y: number) {
+    const chars = [...str]
+    let total = 0; for (const c of chars) total += ctx.measureText(c).width + sp; total -= sp
+    let cxp = x - total / 2
+    const prev = ctx.textAlign; ctx.textAlign = 'left'
+    for (const c of chars) { const w = ctx.measureText(c).width; ctx.fillText(c, cxp, y); cxp += w + sp }
+    ctx.textAlign = prev
+  }
+  function measureSpacedC(ctx: CanvasRenderingContext2D, str: string, sp: number) {
+    const chars = [...str]; let t = 0; for (const c of chars) t += ctx.measureText(c).width + sp; return t - sp
   }
 
   // Lower-third timing: proportional by word count, refined by Whisper cues.
@@ -496,18 +542,160 @@ export default function NewsroomPage() {
           ctx.restore()
         }
       }
+      // Cinematic broadcast open: dark stage → light streaks → forming wireframe
+      // globe with a Transylvania beacon → logo slam + shimmer → tagline bar.
+      const introParticles = seedIntroParticles(W, H)
+      const portrait = !isWide
       const drawIntro = (t: number) => {
-        const a = Math.min(1, t / 0.7)
-        ctx.fillStyle = C.crimson; ctx.fillRect(0, 0, W, H)
-        ctx.globalAlpha = a
-        ctx.textAlign = 'center'
-        ctx.fillStyle = '#fff'; ctx.font = `italic 700 ${isWide ? 64 : 52}px Lora, Georgia, serif`; ctx.textBaseline = 'alphabetic'
-        ctx.fillText('Transilvania Times', W / 2, H / 2 - (isWide ? 20 : 30))
-        ctx.fillStyle = C.parchment; ctx.font = '800 16px Inter, sans-serif'
-        ctx.fillText((lang === 'ro' ? 'B U L E T I N U L   Z I L E I' : 'D A I L Y   B U L L E T I N'), W / 2, H / 2 + 34)
-        ctx.fillStyle = 'rgba(251,244,228,.75)'; ctx.font = '600 14px Inter, sans-serif'
-        ctx.fillText(dateStr, W / 2, H / 2 + 66)
-        ctx.globalAlpha = 1; ctx.textAlign = 'left'
+        const cx = W / 2, cy = H / 2
+        const bgFade = segN(t, 0, 0.5)
+        // background
+        ctx.fillStyle = '#04060b'; ctx.fillRect(0, 0, W, H)
+        const g = ctx.createRadialGradient(cx, cy * 0.92, 0, cx, cy, Math.max(W, H) * 0.75)
+        g.addColorStop(0, '#111a2b'); g.addColorStop(0.45, '#0a1019'); g.addColorStop(1, '#04060b')
+        ctx.globalAlpha = bgFade; ctx.fillStyle = g; ctx.fillRect(0, 0, W, H)
+        for (let i = 0; i < 3; i++) {
+          const px = cx + Math.sin(t * 0.3 + i * 2) * W * 0.22, py = cy + Math.cos(t * 0.25 + i * 1.3) * H * 0.18
+          const rg = ctx.createRadialGradient(px, py, 0, px, py, W * 0.28)
+          rg.addColorStop(0, `rgba(202,34,34,${0.10 * bgFade})`); rg.addColorStop(1, 'rgba(202,34,34,0)')
+          ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H)
+        }
+        ctx.globalAlpha = 1
+        // particles
+        for (const p of introParticles) {
+          const py = (p.y - t * p.sp) % 1; const yy = (py < 0 ? py + 1 : py) * H
+          const tw = 0.55 + 0.45 * Math.sin(p.tw + t * 3)
+          ctx.globalAlpha = p.a * bgFade * tw; ctx.fillStyle = '#dfe8f5'
+          ctx.beginPath(); ctx.arc(p.x * W, yy, p.r, 0, 7); ctx.fill()
+        }
+        ctx.globalAlpha = 1
+        // light streaks
+        if (t > 0.3 && t < 1.8) {
+          ctx.save(); ctx.globalCompositeOperation = 'lighter'
+          for (let i = 0; i < 4; i++) {
+            const prog = segN(t, 0.3 + i * 0.14, 1.5 + i * 0.1)
+            if (prog <= 0 || prog >= 1) continue
+            const yy = cy + (i - 1.5) * H * 0.14, x = (-0.3 + prog * 1.6) * W, lw = W * 0.9
+            const lg = ctx.createLinearGradient(x - lw / 2, yy, x + lw / 2, yy)
+            lg.addColorStop(0, 'rgba(202,34,34,0)')
+            lg.addColorStop(0.5, `rgba(255,70,100,${0.5 * (1 - Math.abs(prog - 0.5) * 2)})`)
+            lg.addColorStop(1, 'rgba(202,34,34,0)')
+            ctx.fillStyle = lg; ctx.fillRect(x - lw / 2, yy - 1.4, lw, 2.8)
+          }
+          ctx.restore()
+        }
+        // globe
+        const globeIn = easeOutN(segN(t, 0.6, 2.2)), globeOut = segN(t, 2.15, 2.7)
+        const globeA = globeIn * (1 - globeOut)
+        if (globeA > 0.01) {
+          const R = (portrait ? Math.min(W, H) * 0.30 : H * 0.34) * (0.2 + 0.8 * globeIn) * (1 + globeOut * 0.5)
+          const rot = t * 0.6
+          ctx.save(); ctx.translate(cx, cy - (portrait ? H * 0.06 : 0))
+          const gg = ctx.createRadialGradient(0, 0, R * 0.2, 0, 0, R * 1.5)
+          gg.addColorStop(0, `rgba(202,34,34,${0.16 * globeA})`); gg.addColorStop(1, 'rgba(202,34,34,0)')
+          ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(0, 0, R * 1.5, 0, 7); ctx.fill()
+          const drawLine = (pts: { x: number; y: number; z: number }[]) => {
+            let started = false
+            for (const p of pts) {
+              if (p.z > 0) {
+                if (!started) { ctx.beginPath(); ctx.moveTo(p.x * R, p.y * R); started = true } else ctx.lineTo(p.x * R, p.y * R)
+                ctx.globalAlpha = globeA * (p.z * 0.5 + 0.5) * 0.9
+              } else if (started) { ctx.stroke(); started = false }
+            }
+            if (started) ctx.stroke()
+          }
+          ctx.lineWidth = 1.1
+          for (let lat = -60; lat <= 60; lat += 15) {
+            const pts = []; for (let lon = -180; lon <= 180; lon += 6) pts.push(projGlobe(lat, lon, rot))
+            ctx.strokeStyle = 'rgba(120,150,190,0.85)'; drawLine(pts)
+          }
+          for (let lon = 0; lon < 180; lon += 15) {
+            const pts = []; for (let lat = -90; lat <= 90; lat += 6) pts.push(projGlobe(lat, lon, rot))
+            ctx.strokeStyle = 'rgba(220,80,110,0.85)'; drawLine(pts)
+          }
+          const m = projGlobe(46.7, 23.6, rot)
+          if (m.z > 0.1) {
+            const pulse = 0.5 + 0.5 * Math.sin(t * 5)
+            ctx.globalAlpha = globeA; ctx.fillStyle = '#fff'
+            ctx.beginPath(); ctx.arc(m.x * R, m.y * R, 3.2, 0, 7); ctx.fill()
+            ctx.globalAlpha = globeA * 0.6 * pulse; ctx.strokeStyle = C.crimson; ctx.lineWidth = 2
+            ctx.beginPath(); ctx.arc(m.x * R, m.y * R, 8 + pulse * 10, 0, 7); ctx.stroke()
+          }
+          ctx.restore(); ctx.globalAlpha = 1
+        }
+        // logo lock-up
+        const introA = segN(t, 2.15, 2.55)
+        const logoY = cy - (portrait ? H * 0.02 : 0)
+        if (introA > 0.01) {
+          ctx.save(); ctx.translate(cx, logoY)
+          const pop = 1 + (1 - easeOutN(clampN(segN(t, 2.55, 2.95), 0, 1))) * 0.05
+          ctx.scale(pop, pop); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+          const big = portrait ? W * 0.115 : H * 0.135
+          ctx.globalAlpha = introA
+          ctx.font = `800 ${big}px Inter, 'Arial Narrow', sans-serif`
+          const rise = (1 - introA) * 40
+          ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4
+          ctx.fillStyle = C.parchment
+          ctx.save(); ctx.translate(0, -big * 0.32 - rise); letterSpacedC(ctx, 'TRANSILVANIA', big * 0.06, 0, 0); ctx.restore()
+          ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
+          const small = big * 0.42, rise2 = (1 - segN(t, 2.25, 2.6)) * 40
+          ctx.globalAlpha = segN(t, 2.25, 2.6)
+          ctx.save(); ctx.translate(0, big * 0.42 - rise2)
+          ctx.font = `600 ${small}px Inter, 'Arial Narrow', sans-serif`
+          const timesW = measureSpacedC(ctx, 'T I M E S', small * 0.06)
+          const gap = timesW / 2 + small * 0.9, ruleW = portrait ? W * 0.16 : H * 0.14
+          ctx.fillStyle = C.crimson
+          ctx.fillRect(-gap - ruleW, -small * 0.06, ruleW, small * 0.12)
+          ctx.fillRect(gap, -small * 0.06, ruleW, small * 0.12)
+          ctx.fillStyle = C.parchment; letterSpacedC(ctx, 'T I M E S', small * 0.06, 0, 0)
+          ctx.restore(); ctx.globalAlpha = 1; ctx.restore()
+          // shimmer
+          const sh = segN(t, 2.65, 3.5)
+          if (sh > 0 && sh < 1) {
+            ctx.save(); ctx.globalCompositeOperation = 'lighter'
+            const bandX = cx + (-0.6 + sh * 1.7) * (big * 4), bw = big * 1.1
+            const lg = ctx.createLinearGradient(bandX - bw, 0, bandX + bw, 0)
+            lg.addColorStop(0, 'rgba(255,255,255,0)')
+            lg.addColorStop(0.5, `rgba(255,255,255,${0.22 * (1 - Math.abs(sh - 0.5) * 2)})`)
+            lg.addColorStop(1, 'rgba(255,255,255,0)')
+            ctx.fillStyle = lg; ctx.fillRect(bandX - bw, logoY - big * 0.9, bw * 2, big * 1.7); ctx.restore()
+          }
+        }
+        // tagline bar
+        const barIn = easeOutN(segN(t, 3.05, 3.5))
+        if (barIn > 0.01) {
+          const bw = (portrait ? W * 0.72 : W * 0.42) * barIn, bh = portrait ? H * 0.05 : H * 0.058
+          const by = logoY + (portrait ? H * 0.14 : H * 0.20)
+          ctx.save(); ctx.fillStyle = C.crimson; ctx.fillRect(cx - bw / 2, by - bh / 2, bw, bh)
+          const txtA = segN(t, 3.4, 3.75)
+          if (txtA > 0) {
+            ctx.globalAlpha = txtA; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+            const fs = bh * 0.5; ctx.font = `700 ${fs}px Inter, sans-serif`
+            letterSpacedC(ctx, lang === 'ro' ? 'ȘTIRILE ARDEALULUI' : 'NEWS FROM TRANSYLVANIA', fs * 0.12, cx, by)
+          }
+          ctx.restore()
+          const domA = segN(t, 3.6, 3.95)
+          if (domA > 0) {
+            ctx.save(); ctx.globalAlpha = domA; ctx.fillStyle = 'rgba(251,244,228,0.75)'
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+            const fs = (portrait ? W : H) * 0.019; ctx.font = `600 ${fs}px Inter, sans-serif`
+            letterSpacedC(ctx, dateStr.toUpperCase(), fs * 0.14, cx, by + bh * 0.9 + fs)
+            ctx.restore()
+          }
+        }
+        // slam flash
+        if (t >= 2.53 && t < 2.85) {
+          const fl = Math.max(0, 1 - segN(t, 2.55, 2.83))
+          ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = fl * 0.5
+          ctx.fillStyle = '#ffdfe6'; ctx.fillRect(0, 0, W, H); ctx.restore()
+        }
+        // vignette + open-from-black
+        const vg = ctx.createRadialGradient(cx, cy, Math.min(W, H) * 0.35, cx, cy, Math.max(W, H) * 0.72)
+        vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)')
+        ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H)
+        const openBlack = 1 - segN(t, 0, 0.4)
+        if (openBlack > 0) { ctx.globalAlpha = openBlack; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
       }
       const drawOutro = (t: number) => {
         const a = Math.min(1, (t - INTRO - dur) / 0.5)
