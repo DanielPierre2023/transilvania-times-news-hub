@@ -71,6 +71,7 @@ export default function StudioPage() {
   const [renderPct, setRenderPct] = useState(0)
   const [outUrl, setOutUrl] = useState('')
   const [outMime, setOutMime] = useState('')
+  const [cloud, setCloud] = useState<{ status: string; url: string; msg: string }>({ status: '', url: '', msg: '' })
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<{ raf: number; stop: () => void } | null>(null)
@@ -88,6 +89,13 @@ export default function StudioPage() {
     if (d?.error) throw new Error(d.error)
     return data as T
   }
+  // Raw invoke (does not treat {error} as fatal) — used for the render-video passthrough.
+  async function invokeRaw(fn: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data, error: e } = await supabase.functions.invoke(fn, { body })
+    if (e) throw new Error(e.message)
+    return (data || {}) as Record<string, unknown>
+  }
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
   async function uploadAsset(folder: string, file: File): Promise<string> {
     const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
@@ -360,8 +368,56 @@ export default function StudioPage() {
     }
   }
 
+  // ─── render (cloud · Creatomate-shaped, provider-agnostic) ───────────────
+  function buildCloudSpec(): { source: Record<string, unknown> } {
+    const elements: Record<string, unknown>[] = []
+    let t = 0
+    for (const sc of scenes) {
+      const el: Record<string, unknown> = { type: sc.kind, source: sc.url, track: 1, time: t, duration: sc.duration, fit: 'cover' }
+      if (sc.kind === 'video') el.volume = 0 // voiceover is the soundtrack
+      elements.push(el)
+      t += sc.duration
+    }
+    if (voUrl) elements.push({ type: 'audio', source: voUrl, track: 2, time: 0 })
+    if (musicUrl) elements.push({ type: 'audio', source: musicUrl, track: 3, time: 0, loop: true, volume: Math.round(musicVol * 100) })
+    if (subsOn) for (const c of cues) elements.push({
+      type: 'text', track: 4, time: c.start, duration: Math.max(0.4, c.end - c.start),
+      text: c.text, y: '82%', width: '86%', x_alignment: '50%', y_alignment: '50%',
+      font_family: 'Inter', font_weight: '700', font_size: Math.round(H * 0.045),
+      fill_color: '#ffffff', background_color: 'rgba(21,11,6,0.72)',
+    })
+    return { source: { output_format: 'mp4', width: W, height: H, elements } }
+  }
+
+  async function renderCloud() {
+    if (scenes.length === 0) { setError('Adaugă cel puțin o scenă.'); return }
+    setError(''); setCloud({ status: 'creating', url: '', msg: '' })
+    try {
+      const created = await invokeRaw('render-video', { spec: buildCloudSpec() })
+      if (created.configured === false) { setCloud({ status: 'unconfigured', url: '', msg: String(created.message || '') }); return }
+      if (created.ok === false) { setCloud({ status: 'error', url: '', msg: 'Provider: ' + JSON.stringify(created.body).slice(0, 300) }); return }
+      const bodyArr = created.body
+      const first = Array.isArray(bodyArr) ? bodyArr[0] : bodyArr
+      const id = (first as { id?: string })?.id
+      if (!id) { setCloud({ status: 'error', url: '', msg: 'Fără id de la provider: ' + JSON.stringify(bodyArr).slice(0, 250) }); return }
+      for (let i = 0; i < 120; i++) {
+        await sleep(4000)
+        const st = await invokeRaw('render-video', { poll_id: id })
+        const sBody = st.body
+        const s = (Array.isArray(sBody) ? sBody[0] : sBody) as { status?: string; url?: string; error_message?: string }
+        setCloud({ status: s?.status || 'rendering', url: s?.url || '', msg: '' })
+        if (s?.status === 'succeeded' && s?.url) { setCloud({ status: 'succeeded', url: s.url, msg: '' }); return }
+        if (s?.status === 'failed') { setCloud({ status: 'failed', url: '', msg: s?.error_message || 'Randare eșuată la provider.' }); return }
+      }
+      setCloud({ status: 'timeout', url: '', msg: 'Durează neobișnuit de mult — verifică în contul Creatomate.' })
+    } catch (e) {
+      setCloud({ status: 'error', url: '', msg: (e as Error).message })
+    }
+  }
+
   // ─── UI ─────────────────────────────────────────────────────────────────
   const previewW = aspect === '16:9' ? 360 : aspect === '1:1' ? 300 : 236
+  const cloudBusy = ['creating', 'planned', 'waiting', 'transcribing', 'rendering'].includes(cloud.status)
   return (
     <div>
       <div className="mb-6">
@@ -520,8 +576,31 @@ export default function StudioPage() {
                 </a>
               </div>
             )}
+            {/* Cloud render (Creatomate) */}
+            <div className="mt-4 pt-4 border-t border-white/[0.07]">
+              <button onClick={renderCloud} disabled={cloudBusy || scenes.length === 0}
+                className="w-full flex items-center justify-center gap-2 bg-[#111] border border-white/[0.07] text-white text-[12px] font-bold py-2.5 hover:border-brand-red/60 disabled:opacity-50">
+                {cloudBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloud: {cloud.status}…</> : <><Film className="w-4 h-4" /> Randează în cloud (MP4 garantat)</>}
+              </button>
+              {cloud.status === 'unconfigured' && (
+                <p className="text-[11px] text-amber-300/80 mt-2 leading-relaxed">{cloud.msg}</p>
+              )}
+              {(cloud.status === 'error' || cloud.status === 'failed' || cloud.status === 'timeout') && cloud.msg && (
+                <p className="text-[11px] text-red-400 mt-2 leading-relaxed break-words">{cloud.msg}</p>
+              )}
+              {cloud.status === 'succeeded' && cloud.url && (
+                <div className="mt-3 border border-white/[0.07]">
+                  <video src={cloud.url} controls className="w-full" />
+                  <a href={cloud.url} target="_blank" rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black">
+                    <Download className="w-3.5 h-3.5" /> Deschide / Descarcă MP4
+                  </a>
+                </div>
+              )}
+            </div>
+
             <p className="text-[11px] text-white/30 mt-3 leading-relaxed">
-              Randare gratuită în browser (MP4 unde e suportat, altfel WebM). Pentru MP4 garantat prin cloud, configurează RENDER_API_URL/KEY.
+              Randare gratuită în browser (MP4 unde e suportat, altfel WebM). Cloud = MP4 garantat prin Creatomate (necesită cheie — vezi README).
             </p>
           </div>
         </div>
