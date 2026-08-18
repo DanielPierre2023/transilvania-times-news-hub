@@ -20,22 +20,42 @@
 //
 // Uploaded assets + renders live in the public `studio-assets` bucket.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   Clapperboard, ImagePlus, Upload, Mic, Captions, Music, Film,
   Sparkles, Loader2, Play, Square, Trash2, ArrowUp, ArrowDown, Download, AlertCircle, Wand2,
+  UserPlus, Zap, ShieldCheck, Save, FolderOpen,
 } from 'lucide-react'
 
 type Aspect = '9:16' | '1:1' | '4:5' | '16:9'
 type KB = 'none' | 'in' | 'out' | 'left' | 'right'
-interface Scene { id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB }
+type SubPos = 'jos' | 'treime' | 'sus'
+interface Scene { id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB; motion?: 'idle' | 'working' | 'done' }
 interface Cue { start: number; end: number; text: string }
+interface ElVoice { voice_id: string; name: string; category: string }
 
 const ASPECTS: Record<Aspect, [number, number]> = {
   '9:16': [720, 1280], '1:1': [1000, 1000], '4:5': [864, 1080], '16:9': [1280, 720],
 }
-const VOICES = ['onyx', 'nova', 'shimmer', 'alloy', 'echo', 'fable', 'ash', 'ballad', 'coral', 'sage']
+const GEMINI_VOICES: { v: string; label: string }[] = [
+  { v: 'Charon', label: 'Charon · bărbat, grav' },
+  { v: 'Orus', label: 'Orus · bărbat, ferm' },
+  { v: 'Puck', label: 'Puck · bărbat, optimist' },
+  { v: 'Kore', label: 'Kore · femeie, fermă' },
+  { v: 'Zephyr', label: 'Zephyr · femeie, luminoasă' },
+  { v: 'Leda', label: 'Leda · femeie, tânără' },
+  { v: 'Aoede', label: 'Aoede · femeie, lejeră' },
+  { v: 'Fenrir', label: 'Fenrir · bărbat, energic' },
+]
+const TONES: { v: string; label: string }[] = [
+  { v: 'stiri', label: 'Știri · autoritar' },
+  { v: 'emotional', label: 'Emoțional · poveste' },
+  { v: 'energic', label: 'Energic · promo' },
+  { v: 'calm', label: 'Calm · documentar' },
+]
+const SUB_POS: Record<SubPos, number> = { jos: 0.88, treime: 0.76, sus: 0.14 }
 const IMG_PRESETS: { label: string; aspect: string; prompt: string }[] = [
   { label: 'Ardeal cinematic', aspect: '4:5', prompt: 'Cinematic golden-hour photograph of the Transylvanian landscape — rolling Apuseni hills, a lone medieval Saxon church tower, morning mist, autumn tones. Warm parchment-and-crimson color grade, film grain, editorial newspaper aesthetic. No text.' },
   { label: 'Diaspora — dor de casă', aspect: '4:5', prompt: 'Emotional documentary photo: a young Romanian looking out a train window at dusk, warm reflection on glass, distant Transylvanian mountains. Melancholic, hopeful, cinematic, parchment-crimson grade, film grain. No text.' },
@@ -55,12 +75,36 @@ export default function StudioPage() {
   const [imgAspect, setImgAspect] = useState('4:5')
 
   const [script, setScript] = useState('')
-  const [voice, setVoice] = useState('onyx')
+  const [voice] = useState('onyx')
+  const [geminiVoice, setGeminiVoice] = useState('Charon')
   const [voUrl, setVoUrl] = useState('')
   const [voDur, setVoDur] = useState(0)
 
+  // ElevenLabs voice engine
+  const [elConfigured, setElConfigured] = useState(false)
+  const [elVoices, setElVoices] = useState<ElVoice[]>([])
+  const [elVoiceId, setElVoiceId] = useState('')
+  const [tone, setTone] = useState('stiri')
+  const [lang, setLang] = useState<'ro' | 'en'>('ro')
+
+  // Voice cloning lab
+  const [cloneOpen, setCloneOpen] = useState(false)
+  const [cloneName, setCloneName] = useState('')
+  const [clonePerson, setClonePerson] = useState('')
+  const [cloneConsent, setCloneConsent] = useState(false)
+  const [cloneSamples, setCloneSamples] = useState<string[]>([])
+
   const [cues, setCues] = useState<Cue[]>([])
+  const [words, setWords] = useState<{ word: string; start: number; end: number }[]>([])
+  const [capMode, setCapMode] = useState<'clasic' | 'karaoke'>('clasic')
   const [subsOn, setSubsOn] = useState(true)
+  const [subPos, setSubPos] = useState<SubPos>('jos')
+  const [subScale, setSubScale] = useState(1)
+
+  // Project persistence (studio_projects)
+  const [projName, setProjName] = useState('')
+  const [projId, setProjId] = useState('')
+  const [projects, setProjects] = useState<{ id: string; name: string; updated_at: string }[]>([])
 
   const [musicUrl, setMusicUrl] = useState('')
   const [musicVol, setMusicVol] = useState(0.18)
@@ -76,6 +120,21 @@ export default function StudioPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<{ raf: number; stop: () => void } | null>(null)
   const mediaCache = useRef<Map<string, HTMLImageElement | HTMLVideoElement>>(new Map())
+  const db = useMemo(() => supabase as unknown as SupabaseClient, [supabase])
+
+  // Karaoke groups: ≤4 words / ≤26 chars, split at sentence ends.
+  const karaoke = useMemo(() => {
+    const out: { start: number; end: number; ws: { word: string; start: number; end: number }[] }[] = []
+    let g: typeof words = []
+    const flush = () => { if (g.length) { out.push({ start: g[0].start, end: g[g.length - 1].end, ws: g }); g = [] } }
+    for (const w of words) {
+      g.push(w)
+      const chars = g.reduce((a, x) => a + x.word.length + 1, 0)
+      if (g.length >= 4 || chars > 26 || /[.!?]$/.test(w.word)) flush()
+    }
+    flush()
+    return out
+  }, [words])
 
   const [W, H] = ASPECTS[aspect]
   const scenesDur = scenes.reduce((s, x) => s + x.duration, 0)
@@ -96,6 +155,26 @@ export default function StudioPage() {
     return (data || {}) as Record<string, unknown>
   }
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+  // Load the ElevenLabs voice list once (falls back to OpenAI voices if absent).
+  useEffect(() => {
+    let alive = true
+    refreshProjects()
+    ;(async () => {
+      try {
+        const r = await invokeRaw('voice-lab', { action: 'list' })
+        if (!alive) return
+        if (r.configured === true && Array.isArray(r.voices)) {
+          const vs = r.voices as ElVoice[]
+          setElConfigured(true)
+          setElVoices(vs)
+          if (vs.length && !elVoiceId) setElVoiceId(vs[0].voice_id)
+        }
+      } catch { /* not configured — OpenAI fallback stays active */ }
+    })()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function uploadAsset(folder: string, file: File): Promise<string> {
     const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
@@ -169,19 +248,161 @@ export default function StudioPage() {
     if (!script.trim()) { setError('Scrie textul pentru voce.'); return }
     setError(''); setBusy('voice')
     try {
-      const r = await invoke<{ publicUrl: string }>('generate-voiceover', { text: script.trim(), voice })
+      const body: Record<string, unknown> = elConfigured
+        ? { text: script.trim(), voice_id: elVoiceId, tone, language: lang }
+        : { text: script.trim(), provider: 'gemini', gemini_voice: geminiVoice, tone, language: lang, voice }
+      const r = await invoke<{ publicUrl: string }>('generate-voiceover', body)
       const d = await audioDuration(r.publicUrl)
       setVoUrl(r.publicUrl); setVoDur(d || Math.ceil(script.length / 14))
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  // Split a Whisper segment into short display cues (max 2 lines ≈ 42 chars/line)
+  // so subtitles never blanket the frame.
+  function splitCues(segs: Cue[]): Cue[] {
+    const MAX = 84 // ~2 lines
+    const out: Cue[] = []
+    for (const s of segs) {
+      const text = s.text.trim()
+      if (text.length <= MAX) { out.push(s); continue }
+      const words = text.split(/\s+/)
+      const chunks: string[] = []
+      let cur = ''
+      for (const w of words) {
+        const t = cur ? cur + ' ' + w : w
+        if (t.length > MAX && cur) { chunks.push(cur); cur = w } else cur = t
+      }
+      if (cur) chunks.push(cur)
+      const total = text.length
+      let t0 = s.start
+      for (const c of chunks) {
+        const dur = (s.end - s.start) * (c.length / total)
+        out.push({ start: t0, end: Math.min(s.end, t0 + dur), text: c })
+        t0 += dur
+      }
+    }
+    return out
   }
 
   async function genSubs() {
     if (!voUrl) { setError('Generează întâi vocea.'); return }
     setError(''); setBusy('subs')
     try {
-      const r = await invoke<{ segments: Cue[] }>('align-subtitles', { audio_url: voUrl, language: 'ro' })
-      setCues(r.segments || [])
+      const r = await invoke<{ segments: Cue[]; words?: { word: string; start: number; end: number }[] }>('align-subtitles', { audio_url: voUrl, language: lang })
+      setCues(splitCues(r.segments || []))
+      setWords(r.words || [])
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  // ─── project persistence ────────────────────────────────────────────────
+  function projectData() {
+    return { aspect, scenes, script, lang, tone, elVoiceId, geminiVoice, voice, voUrl, voDur, cues, words, capMode, subsOn, subPos, subScale, musicUrl, musicVol }
+  }
+  async function refreshProjects() {
+    try {
+      const { data } = await db.from('studio_projects').select('id, name, updated_at').order('updated_at', { ascending: false }).limit(12)
+      if (data) setProjects(data as { id: string; name: string; updated_at: string }[])
+    } catch { /* table not created yet */ }
+  }
+  async function saveProject() {
+    const name = projName.trim() || `Proiect ${new Date().toLocaleDateString('ro-RO')}`
+    setError(''); setBusy('save')
+    try {
+      if (projId) {
+        const { error: e } = await db.from('studio_projects').update({ name, data: projectData(), updated_at: new Date().toISOString() }).eq('id', projId)
+        if (e) throw new Error(e.message)
+      } else {
+        const { data, error: e } = await db.from('studio_projects').insert({ name, data: projectData() }).select('id').single()
+        if (e) throw new Error(e.message)
+        if (data?.id) setProjId(String(data.id))
+      }
+      setProjName(name); await refreshProjects()
+    } catch (e) { setError('Salvarea a eșuat (rulează tt-studio-projects.sql?): ' + (e as Error).message) } finally { setBusy('') }
+  }
+  async function loadProject(id: string) {
+    if (!id) return
+    setError(''); setBusy('load')
+    try {
+      const { data, error: e } = await db.from('studio_projects').select('id, name, data').eq('id', id).single()
+      if (e || !data) throw new Error(e?.message || 'negăsit')
+      const d = (data.data || {}) as Record<string, unknown>
+      setProjId(String(data.id)); setProjName(String(data.name || ''))
+      if (d.aspect) setAspect(d.aspect as Aspect)
+      if (Array.isArray(d.scenes)) setScenes(d.scenes as Scene[])
+      if (typeof d.script === 'string') setScript(d.script)
+      if (d.lang === 'ro' || d.lang === 'en') setLang(d.lang)
+      if (typeof d.tone === 'string') setTone(d.tone)
+      if (typeof d.elVoiceId === 'string') setElVoiceId(d.elVoiceId)
+      if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
+      if (typeof d.voUrl === 'string') setVoUrl(d.voUrl)
+      if (typeof d.voDur === 'number') setVoDur(d.voDur)
+      if (Array.isArray(d.cues)) setCues(d.cues as Cue[])
+      if (Array.isArray(d.words)) setWords(d.words as { word: string; start: number; end: number }[])
+      if (d.capMode === 'clasic' || d.capMode === 'karaoke') setCapMode(d.capMode)
+      if (typeof d.subsOn === 'boolean') setSubsOn(d.subsOn)
+      if (typeof d.subPos === 'string') setSubPos(d.subPos as SubPos)
+      if (typeof d.subScale === 'number') setSubScale(d.subScale)
+      if (typeof d.musicUrl === 'string') setMusicUrl(d.musicUrl)
+      if (typeof d.musicVol === 'number') setMusicVol(d.musicVol)
+      setOutUrl('')
+    } catch (e) { setError('Încărcarea a eșuat: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
+  // ─── voice cloning (ElevenLabs, consent required) ───────────────────────
+  async function onCloneSample(file?: File) {
+    if (!file) return
+    setError(''); setBusy('clonesample')
+    try {
+      const url = await uploadAsset('voice-samples', file)
+      setCloneSamples(s => [...s, url].slice(0, 3))
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+  async function doClone() {
+    if (!cloneName.trim() || !clonePerson.trim()) { setError('Completează numele vocii și persoana.'); return }
+    if (!cloneConsent) { setError('Bifează consimțământul — fără acordul explicit al persoanei nu clonez vocea.'); return }
+    if (cloneSamples.length === 0) { setError('Încarcă cel puțin o mostră audio (30s–3min, curată).'); return }
+    setError(''); setBusy('clone')
+    try {
+      const r = await invoke<{ voice_id: string }>('voice-lab', {
+        action: 'clone', name: cloneName.trim(), audio_urls: cloneSamples,
+        consent: { granted: true, person_name: clonePerson.trim(), granted_by: 'admin' },
+      })
+      const nv = { voice_id: r.voice_id, name: cloneName.trim(), category: 'cloned' }
+      setElVoices(v => [nv, ...v]); setElVoiceId(r.voice_id)
+      setCloneOpen(false); setCloneName(''); setClonePerson(''); setCloneConsent(false); setCloneSamples([])
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  // ─── image → video motion (fal.ai Kling) ────────────────────────────────
+  async function animateScene(id: string) {
+    const sc = scenes.find(s => s.id === id)
+    if (!sc || sc.kind !== 'image') return
+    setError('')
+    setScenes(s => s.map(x => x.id === id ? { ...x, motion: 'working' } : x))
+    try {
+      const created = await invokeRaw('generate-motion', { action: 'create', image_url: sc.url, duration: String(Math.min(10, Math.max(5, sc.duration))) === '10' ? '10' : '5' })
+      if (created.configured === false) throw new Error(String(created.message || 'FAL_KEY lipsește.'))
+      if (created.error) throw new Error(String(created.error))
+      const statusUrl = String(created.status_url || ''), responseUrl = String(created.response_url || '')
+      if (!statusUrl) throw new Error('fal nu a returnat status_url')
+      for (let i = 0; i < 75; i++) {
+        await sleep(4000)
+        const st = await invokeRaw('generate-motion', { action: 'poll', status_url: statusUrl, response_url: responseUrl })
+        if (st.error) throw new Error(String(st.error))
+        if (st.status === 'COMPLETED' && st.publicUrl) {
+          const url = String(st.publicUrl)
+          const v = await loadVideo(url)
+          setScenes(s => s.map(x => x.id === id
+            ? { ...x, kind: 'video', url, name: '🎞 ' + x.name.replace(/^🎞 /, ''), duration: Math.min(30, Math.max(1, v.duration || x.duration)), kb: 'none', motion: 'done' }
+            : x))
+          return
+        }
+      }
+      throw new Error('Animarea durează neobișnuit de mult — reîncearcă.')
+    } catch (e) {
+      setError('Animare: ' + (e as Error).message)
+      setScenes(s => s.map(x => x.id === id ? { ...x, motion: 'idle' } : x))
+    }
   }
 
   async function onMusic(file?: File) {
@@ -233,21 +454,46 @@ export default function StudioPage() {
         }
       }
     }
-    // subtitles
+    // subtitles — max 2 lines, positionable, scalable, anchored so they never
+    // blanket the frame (bottom-anchored for jos/treime, top-anchored for sus).
     if (subsOn) {
-      const cue = cues.find(c => t >= c.start && t <= c.end)
-      if (cue) {
-        ctx.font = `700 ${Math.round(H * 0.036)}px Inter, system-ui, sans-serif`
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        const lines = wrap(ctx, cue.text.toUpperCase(), W * 0.84)
-        const lh = H * 0.052
-        let y = H * 0.80 - (lines.length - 1) * lh
-        for (const ln of lines) {
-          const tw = ctx.measureText(ln).width
-          ctx.fillStyle = 'rgba(21,11,6,0.72)'
-          roundRect(ctx, W / 2 - tw / 2 - 16, y - lh / 2, tw + 32, lh * 0.92, 6); ctx.fill()
-          ctx.fillStyle = '#fff'; ctx.fillText(ln, W / 2, y)
-          y += lh
+      const anchor = H * SUB_POS[subPos]
+      if (capMode === 'karaoke' && karaoke.length) {
+        const grp = karaoke.find(g => t >= g.start && t <= g.end + 0.12)
+        if (grp) {
+          const fs = Math.round(H * 0.036 * subScale)
+          ctx.font = `800 ${fs}px Inter, system-ui, sans-serif`; ctx.textBaseline = 'middle'
+          const gap = fs * 0.4
+          const widths = grp.ws.map(w => ctx.measureText(w.word.toUpperCase()).width)
+          const totalW = widths.reduce((a, b) => a + b, 0) + gap * (grp.ws.length - 1)
+          const lh = fs * 1.55
+          ctx.fillStyle = 'rgba(21,11,6,0.8)'
+          roundRect(ctx, W / 2 - totalW / 2 - 16, anchor - lh / 2, totalW + 32, lh, 6); ctx.fill()
+          let x = W / 2 - totalW / 2
+          ctx.textAlign = 'left'
+          grp.ws.forEach((w, i) => {
+            const spoken = t >= w.start, active = t >= w.start && t <= w.end
+            ctx.fillStyle = active ? '#FFD37A' : spoken ? '#FFFFFF' : 'rgba(255,255,255,0.42)'
+            ctx.fillText(w.word.toUpperCase(), x, anchor)
+            x += widths[i] + gap
+          })
+        }
+      } else {
+        const cue = cues.find(c => t >= c.start && t <= c.end)
+        if (cue) {
+          const fs = Math.round(H * 0.032 * subScale)
+          ctx.font = `700 ${fs}px Inter, system-ui, sans-serif`
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+          const lines = wrap(ctx, cue.text.toUpperCase(), W * 0.84).slice(0, 2)
+          const lh = fs * 1.45
+          let y = subPos === 'sus' ? anchor : anchor - (lines.length - 1) * lh
+          for (const ln of lines) {
+            const tw = ctx.measureText(ln).width
+            ctx.fillStyle = 'rgba(21,11,6,0.72)'
+            roundRect(ctx, W / 2 - tw / 2 - 14, y - lh / 2, tw + 28, lh * 0.92, 6); ctx.fill()
+            ctx.fillStyle = '#fff'; ctx.fillText(ln, W / 2, y)
+            y += lh
+          }
         }
       }
     }
@@ -316,10 +562,23 @@ export default function StudioPage() {
 
       const ac = new AudioContext()
       const dest = ac.createMediaStreamDestination()
+      // Loudness: normalize the voice toward social speech level (~-16 LUFS ≈
+      // 0.12 RMS, clamped ×0.5–4) and run the mix through a compressor so the
+      // boost can't clip. Music stays relative on its own slider.
+      const comp = ac.createDynamicsCompressor()
+      comp.threshold.value = -6; comp.knee.value = 10; comp.ratio.value = 6
+      comp.attack.value = 0.003; comp.release.value = 0.25
+      comp.connect(dest)
+      const rmsGain = (b: AudioBuffer) => {
+        const ch = b.getChannelData(0); let sum = 0, n = 0
+        for (let i = 0; i < ch.length; i += 4) { sum += ch[i] * ch[i]; n++ }
+        const rms = Math.sqrt(sum / Math.max(1, n))
+        return rms && Number.isFinite(rms) ? Math.min(4, Math.max(0.5, 0.12 / rms)) : 1
+      }
       let voSrc: AudioBufferSourceNode | null = null
       let muSrc: AudioBufferSourceNode | null = null
-      if (voUrl) { const b = await decode(ac, voUrl); voSrc = ac.createBufferSource(); voSrc.buffer = b; const g = ac.createGain(); g.gain.value = 1; voSrc.connect(g).connect(dest) }
-      if (musicUrl) { const b = await decode(ac, musicUrl); muSrc = ac.createBufferSource(); muSrc.buffer = b; muSrc.loop = true; const g = ac.createGain(); g.gain.value = musicVol; muSrc.connect(g).connect(dest) }
+      if (voUrl) { const b = await decode(ac, voUrl); voSrc = ac.createBufferSource(); voSrc.buffer = b; const g = ac.createGain(); g.gain.value = rmsGain(b); voSrc.connect(g).connect(comp) }
+      if (musicUrl) { const b = await decode(ac, musicUrl); muSrc = ac.createBufferSource(); muSrc.buffer = b; muSrc.loop = true; const g = ac.createGain(); g.gain.value = musicVol; muSrc.connect(g).connect(comp) }
 
       const combined = new MediaStream([...vstream.getVideoTracks(), ...dest.stream.getAudioTracks()])
       let mime = 'video/mp4'
@@ -382,8 +641,9 @@ export default function StudioPage() {
     if (musicUrl) elements.push({ type: 'audio', source: musicUrl, track: 3, time: 0, loop: true, volume: Math.round(musicVol * 100) })
     if (subsOn) for (const c of cues) elements.push({
       type: 'text', track: 4, time: c.start, duration: Math.max(0.4, c.end - c.start),
-      text: c.text, y: '82%', width: '86%', x_alignment: '50%', y_alignment: '50%',
-      font_family: 'Inter', font_weight: '700', font_size: Math.round(H * 0.045),
+      text: c.text, y: `${Math.round(SUB_POS[subPos] * 100)}%`, width: '86%',
+      x_alignment: '50%', y_alignment: '50%',
+      font_family: 'Inter', font_weight: '700', font_size: Math.round(H * 0.032 * subScale),
       fill_color: '#ffffff', background_color: 'rgba(21,11,6,0.72)',
     })
     return { source: { output_format: 'mp4', width: W, height: H, elements } }
@@ -436,6 +696,22 @@ export default function StudioPage() {
             className={'px-3 py-1.5 text-[12px] border ' + (aspect === a ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/60 border-white/[0.07]')}>{a}</button>
         ))}
         <span className="ml-auto font-sans text-[12px] text-white/50">Durată: <b className="text-white">{fmt(totalDur)}</b> / 3:00 · {scenes.length} scene</span>
+      </div>
+
+      {/* Project persistence */}
+      <div className="flex flex-wrap items-center gap-2 mb-6 bg-[#1a1a1a] border border-white/[0.07] px-3 py-2.5">
+        <FolderOpen className="w-4 h-4 text-white/40" />
+        <input value={projName} onChange={e => setProjName(e.target.value)} placeholder="Numele proiectului…"
+          className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-3 py-1.5 w-44" />
+        <button onClick={saveProject} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-1.5 hover:bg-red-700 disabled:opacity-50">
+          {busy === 'save' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} {projId ? 'Actualizează' : 'Salvează'}
+        </button>
+        <select value="" onChange={e => loadProject(e.target.value)} disabled={!!busy}
+          className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[220px]">
+          <option value="">{projects.length ? 'Deschide un proiect…' : 'Niciun proiect salvat'}</option>
+          {projects.map(p => <option key={p.id} value={p.id}>{p.name} · {new Date(p.updated_at).toLocaleDateString('ro-RO')}</option>)}
+        </select>
+        {projId && <button onClick={() => { setProjId(''); setProjName('') }} className="text-[11px] text-white/30 hover:text-white">proiect nou</button>}
       </div>
 
       {error && (
@@ -497,6 +773,12 @@ export default function StudioPage() {
                         <select value={sc.kb} onChange={e => setKb(sc.id, e.target.value as KB)} className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
                           <option value="none">static</option><option value="in">zoom in</option><option value="out">zoom out</option><option value="left">pan ←</option><option value="right">pan →</option>
                         </select>
+                        <button onClick={() => animateScene(sc.id)} disabled={sc.motion === 'working'}
+                          title="Transformă fotografia într-un clip cu mișcare reală (AI, fal.ai/Kling)"
+                          className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10 disabled:opacity-60">
+                          {sc.motion === 'working' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                          {sc.motion === 'working' ? 'Animez…' : 'Animează'}
+                        </button>
                       </>}
                       {sc.kind === 'video' && <span className="text-[11px] text-white/40">clip · {sc.duration.toFixed(1)}s (fără sunet)</span>}
                     </div>
@@ -514,18 +796,72 @@ export default function StudioPage() {
           {/* Voice + subtitles + music */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
-              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-3 flex items-center gap-2"><Mic className="w-3.5 h-3.5" /> Voce (voiceover)</p>
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1 flex items-center gap-2"><Mic className="w-3.5 h-3.5" /> Voce (voiceover)</p>
+              <p className="text-[11px] mb-3" style={{ color: elConfigured ? '#7ec8a3' : '#8fb8d8' }}>
+                {elConfigured ? 'Motor: ElevenLabs · voci naturale RO/EN + clonare' : 'Motor: Gemini · voci naturale RO/EN · gratuit (cheia existentă). Clonarea de voce cere ELEVENLABS_API_KEY.'}
+              </p>
               <textarea value={script} onChange={e => setScript(e.target.value)} rows={4} placeholder="Textul citit de voce (RO sau EN)…"
                 className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[13px] p-3 resize-y focus:outline-none focus:border-brand-red/60" />
               <div className="flex items-center gap-2 mt-3 flex-wrap">
-                <select value={voice} onChange={e => setVoice(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
-                  {VOICES.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
+                {elConfigured ? (
+                  <>
+                    <select value={elVoiceId} onChange={e => setElVoiceId(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[160px]">
+                      {elVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.category === 'cloned' ? '👤 ' : ''}{v.name}</option>)}
+                    </select>
+                    <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                      {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+                    </select>
+                    <select value={lang} onChange={e => setLang(e.target.value as 'ro' | 'en')} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                      <option value="ro">RO</option><option value="en">EN</option>
+                    </select>
+                  </>
+                ) : (
+                  <>
+                    <select value={geminiVoice} onChange={e => setGeminiVoice(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[180px]">
+                      {GEMINI_VOICES.map(v => <option key={v.v} value={v.v}>{v.label}</option>)}
+                    </select>
+                    <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                      {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+                    </select>
+                    <select value={lang} onChange={e => setLang(e.target.value as 'ro' | 'en')} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                      <option value="ro">RO</option><option value="en">EN</option>
+                    </select>
+                  </>
+                )}
                 <button onClick={genVoice} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-1.5 hover:bg-red-700 disabled:opacity-50">
                   {busy === 'voice' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează voce
                 </button>
               </div>
               {voUrl && <audio src={voUrl} controls className="w-full mt-3 h-9" />}
+
+              {/* Voice cloning lab */}
+              {elConfigured && (
+                <div className="mt-4 pt-4 border-t border-white/[0.07]">
+                  <button onClick={() => setCloneOpen(o => !o)} className="flex items-center gap-1.5 text-[12px] font-bold text-white/70 hover:text-white">
+                    <UserPlus className="w-3.5 h-3.5" /> Vocile mele · clonează o voce {cloneOpen ? '▴' : '▾'}
+                  </button>
+                  {cloneOpen && (
+                    <div className="mt-3 space-y-2">
+                      <input value={cloneName} onChange={e => setCloneName(e.target.value)} placeholder="Numele vocii (ex. Daniel TT)"
+                        className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-3 py-2" />
+                      <input value={clonePerson} onChange={e => setClonePerson(e.target.value)} placeholder="A cui este vocea? (persoana reală)"
+                        className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-3 py-2" />
+                      <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-2 cursor-pointer hover:border-white/20 w-fit">
+                        {busy === 'clonesample' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Mostre audio ({cloneSamples.length}/3)
+                        <input type="file" accept="audio/*" hidden onChange={e => onCloneSample(e.target.files?.[0])} />
+                      </label>
+                      <label className="flex items-start gap-2 text-[11.5px] text-white/60 cursor-pointer leading-snug">
+                        <input type="checkbox" checked={cloneConsent} onChange={e => setCloneConsent(e.target.checked)} className="mt-0.5" />
+                        <span><ShieldCheck className="w-3 h-3 inline mr-1" />Confirm că persoana numită mai sus și-a dat <b>acordul explicit</b> pentru clonarea vocii sale. Fără acest acord, clonarea este refuzată.</span>
+                      </label>
+                      <button onClick={doClone} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+                        {busy === 'clone' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />} Clonează vocea
+                      </button>
+                      <p className="text-[10.5px] text-white/30">1–3 mostre curate, fără muzică de fundal, total 1–3 minute. Vocea apare apoi în listă cu 👤.</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
@@ -539,6 +875,29 @@ export default function StudioPage() {
                 </label>
               </div>
               <p className="text-[11px] text-white/30 mt-2">{cues.length ? `${cues.length} replici sincronizate` : 'Generează vocea, apoi „Auto din voce”.'}</p>
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <span className="text-[11px] text-white/40">Poziție</span>
+                {(['jos', 'treime', 'sus'] as SubPos[]).map(p => (
+                  <button key={p} onClick={() => setSubPos(p)}
+                    className={'px-2.5 py-1 text-[11px] border ' + (subPos === p ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>
+                    {p === 'jos' ? 'Jos' : p === 'treime' ? 'Treime inf.' : 'Sus'}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-[11px] text-white/40">Mărime</span>
+                <input type="range" min={0.7} max={1.5} step={0.05} value={subScale} onChange={e => setSubScale(Number(e.target.value))} className="flex-1" />
+                <span className="text-[11px] text-white/50 w-8">{Math.round(subScale * 100)}%</span>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-[11px] text-white/40">Stil</span>
+                <select value={capMode} onChange={e => setCapMode(e.target.value as 'clasic' | 'karaoke')}
+                  className="bg-[#111] border border-white/[0.07] text-white/70 text-[11px] px-2 py-1">
+                  <option value="clasic">clasic · pe replici</option>
+                  <option value="karaoke">karaoke · cuvânt cu cuvânt</option>
+                </select>
+                {capMode === 'karaoke' && !words.length && <span className="text-[10px] text-amber-300/70">rulează „Auto din voce” pentru timpi pe cuvânt</span>}
+              </div>
 
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mt-5 mb-2 flex items-center gap-2"><Music className="w-3.5 h-3.5" /> Muzică</p>
               <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-1.5 cursor-pointer hover:border-white/20 w-fit">

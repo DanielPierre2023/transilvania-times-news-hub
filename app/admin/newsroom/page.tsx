@@ -1,0 +1,1002 @@
+'use client'
+
+// app/admin/newsroom/page.tsx
+//
+// NEWSROOM — daily AI anchor bulletin.
+// Flow: pick today's stories → AI writes the anchor script (editable) →
+// natural voice (ElevenLabs, incl. cloned voices) → presenter (HeyGen stock
+// avatar or your photo, with mandatory consent) → lip-synced MP4.
+//
+// Uses: newsroom-anchor (script/avatars/upload_photo/generate/status),
+//       voice-lab (voice list), generate-voiceover (TTS).
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  Tv, Newspaper, FileText, Mic, User, Film, Loader2, Wand2, Upload,
+  ShieldCheck, Download, AlertCircle, CheckCircle2, RefreshCw,
+  Clapperboard, Share2, Copy, Image as ImageIcon, Archive,
+} from 'lucide-react'
+
+interface Post { id: string; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null }
+interface ElVoice { voice_id: string; name: string; category: string }
+interface Avatar { avatar_id: string; avatar_name: string; preview_image_url: string }
+interface Story { lower_third: string; text: string }
+interface Sections { greeting: string; stories: Story[]; signoff: string }
+interface Cue { start: number; end: number; text: string }
+interface Word { word: string; start: number; end: number }
+interface CaptionPack { facebook?: string; instagram?: string; tiktok?: string; youtube_title?: string; youtube_description?: string; hashtags?: string[] }
+interface PastBulletin { id: string; created_at: string; story_titles: string[] | null; bulletin_video_url: string | null; anchor_video_url: string | null }
+
+// Strip diacritics/punctuation for fuzzy cue↔story matching.
+const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+const TONES = [
+  { v: 'stiri', label: 'Știri · autoritar' },
+  { v: 'calm', label: 'Calm · documentar' },
+  { v: 'energic', label: 'Energic' },
+]
+
+export default function NewsroomPage() {
+  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
+  // Untyped handle for tables newer than the generated Database types (newsroom_bulletins).
+  const db = useMemo(() => supabase as unknown as SupabaseClient, [supabase])
+
+  const [posts, setPosts] = useState<Post[]>([])
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [lang, setLang] = useState<'ro' | 'en'>('ro')
+  const [target, setTarget] = useState(75)
+
+  const [script, setScript] = useState('')
+  const [scriptModel, setScriptModel] = useState('')
+
+  const [elVoices, setElVoices] = useState<ElVoice[]>([])
+  const [elConfigured, setElConfigured] = useState(false)
+  const [voiceId, setVoiceId] = useState('')
+  const [geminiVoice, setGeminiVoice] = useState('Charon')
+  const [tone, setTone] = useState('stiri')
+  const [voUrl, setVoUrl] = useState('')
+
+  const [falConfigured, setFalConfigured] = useState(false)
+  const [anchorImg, setAnchorImg] = useState('')
+  const [anchorIsReal, setAnchorIsReal] = useState(false)
+
+  const [hgConfigured, setHgConfigured] = useState<boolean | null>(null)
+  const [avatars, setAvatars] = useState<Avatar[]>([])
+  const [mode, setMode] = useState<'avatar' | 'photo'>('avatar')
+  const [avatarId, setAvatarId] = useState('')
+  const [photoId, setPhotoId] = useState('')
+  const [photoConsent, setPhotoConsent] = useState(false)
+  const [photoPerson, setPhotoPerson] = useState('')
+
+  const [orient, setOrient] = useState<'16:9' | '9:16'>('16:9')
+  const [videoStatus, setVideoStatus] = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
+
+  // Broadcast compositor + publishing pack + archive.
+  const [sections, setSections] = useState<Sections | null>(null)
+  const [cues, setCues] = useState<Cue[]>([])
+  const [words, setWords] = useState<Word[]>([])
+  const [capMode, setCapMode] = useState<'clasic' | 'karaoke'>('karaoke')
+  const [subsOn, setSubsOn] = useState(true)
+  const [tickerOn, setTickerOn] = useState(true)
+  const [bulletinPublicUrl, setBulletinPublicUrl] = useState('')
+  const [pub, setPub] = useState<{ facebook: boolean; instagram: boolean; youtube: boolean }>({ facebook: false, instagram: false, youtube: false })
+  const [pubBusy, setPubBusy] = useState('')
+  const [pubMsg, setPubMsg] = useState<Record<string, string>>({})
+  const [compositing, setCompositing] = useState(false)
+  const [compPct, setCompPct] = useState(0)
+  const [bulletinUrl, setBulletinUrl] = useState('')      // local object URL (download/preview)
+  const [bulletinMime, setBulletinMime] = useState('')
+  const [savedId, setSavedId] = useState('')
+  const [pack, setPack] = useState<CaptionPack | null>(null)
+  const [packLinks, setPackLinks] = useState<Record<string, string>>({})
+  const [past, setPast] = useState<PastBulletin[]>([])
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+
+  async function invokeRaw(fn: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data, error: e } = await supabase.functions.invoke(fn, { body })
+    if (e) throw new Error(e.message)
+    return (data || {}) as Record<string, unknown>
+  }
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+  // Load today's stories + voices + avatars.
+  useEffect(() => {
+    ;(async () => {
+      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+      const { data } = await supabase
+        .from('blog_posts')
+        .select('id, title_ro, title_en, summary_ro, summary_en, published_at, category')
+        .eq('status', 'published')
+        .gte('published_at', since)
+        .order('published_at', { ascending: false })
+        .limit(20)
+      setPosts((data ?? []) as Post[])
+      setSel(new Set(((data ?? []) as Post[]).slice(0, 5).map(p => p.id)))
+      try {
+        const v = await invokeRaw('voice-lab', { action: 'list' })
+        if (v.configured === true && Array.isArray(v.voices)) {
+          setElConfigured(true); setElVoices(v.voices as ElVoice[])
+          if ((v.voices as ElVoice[]).length) setVoiceId((v.voices as ElVoice[])[0].voice_id)
+        }
+      } catch { /* fallback voice note shown in UI */ }
+      try {
+        const eng = await invokeRaw('newsroom-anchor', { action: 'engines' })
+        setFalConfigured(eng.fal === true)
+        if (eng.heygen === true) {
+          const a = await invokeRaw('newsroom-anchor', { action: 'avatars' })
+          if (Array.isArray(a.avatars)) {
+            setHgConfigured(true); setAvatars((a.avatars as Avatar[]).filter(x => x.preview_image_url).slice(0, 24))
+            if ((a.avatars as Avatar[]).length) setAvatarId((a.avatars as Avatar[])[0].avatar_id)
+          } else setHgConfigured(true)
+        } else {
+          setHgConfigured(false)
+          if (eng.fal === true) setMode('photo')
+        }
+      } catch { setHgConfigured(false) }
+      try {
+        const st = await invokeRaw('publish-social', { action: 'status' })
+        setPub({ facebook: st.facebook === true, instagram: st.instagram === true, youtube: st.youtube === true })
+      } catch { /* publish function not deployed yet */ }
+      try {
+        const { data: pb } = await db
+          .from('newsroom_bulletins')
+          .select('id, created_at, story_titles, bulletin_video_url, anchor_video_url')
+          .order('created_at', { ascending: false })
+          .limit(7)
+        if (pb) setPast(pb as PastBulletin[])
+      } catch { /* table not created yet — archive stays hidden */ }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const toggle = (id: string) => setSel(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+
+  async function genScript() {
+    const chosen = posts.filter(p => sel.has(p.id))
+    if (chosen.length === 0) { setError('Selectează cel puțin o știre.'); return }
+    setError(''); setBusy('script')
+    try {
+      const articles = chosen.map(p => ({
+        title: (lang === 'ro' ? p.title_ro : p.title_en) || p.title_ro || p.title_en || '',
+        summary: (lang === 'ro' ? p.summary_ro : p.summary_en) || '',
+      }))
+      const r = await invokeRaw('newsroom-anchor', { action: 'script', language: lang, target_seconds: target, articles })
+      if (r.error) throw new Error(String(r.error))
+      setScript(String(r.script || '')); setScriptModel(String(r.model || ''))
+      setSections((r.sections as Sections | null) || null)
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  async function genVoice() {
+    if (!script.trim()) { setError('Generează sau scrie scriptul mai întâi.'); return }
+    setError(''); setBusy('voice')
+    try {
+      const body: Record<string, unknown> = elConfigured
+        ? { text: script.trim(), voice_id: voiceId, tone, language: lang }
+        : { text: script.trim(), provider: 'gemini', gemini_voice: geminiVoice, tone, language: lang }
+      const r = await invokeRaw('generate-voiceover', body)
+      if (r.error) throw new Error(String(r.error))
+      setVoUrl(String(r.publicUrl || ''))
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  async function uploadPhoto(file?: File) {
+    if (!file) return
+    // Real-person faces always need the consent confirmation.
+    if ((hgConfigured || anchorIsReal) && (!photoConsent || !photoPerson.trim())) {
+      setError('Completează persoana și bifează consimțământul înainte de a încărca fotografia unei persoane reale.'); return
+    }
+    setError(''); setBusy('photo')
+    try {
+      const path = `anchor-photos/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
+      const { error: upErr } = await supabase.storage.from('studio-assets').upload(path, file, { contentType: file.type, upsert: false })
+      if (upErr) throw new Error(upErr.message)
+      const url = supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
+      if (hgConfigured) {
+        const r = await invokeRaw('newsroom-anchor', { action: 'upload_photo', image_url: url, consent: { granted: true, person_name: photoPerson.trim() } })
+        if (r.error) throw new Error(String(r.error))
+        setPhotoId(String(r.talking_photo_id || ''))
+      }
+      setAnchorImg(url)
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  // Free-stack: generate a fictional AI anchor portrait (no consent needed —
+  // it's not a real person) via the existing image generator.
+  async function genAnchorPortrait(gender: 'f' | 'm') {
+    setError(''); setBusy('portrait')
+    try {
+      const who = gender === 'f' ? 'a professional female news anchor in her 30s' : 'a professional male news anchor in his 40s'
+      const r = await invokeRaw('generate-cover-image', {
+        raw_prompt: `Studio portrait photograph of ${who}, fictional person, facing the camera directly, head and shoulders, neutral warm studio background in cream tones, soft professional lighting, wearing smart attire with a subtle crimson accent, natural friendly expression, mouth closed, photorealistic, sharp focus. No text, no logo.`,
+        aspect: '1:1',
+      })
+      if (r.error) throw new Error(String(r.error))
+      const url = String(r.publicUrl || '')
+      if (!url) throw new Error('Generarea portretului a eșuat.')
+      setAnchorIsReal(false); setAnchorImg(url)
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  async function genVideo() {
+    if (!voUrl) { setError('Generează vocea mai întâi (pasul 3).'); return }
+
+    // ── Free-stack engine (fal / SadTalker) when HeyGen is absent ─────────
+    if (!hgConfigured) {
+      if (!falConfigured) { setError('Configurează FAL_KEY (credite preplătite, fără abonament) sau HEYGEN_API_KEY.'); return }
+      if (!anchorImg) { setError('Alege sau generează portretul prezentatorului (pasul 4).'); return }
+      setError(''); setVideoUrl(''); setVideoStatus('se trimite')
+      try {
+        const r = await invokeRaw('newsroom-anchor', { action: 'generate_fal', image_url: anchorImg, audio_url: voUrl })
+        if (r.error) throw new Error(String(r.error))
+        const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
+        for (let i = 0; i < 150; i++) {
+          await sleep(5000)
+          const st = await invokeRaw('newsroom-anchor', { action: 'poll_fal', status_url: statusUrl, response_url: responseUrl })
+          if (st.error) throw new Error(String(st.error))
+          const s = String(st.status || '')
+          setVideoStatus(s === 'IN_QUEUE' ? 'în coadă' : s === 'IN_PROGRESS' ? 'processing' : s)
+          if (s === 'completed' && st.publicUrl) { setVideoUrl(String(st.publicUrl)); return }
+        }
+        throw new Error('Durează neobișnuit de mult — reîncearcă.')
+      } catch (e) { setError((e as Error).message); setVideoStatus('') }
+      return
+    }
+
+    // ── HeyGen engine (premium) ───────────────────────────────────────────
+    const character = mode === 'avatar'
+      ? { type: 'avatar', avatar_id: avatarId }
+      : { type: 'talking_photo', talking_photo_id: photoId }
+    if (mode === 'avatar' && !avatarId) { setError('Alege un prezentator.'); return }
+    if (mode === 'photo' && !photoId) { setError('Încarcă fotografia prezentatorului.'); return }
+    const [width, height] = orient === '16:9' ? [1280, 720] : [720, 1280]
+    setError(''); setVideoUrl(''); setVideoStatus('se trimite')
+    try {
+      const r = await invokeRaw('newsroom-anchor', { action: 'generate', character, audio_url: voUrl, width, height })
+      if (r.error) throw new Error(String(r.error))
+      const videoId = String(r.video_id || '')
+      for (let i = 0; i < 150; i++) {
+        await sleep(5000)
+        const st = await invokeRaw('newsroom-anchor', { action: 'status', video_id: videoId })
+        if (st.error) throw new Error(String(st.error))
+        const s = String(st.status || '')
+        setVideoStatus(s)
+        if (s === 'completed' && st.publicUrl) { setVideoUrl(String(st.publicUrl)); return }
+        if (s === 'failed') throw new Error('HeyGen a eșuat: ' + String(st.error_detail || 'necunoscut'))
+      }
+      throw new Error('Durează neobișnuit de mult — verifică în contul HeyGen.')
+    } catch (e) { setError((e as Error).message); setVideoStatus('') }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // BROADCAST COMPOSITOR — wraps the raw lipsync clip in the TT news frame:
+  // branded intro → anchor window + lower-thirds + burned captions + ticker →
+  // CTA endcard. Free, in-browser (canvas + MediaRecorder).
+  // ════════════════════════════════════════════════════════════════════════
+  const INTRO = 2.2, OUTRO = 3.2
+  const C = { parchment: '#FBF4E4', ink: '#2B1710', sepia: '#512A1A', crimson: '#CA2222', gold: '#C9A45E', paper: '#F6ECD6' }
+
+  function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+    const words = text.split(' '); const lines: string[] = []; let line = ''
+    for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w } else line = t }
+    if (line) lines.push(line); return lines
+  }
+  function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r)
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath()
+  }
+  function drawCoverInto(ctx: CanvasRenderingContext2D, v: HTMLVideoElement, x: number, y: number, w: number, h: number) {
+    const vw = v.videoWidth || 1, vh = v.videoHeight || 1
+    const vr = vw / vh, cr = w / h
+    let dw: number, dh: number
+    if (vr > cr) { dh = h; dw = h * vr } else { dw = w; dh = w / vr }
+    ctx.save(); rr(ctx, x, y, w, h, 14); ctx.clip()
+    ctx.drawImage(v, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh)
+    ctx.restore()
+  }
+
+  // Lower-third timing: proportional by word count, refined by Whisper cues.
+  function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string }[] {
+    if (!sections || !sections.stories.length) {
+      const titles = posts.filter(p => sel.has(p.id)).map(p => ((lang === 'ro' ? p.title_ro : p.title_en) || '').slice(0, 44))
+      return titles.map((t, i) => ({ start: (dur / Math.max(1, titles.length)) * i, title: t }))
+    }
+    const parts = [sections.greeting, ...sections.stories.map(s => s.text), sections.signoff].filter(Boolean)
+    const wc = parts.map(p => p.split(/\s+/).length); const total = wc.reduce((a, b) => a + b, 0) || 1
+    const out: { start: number; title: string }[] = []
+    let acc = sections.greeting ? wc[0] : 0
+    sections.stories.forEach((st, i) => {
+      let start = (acc / total) * dur
+      const probe = norm(st.text).split(' ').slice(0, 4).join(' ')
+      if (probe.length > 8) {
+        const hit = cueList.find(c => norm(c.text).includes(probe))
+        if (hit) start = hit.start
+      }
+      out.push({ start, title: st.lower_third || `Știrea ${i + 1}` })
+      acc += wc[(sections.greeting ? 1 : 0) + i]
+    })
+    return out
+  }
+
+  // Loudness: measure the voiceover's RMS and compute the gain that brings it
+  // to a social-standard speech level (~-16 LUFS ≈ 0.12 RMS), clamped, with a
+  // compressor downstream to stop clipping. Honest approximation, not a full
+  // ITU-R BS.1770 meter — but it ends the "too quiet on mobile" problem.
+  async function measureVoiceGain(ac: AudioContext, url: string): Promise<number> {
+    try {
+      const buf = await ac.decodeAudioData(await (await fetch(url)).arrayBuffer())
+      const ch = buf.getChannelData(0)
+      let sum = 0, n = 0
+      for (let i = 0; i < ch.length; i += 4) { sum += ch[i] * ch[i]; n++ }
+      const rms = Math.sqrt(sum / Math.max(1, n))
+      if (!rms || !Number.isFinite(rms)) return 1
+      return Math.min(4, Math.max(0.5, 0.12 / rms))
+    } catch { return 1 }
+  }
+
+  async function composeBulletin() {
+    if (!videoUrl) { setError('Generează întâi clipul cu prezentatorul (pasul 5).'); return }
+    setError(''); setCompositing(true); setCompPct(0); setBulletinUrl('')
+    try {
+      // Anchor clip.
+      const v = document.createElement('video')
+      v.crossOrigin = 'anonymous'; v.playsInline = true; v.preload = 'auto'; v.src = videoUrl
+      await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error('Nu am putut încărca clipul (CORS?).')) })
+      const dur = Math.min(300, Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 60)
+
+      // Captions from the voiceover (once) — segments + word timings.
+      let cueList = cues
+      let wordList = words
+      if (subsOn && (cueList.length === 0 || (capMode === 'karaoke' && wordList.length === 0)) && voUrl) {
+        try {
+          const r = await invokeRaw('align-subtitles', { audio_url: voUrl, language: lang })
+          if (Array.isArray(r.segments)) { cueList = r.segments as Cue[]; setCues(cueList) }
+          if (Array.isArray(r.words)) { wordList = r.words as Word[]; setWords(wordList) }
+        } catch { /* captions optional */ }
+      }
+      // Karaoke groups: chunks of ≤4 words / ≤26 chars, timed word-by-word.
+      const karaoke: { start: number; end: number; ws: Word[] }[] = []
+      if (capMode === 'karaoke' && wordList.length) {
+        let g: Word[] = []
+        const flush = () => { if (g.length) { karaoke.push({ start: g[0].start, end: g[g.length - 1].end, ws: g }); g = [] } }
+        for (const w of wordList) {
+          g.push(w)
+          const chars = g.reduce((a, x) => a + x.word.length + 1, 0)
+          if (g.length >= 4 || chars > 26 || /[.!?]$/.test(w.word)) flush()
+        }
+        flush()
+      }
+      const thirds = storyTimes(dur, cueList)
+      const tickerText = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean).join('   •   ')
+
+      const [W, H] = orient === '16:9' ? [1280, 720] : [720, 1280]
+      const canvas = canvasRef.current!
+      canvas.width = W; canvas.height = H
+      const ctx = canvas.getContext('2d')!
+      const total = INTRO + dur + OUTRO
+      const dateStr = new Date().toLocaleDateString(lang === 'ro' ? 'ro-RO' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+      // Audio: anchor clip audio → loudness gain → compressor → recorder.
+      const ac = new AudioContext()
+      const src = ac.createMediaElementSource(v)
+      const dest = ac.createMediaStreamDestination()
+      const gain = ac.createGain()
+      gain.gain.value = voUrl ? await measureVoiceGain(ac, voUrl) : 1
+      const comp = ac.createDynamicsCompressor()
+      comp.threshold.value = -6; comp.knee.value = 10; comp.ratio.value = 6
+      comp.attack.value = 0.003; comp.release.value = 0.25
+      src.connect(gain).connect(comp).connect(dest)
+      const stream = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()])
+      let mime = 'video/mp4'
+      if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp9,opus'
+      if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm'
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 })
+      const chunks: BlobPart[] = []
+      rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
+      const done = new Promise<Blob>(res => { rec.onstop = () => res(new Blob(chunks, { type: mime })) })
+
+      const isWide = orient === '16:9'
+      const band = isWide ? 64 : 72
+      const tick = isWide ? 54 : 62
+      // Layout boxes.
+      const win = isWide
+        ? { x: W * 0.515, y: band + 30, w: W * 0.45, h: H - band - tick - 60 }
+        : { x: 36, y: band + 26, w: W - 72, h: H * 0.5 }
+      const colX = isWide ? 48 : 40
+      const colW = isWide ? W * 0.44 : W - 80
+
+      const drawContent = (t: number) => {
+        const vt = t - INTRO
+        ctx.fillStyle = C.parchment; ctx.fillRect(0, 0, W, H)
+        // top band
+        ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, band)
+        ctx.fillStyle = C.crimson
+        ctx.font = `italic 700 ${isWide ? 30 : 28}px Lora, Georgia, serif`
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+        ctx.fillText('Transilvania Times', colX, band / 2)
+        ctx.fillStyle = C.gold; ctx.font = `600 ${isWide ? 13 : 12}px Inter, sans-serif`
+        ctx.textAlign = 'right'; ctx.fillText(dateStr, W - 28, band / 2)
+        // anchor window
+        ctx.save(); ctx.shadowColor = 'rgba(43,23,16,.35)'; ctx.shadowBlur = 26
+        ctx.fillStyle = C.ink; rr(ctx, win.x - 3, win.y - 3, win.w + 6, win.h + 6, 16); ctx.fill(); ctx.restore()
+        drawCoverInto(ctx, v, win.x, win.y, win.w, win.h)
+        // AI transparency badge
+        ctx.fillStyle = 'rgba(21,11,6,.66)'; rr(ctx, win.x + 10, win.y + win.h - 30, 198, 22, 4); ctx.fill()
+        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '600 11px Inter, sans-serif'; ctx.textAlign = 'left'
+        ctx.fillText('● Prezentator generat cu AI', win.x + 18, win.y + win.h - 19)
+        // left column: kicker + lower third
+        const cur = [...thirds].reverse().find(s => vt >= s.start) || thirds[0]
+        const idx = cur ? thirds.indexOf(cur) + 1 : 1
+        const colY = isWide ? band + 44 : win.y + win.h + 34
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+        ctx.fillStyle = C.crimson; ctx.font = '800 13px Inter, sans-serif'
+        ctx.fillText((lang === 'ro' ? 'BULETINUL ZILEI' : 'DAILY BULLETIN') + `  ·  ${idx}/${thirds.length}`, colX, colY)
+        ctx.fillStyle = C.ink; ctx.font = `600 ${isWide ? 40 : 36}px Lora, Georgia, serif`
+        let ty = colY + (isWide ? 48 : 44)
+        for (const ln of wrapText(ctx, cur?.title || '', colW).slice(0, 3)) { ctx.fillText(ln, colX, ty); ty += isWide ? 48 : 44 }
+        ctx.fillStyle = C.crimson; ctx.fillRect(colX, ty - (isWide ? 30 : 26), 84, 4)
+        // captions — classic (segment) or karaoke (word-by-word highlight)
+        if (subsOn) {
+          const cy0 = H - tick - 22
+          if (capMode === 'karaoke' && karaoke.length) {
+            const grp = karaoke.find(g => vt >= g.start && vt <= g.end + 0.12)
+            if (grp) {
+              ctx.font = `800 ${isWide ? 26 : 28}px Inter, sans-serif`; ctx.textBaseline = 'middle'
+              const gap = 10
+              const widths = grp.ws.map(w => ctx.measureText(w.word.toUpperCase()).width)
+              const totalW = widths.reduce((a, b) => a + b, 0) + gap * (grp.ws.length - 1)
+              const lh = isWide ? 40 : 44
+              ctx.fillStyle = 'rgba(21,11,6,.8)'; rr(ctx, W / 2 - totalW / 2 - 16, cy0 - lh / 2, totalW + 32, lh, 6); ctx.fill()
+              let x = W / 2 - totalW / 2
+              ctx.textAlign = 'left'
+              grp.ws.forEach((w, i) => {
+                const spoken = vt >= w.start
+                const active = vt >= w.start && vt <= w.end
+                ctx.fillStyle = active ? '#FFD37A' : spoken ? '#FFFFFF' : 'rgba(255,255,255,.42)'
+                ctx.fillText(w.word.toUpperCase(), x, cy0)
+                x += widths[i] + gap
+              })
+              ctx.textBaseline = 'alphabetic'
+            }
+          } else {
+            const cue = cueList.find(c => vt >= c.start && vt <= c.end)
+            if (cue) {
+              ctx.font = `700 ${isWide ? 22 : 24}px Inter, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+              const lines = wrapText(ctx, cue.text.trim(), W * 0.82).slice(0, 2)
+              const lh = isWide ? 32 : 36
+              let cy = cy0 - (lines.length - 1) * lh
+              for (const ln of lines) {
+                const tw = ctx.measureText(ln).width
+                ctx.fillStyle = 'rgba(21,11,6,.78)'; rr(ctx, W / 2 - tw / 2 - 14, cy - lh / 2, tw + 28, lh - 4, 5); ctx.fill()
+                ctx.fillStyle = '#fff'; ctx.fillText(ln, W / 2, cy); cy += lh
+              }
+              ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+            }
+          }
+        }
+        // ticker
+        if (tickerOn && tickerText) {
+          ctx.fillStyle = C.ink; ctx.fillRect(0, H - tick, W, tick)
+          ctx.fillStyle = C.crimson; ctx.fillRect(0, H - tick, isWide ? 110 : 96, tick)
+          ctx.fillStyle = '#fff'; ctx.font = '800 14px Inter, sans-serif'; ctx.textBaseline = 'middle'
+          ctx.fillText(lang === 'ro' ? 'ȘTIRI' : 'NEWS', 22, H - tick / 2)
+          ctx.font = '600 15px Inter, sans-serif'; ctx.fillStyle = 'rgba(243,231,206,.94)'
+          const speed = 110 // px/s
+          const loopW = ctx.measureText(tickerText).width + 240
+          const off = ((t * speed) % loopW)
+          ctx.save(); ctx.beginPath(); ctx.rect((isWide ? 110 : 96) + 8, H - tick, W, tick); ctx.clip()
+          ctx.fillText(tickerText, W - off, H - tick / 2)
+          ctx.fillText(tickerText, W - off + loopW, H - tick / 2)
+          ctx.restore()
+        }
+      }
+      const drawIntro = (t: number) => {
+        const a = Math.min(1, t / 0.7)
+        ctx.fillStyle = C.crimson; ctx.fillRect(0, 0, W, H)
+        ctx.globalAlpha = a
+        ctx.textAlign = 'center'
+        ctx.fillStyle = '#fff'; ctx.font = `italic 700 ${isWide ? 64 : 52}px Lora, Georgia, serif`; ctx.textBaseline = 'alphabetic'
+        ctx.fillText('Transilvania Times', W / 2, H / 2 - (isWide ? 20 : 30))
+        ctx.fillStyle = C.parchment; ctx.font = '800 16px Inter, sans-serif'
+        ctx.fillText((lang === 'ro' ? 'B U L E T I N U L   Z I L E I' : 'D A I L Y   B U L L E T I N'), W / 2, H / 2 + 34)
+        ctx.fillStyle = 'rgba(251,244,228,.75)'; ctx.font = '600 14px Inter, sans-serif'
+        ctx.fillText(dateStr, W / 2, H / 2 + 66)
+        ctx.globalAlpha = 1; ctx.textAlign = 'left'
+      }
+      const drawOutro = (t: number) => {
+        const a = Math.min(1, (t - INTRO - dur) / 0.5)
+        ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, H)
+        ctx.globalAlpha = a; ctx.textAlign = 'center'
+        ctx.fillStyle = C.crimson; ctx.font = `italic 700 ${isWide ? 54 : 46}px Lora, Georgia, serif`
+        ctx.fillText('Transilvania Times', W / 2, H / 2 - 46)
+        ctx.fillStyle = C.gold; ctx.font = '600 15px Inter, sans-serif'
+        ctx.fillText(lang === 'ro' ? 'Știri din inima Transilvaniei' : 'News from the heart of Transylvania', W / 2, H / 2 - 8)
+        ctx.fillStyle = '#fff'; ctx.font = '800 22px Inter, sans-serif'
+        ctx.fillText('transilvaniatimes.com', W / 2, H / 2 + 42)
+        ctx.fillStyle = 'rgba(243,231,206,.6)'; ctx.font = '600 12px Inter, sans-serif'
+        ctx.fillText(lang === 'ro' ? 'Buletin realizat cu asistență AI' : 'Bulletin produced with AI assistance', W / 2, H - 44)
+        ctx.globalAlpha = 1; ctx.textAlign = 'left'
+      }
+
+      rec.start(200)
+      const t0 = performance.now()
+      let started = false
+      await new Promise<void>(resolve => {
+        const loop = () => {
+          const t = (performance.now() - t0) / 1000
+          setCompPct(Math.min(99, Math.round((t / total) * 100)))
+          if (t < INTRO) drawIntro(t)
+          else if (t < INTRO + dur) {
+            if (!started) { started = true; ac.resume(); v.play().catch(() => {}) }
+            drawContent(t)
+          } else { v.pause(); drawOutro(t) }
+          if (t >= total) { resolve(); return }
+          requestAnimationFrame(loop)
+        }
+        loop()
+      })
+      rec.stop()
+      const blob = await done
+      ac.close()
+      setBulletinMime(mime); setBulletinUrl(URL.createObjectURL(blob)); setCompPct(100)
+
+      // Persist: upload + archive row (best-effort).
+      try {
+        const ext = mime.includes('mp4') ? 'mp4' : 'webm'
+        const path = `newsroom/bulletin-${Date.now()}.${ext}`
+        const { error: upErr } = await supabase.storage.from('studio-assets').upload(path, blob, { contentType: mime, upsert: false })
+        const publicUrl = upErr ? '' : supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
+        if (publicUrl) setBulletinPublicUrl(publicUrl)
+        const { data: row } = await db.from('newsroom_bulletins').insert({
+          language: lang, script, sections,
+          story_titles: posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || ''),
+          anchor_video_url: videoUrl, bulletin_video_url: publicUrl || null, voice_url: voUrl, status: 'rendered',
+        }).select('id').single()
+        if (row?.id) setSavedId(String(row.id))
+      } catch { /* archive optional */ }
+    } catch (e) {
+      setError('Compunerea a eșuat: ' + (e as Error).message)
+    } finally { setCompositing(false) }
+  }
+
+  // ── Publishing pack ──────────────────────────────────────────────────────
+  async function genCaptions() {
+    const titles = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean)
+    if (!titles.length) { setError('Selectează știrile mai întâi.'); return }
+    setError(''); setBusy('captions')
+    try {
+      const r = await invokeRaw('newsroom-anchor', { action: 'captions', language: lang, titles })
+      if (r.error) throw new Error(String(r.error))
+      setPack((r.captions as CaptionPack) || null)
+      setPackLinks((r.links as Record<string, string>) || {})
+      if (savedId) { try { await db.from('newsroom_bulletins').update({ captions: r.captions }).eq('id', savedId) } catch { /* ok */ } }
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  function downloadSrt() {
+    if (!cues.length) { setError('Nu există subtitrări încă — compune buletinul cu subtitrări active.'); return }
+    const pad = (n: number, l = 2) => String(n).padStart(l, '0')
+    const st = (t: number) => `${pad(Math.floor(t / 3600))}:${pad(Math.floor((t % 3600) / 60))}:${pad(Math.floor(t % 60))},${pad(Math.floor((t % 1) * 1000), 3)}`
+    const srt = cues.map((c, i) => `${i + 1}\n${st(c.start + INTRO)} --> ${st(c.end + INTRO)}\n${c.text.trim()}`).join('\n\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([srt], { type: 'text/plain' }))
+    a.download = 'buletin.srt'; a.click(); URL.revokeObjectURL(a.href)
+  }
+
+  async function makeThumbnail() {
+    if (!videoUrl) { setError('Generează întâi clipul cu prezentatorul.'); return }
+    setError(''); setBusy('thumb')
+    try {
+      const v = document.createElement('video')
+      v.crossOrigin = 'anonymous'; v.preload = 'auto'; v.src = videoUrl
+      await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error('Nu am putut încărca clipul.')) })
+      v.currentTime = Math.min(1.2, (v.duration || 2) / 2)
+      await new Promise<void>(res => { v.onseeked = () => res() })
+      const W = 1280, H = 720
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H
+      const ctx = cv.getContext('2d')!
+      ctx.fillStyle = C.parchment; ctx.fillRect(0, 0, W, H)
+      drawCoverInto(ctx, v, W * 0.52, 64, W * 0.44, H - 128)
+      ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, 58)
+      ctx.fillStyle = C.crimson; ctx.font = 'italic 700 28px Lora, Georgia, serif'; ctx.textBaseline = 'middle'
+      ctx.fillText('Transilvania Times', 44, 29)
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillStyle = C.crimson; ctx.font = '800 15px Inter, sans-serif'
+      ctx.fillText(lang === 'ro' ? 'BULETINUL ZILEI' : 'DAILY BULLETIN', 44, 130)
+      const headline = sections?.stories?.[0]?.lower_third || posts.filter(p => sel.has(p.id)).map(p => p.title_ro || '')[0] || ''
+      ctx.fillStyle = C.ink; ctx.font = '600 52px Lora, Georgia, serif'
+      let y = 196
+      for (const ln of wrapText(ctx, headline, W * 0.46).slice(0, 4)) { ctx.fillText(ln, 44, y); y += 62 }
+      ctx.fillStyle = C.crimson; ctx.fillRect(44, y - 34, 96, 5)
+      ctx.fillStyle = C.sepia; ctx.font = '600 17px Inter, sans-serif'
+      ctx.fillText('transilvaniatimes.com', 44, H - 52)
+      const blob: Blob | null = await new Promise(res => cv.toBlob(res, 'image/png'))
+      if (!blob) throw new Error('Thumbnail eșuat.')
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob); a.download = 'buletin-thumbnail.png'; a.click(); URL.revokeObjectURL(a.href)
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  const copy = (t: string) => { navigator.clipboard?.writeText(t).catch(() => {}) }
+
+  // ── Direct publishing (publish-social) ──────────────────────────────────
+  function publishVideoUrl(): string { return bulletinPublicUrl || videoUrl }
+  async function publishTo(platform: 'facebook' | 'instagram' | 'youtube') {
+    const video = publishVideoUrl()
+    if (!video) { setError('Compune sau generează întâi un video.'); return }
+    if (bulletinPublicUrl && bulletinMime && !bulletinMime.includes('mp4')) {
+      setPubMsg(m => ({ ...m, [platform]: 'Buletinul e WebM — platformele cer MP4. Folosește Chrome pentru compunere.' })); return
+    }
+    const titles = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean)
+    const tags = (pack?.hashtags || []).map(h => h.replace(/^#/, ''))
+    setError(''); setPubBusy(platform); setPubMsg(m => ({ ...m, [platform]: '' }))
+    try {
+      if (platform === 'facebook') {
+        const description = (pack?.facebook || titles.join(' · ')) + (packLinks.facebook ? `\n\n${packLinks.facebook}` : '')
+        const r = await invokeRaw('publish-social', { action: 'facebook', video_url: video, description })
+        if (r.error) throw new Error(String(r.error))
+        setPubMsg(m => ({ ...m, facebook: '✓ Postat pe pagina de Facebook.' }))
+      } else if (platform === 'instagram') {
+        const caption = (pack?.instagram || titles.join(' · ')) + (pack?.hashtags?.length ? `\n\n${pack.hashtags.map(h => h.startsWith('#') ? h : '#' + h).join(' ')}` : '')
+        const r = await invokeRaw('publish-social', { action: 'instagram', video_url: video, caption })
+        if (r.error) throw new Error(String(r.error))
+        const creationId = String(r.creation_id || '')
+        setPubMsg(m => ({ ...m, instagram: 'Instagram procesează clipul…' }))
+        for (let i = 0; i < 40; i++) {
+          await sleep(4000)
+          const st = await invokeRaw('publish-social', { action: 'instagram_status', creation_id: creationId })
+          const code = String(st.status_code || '')
+          if (code === 'FINISHED') break
+          if (code === 'ERROR') throw new Error('Instagram a respins clipul: ' + String(st.status || ''))
+          if (i === 39) throw new Error('Instagram procesează prea mult — reîncearcă publicarea.')
+        }
+        const pr = await invokeRaw('publish-social', { action: 'instagram_publish', creation_id: creationId })
+        if (pr.error) throw new Error(String(pr.error))
+        setPubMsg(m => ({ ...m, instagram: '✓ Publicat ca Reel pe Instagram.' }))
+      } else {
+        const r = await invokeRaw('publish-social', {
+          action: 'youtube', video_url: video,
+          title: pack?.youtube_title || `Buletinul zilei — Transilvania Times`,
+          description: (pack?.youtube_description || titles.join('\n')) + (packLinks.youtube ? `\n\n${packLinks.youtube}` : ''),
+          tags, privacy: 'public', language: lang,
+        })
+        if (r.error) throw new Error(String(r.error))
+        setPubMsg(m => ({ ...m, youtube: `✓ Urcat pe YouTube${r.url ? `: ${r.url}` : ''}` }))
+      }
+    } catch (e) {
+      setPubMsg(m => ({ ...m, [platform]: '✗ ' + (e as Error).message }))
+    } finally { setPubBusy('') }
+  }
+
+  const stepDone = {
+    1: sel.size > 0, 2: !!script.trim(), 3: !!voUrl,
+    4: hgConfigured ? (mode === 'avatar' ? !!avatarId : !!photoId) : !!anchorImg,
+  }
+  const working = ['se trimite', 'pending', 'waiting', 'processing'].includes(videoStatus)
+
+  const Step = ({ n, icon: Icon, title, done, children }: { n: number; icon: typeof Tv; title: string; done: boolean; children: React.ReactNode }) => (
+    <div className="bg-[#1a1a1a] border border-white/[0.07]">
+      <div className="px-5 py-3.5 border-b border-white/[0.07] flex items-center gap-3">
+        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${done ? 'bg-green-500/20 text-green-400' : 'bg-brand-red text-white'}`}>
+          {done ? <CheckCircle2 className="w-4 h-4" /> : n}
+        </span>
+        <Icon className="w-4 h-4 text-white/50" />
+        <h2 className="font-sans text-[13px] font-bold text-white uppercase tracking-widest">{title}</h2>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  )
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="font-serif text-2xl font-bold text-white flex items-center gap-2">
+          <Tv className="w-5 h-5 text-brand-red" /> Newsroom
+        </h1>
+        <p className="font-sans text-[13px] text-white/40 mt-1">
+          Buletinul zilei cu prezentator AI — știri → script → voce naturală → lipsync → MP4
+        </p>
+      </div>
+
+      {hgConfigured === false && !falConfigured && (
+        <div className="mb-5 flex items-start gap-2 text-[12.5px] text-amber-300/90 bg-amber-400/10 border border-amber-400/20 p-3">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>Pașii 1–3 funcționează (script + voce). Pentru videoul cu prezentator, adaugă <b>FAL_KEY</b> (credite preplătite, fără abonament — motorul liber SadTalker) sau <b>HEYGEN_API_KEY</b> (premium) în secretele funcției newsroom-anchor.</span>
+        </div>
+      )}
+      {hgConfigured === false && falConfigured && (
+        <div className="mb-5 flex items-start gap-2 text-[12.5px] text-sky-300/90 bg-sky-400/10 border border-sky-400/20 p-3">
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>Motor activ: <b>stack liber</b> — voce Gemini (gratuit) + lipsync SadTalker prin fal (bani doar per video, câțiva cenți; fără abonament).</span>
+        </div>
+      )}
+      {error && (
+        <div className="mb-5 flex items-start gap-2 text-[12.5px] text-red-400 bg-red-400/10 border border-red-400/20 p-3">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span>
+        </div>
+      )}
+
+      <div className="space-y-5 max-w-3xl">
+        <Step n={1} icon={Newspaper} title="Știrile zilei" done={stepDone[1]}>
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <select value={lang} onChange={e => setLang(e.target.value as 'ro' | 'en')} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+              <option value="ro">Română</option><option value="en">English</option>
+            </select>
+            <select value={target} onChange={e => setTarget(Number(e.target.value))} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+              <option value={45}>~45s</option><option value={75}>~75s</option><option value={110}>~110s</option>
+            </select>
+            <span className="text-[11px] text-white/40">{sel.size} selectate · ultimele 24h</span>
+          </div>
+          {posts.length === 0 && <p className="text-[13px] text-white/30">Nicio știre publicată în ultimele 24h.</p>}
+          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+            {posts.map(p => (
+              <label key={p.id} className="flex items-start gap-2.5 text-[13px] text-white/80 cursor-pointer bg-[#111] border border-white/[0.05] px-3 py-2 hover:border-white/20">
+                <input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} className="mt-1" />
+                <span className="leading-snug">{(lang === 'ro' ? p.title_ro : p.title_en) || p.title_ro || p.title_en}
+                  <span className="block text-[10.5px] text-white/30 uppercase mt-0.5">{p.category}</span></span>
+              </label>
+            ))}
+          </div>
+        </Step>
+
+        <Step n={2} icon={FileText} title="Scriptul prezentatorului" done={stepDone[2]}>
+          <button onClick={genScript} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50 mb-3">
+            {busy === 'script' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Scrie scriptul din știrile selectate
+          </button>
+          <textarea value={script} onChange={e => setScript(e.target.value)} rows={8} placeholder="Scriptul apare aici — editează-l liber înainte de voce…"
+            className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[13px] p-3 resize-y focus:outline-none focus:border-brand-red/60" />
+          {scriptModel && <p className="text-[10.5px] text-white/30 mt-1.5">scris de {scriptModel} · editabil integral</p>}
+        </Step>
+
+        <Step n={3} icon={Mic} title="Vocea" done={stepDone[3]}>
+          <div className="flex items-center gap-2 flex-wrap">
+            {elConfigured ? (
+              <>
+                <select value={voiceId} onChange={e => setVoiceId(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[180px]">
+                  {elVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.category === 'cloned' ? '👤 ' : ''}{v.name}</option>)}
+                </select>
+                <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                  {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+                </select>
+              </>
+            ) : (
+              <>
+                <select value={geminiVoice} onChange={e => setGeminiVoice(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                  {['Charon','Orus','Puck','Kore','Zephyr','Leda'].map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+                <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                  {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+                </select>
+                <span className="text-[10.5px] text-sky-300/70">Gemini · natural · gratuit</span>
+              </>
+            )}
+            <button onClick={genVoice} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+              {busy === 'voice' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />} Generează vocea
+            </button>
+          </div>
+          {voUrl && <audio src={voUrl} controls className="w-full mt-3 h-9" />}
+        </Step>
+
+        <Step n={4} icon={User} title="Prezentatorul" done={stepDone[4]}>
+          {!hgConfigured && falConfigured && (
+            <div className="space-y-3">
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => genAnchorPortrait('f')} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+                  {busy === 'portrait' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează prezentatoare AI
+                </button>
+                <button onClick={() => genAnchorPortrait('m')} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+                  {busy === 'portrait' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează prezentator AI
+                </button>
+              </div>
+              <div className="space-y-2 max-w-md border-t border-white/[0.07] pt-3">
+                <label className="flex items-center gap-2 text-[11.5px] text-white/60 cursor-pointer">
+                  <input type="checkbox" checked={anchorIsReal} onChange={e => setAnchorIsReal(e.target.checked)} />
+                  Fotografia este a unei persoane reale (eu sau un editor)
+                </label>
+                {anchorIsReal && (
+                  <>
+                    <input value={photoPerson} onChange={e => setPhotoPerson(e.target.value)} placeholder="A cui este fața? (persoana reală)"
+                      className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-3 py-2" />
+                    <label className="flex items-start gap-2 text-[11.5px] text-white/60 cursor-pointer leading-snug">
+                      <input type="checkbox" checked={photoConsent} onChange={e => setPhotoConsent(e.target.checked)} className="mt-0.5" />
+                      <span><ShieldCheck className="w-3 h-3 inline mr-1" />Confirm <b>acordul explicit</b> al persoanei.</span>
+                    </label>
+                  </>
+                )}
+                <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-2 cursor-pointer hover:border-white/20 w-fit">
+                  {busy === 'photo' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Sau încarcă portret (frontal, gura închisă)
+                  <input type="file" accept="image/*" hidden onChange={e => uploadPhoto(e.target.files?.[0])} />
+                </label>
+              </div>
+              {anchorImg && (
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={anchorImg} alt="Prezentator" className="w-24 h-24 object-cover border border-white/[0.07]" />
+                  <p className="text-[11px] text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Portret pregătit — SadTalker îl va anima cu lipsync.</p>
+                </div>
+              )}
+            </div>
+          )}
+          {hgConfigured && <>
+          <div className="flex gap-2 mb-4">
+            <button onClick={() => setMode('avatar')} className={'px-3 py-1.5 text-[12px] border ' + (mode === 'avatar' ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>Prezentator AI (stoc)</button>
+            <button onClick={() => setMode('photo')} className={'px-3 py-1.5 text-[12px] border ' + (mode === 'photo' ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>Fotografia mea / a unui editor</button>
+          </div>
+          {mode === 'avatar' && (
+            avatars.length > 0 ? (
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-56 overflow-y-auto pr-1">
+                {avatars.map(a => (
+                  <button key={a.avatar_id} onClick={() => setAvatarId(a.avatar_id)}
+                    className={'border overflow-hidden ' + (avatarId === a.avatar_id ? 'border-brand-red' : 'border-white/[0.07] hover:border-white/30')}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={a.preview_image_url} alt={a.avatar_name} className="w-full aspect-square object-cover" />
+                    <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.avatar_name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : <p className="text-[12.5px] text-white/30">{hgConfigured ? 'Se încarcă prezentatorii…' : 'Configurează HeyGen ca să vezi prezentatorii.'}</p>
+          )}
+          {mode === 'photo' && (
+            <div className="space-y-2 max-w-md">
+              <input value={photoPerson} onChange={e => setPhotoPerson(e.target.value)} placeholder="A cui este fața? (persoana reală)"
+                className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-3 py-2" />
+              <label className="flex items-start gap-2 text-[11.5px] text-white/60 cursor-pointer leading-snug">
+                <input type="checkbox" checked={photoConsent} onChange={e => setPhotoConsent(e.target.checked)} className="mt-0.5" />
+                <span><ShieldCheck className="w-3 h-3 inline mr-1" />Confirm că persoana și-a dat <b>acordul explicit</b> ca fața ei să prezinte buletinul. Fără acord, încărcarea este refuzată.</span>
+              </label>
+              <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-2 cursor-pointer hover:border-white/20 w-fit">
+                {busy === 'photo' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Încarcă portret (frontal, lumină bună)
+                <input type="file" accept="image/*" hidden onChange={e => uploadPhoto(e.target.files?.[0])} />
+              </label>
+              {photoId && <p className="text-[11px] text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Fotografie acceptată de HeyGen.</p>}
+            </div>
+          )}
+          </>}
+        </Step>
+
+        <Step n={5} icon={Film} title="Videoul" done={!!videoUrl}>
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            {(['16:9', '9:16'] as const).map(o => (
+              <button key={o} onClick={() => setOrient(o)} className={'px-3 py-1.5 text-[12px] border ' + (orient === o ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>{o === '16:9' ? '16:9 · YouTube/FB' : '9:16 · Reels/TikTok'}</button>
+            ))}
+            <button onClick={genVideo} disabled={working || (hgConfigured === false && !falConfigured)} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+              {working ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {videoStatus}…</> : <><Film className="w-3.5 h-3.5" /> Generează buletinul</>}
+            </button>
+            {working && <button onClick={() => setVideoStatus('')} className="text-white/30 hover:text-white"><RefreshCw className="w-3.5 h-3.5" /></button>}
+          </div>
+          {working && <p className="text-[11px] text-white/40">{hgConfigured ? 'HeyGen' : 'SadTalker (fal)'} randează lipsync-ul — de obicei 1–4 minute. Poți lăsa pagina deschisă.</p>}
+          {!hgConfigured && falConfigured && <p className="text-[10.5px] text-white/30 mb-2">Motorul liber livrează formatul portretului (pătrat/portret). 9:16/16:9 exacte sunt disponibile pe motorul premium.</p>}
+          {videoUrl && (
+            <div className="border border-white/[0.07] max-w-md">
+              <video src={videoUrl} controls className="w-full" />
+              <a href={videoUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black">
+                <Download className="w-3.5 h-3.5" /> Descarcă clipul brut
+              </a>
+            </div>
+          )}
+        </Step>
+
+        {/* ── STEP 6 · BROADCAST ─────────────────────────────────────────── */}
+        <Step n={6} icon={Clapperboard} title="Buletin TV — cadru brand-uit" done={!!bulletinUrl}>
+          <p className="text-[12px] text-white/40 mb-3 leading-relaxed">
+            Îmbracă clipul brut în formatul de emisie TT: intro brand-uit, fereastră de prezentator,
+            burtiere pe fiecare știre, subtitrări arse (feed-urile rulează pe mut), ticker cu titlurile
+            zilei și endcard cu CTA. Gratuit, în browser.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap mb-3">
+            <label className="flex items-center gap-1.5 text-[12px] text-white/60 cursor-pointer">
+              <input type="checkbox" checked={subsOn} onChange={e => setSubsOn(e.target.checked)} /> subtitrări arse
+            </label>
+            <select value={capMode} onChange={e => setCapMode(e.target.value as 'clasic' | 'karaoke')} disabled={!subsOn}
+              className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 disabled:opacity-40">
+              <option value="karaoke">karaoke · cuvânt cu cuvânt</option>
+              <option value="clasic">clasic · pe replici</option>
+            </select>
+            <label className="flex items-center gap-1.5 text-[12px] text-white/60 cursor-pointer">
+              <input type="checkbox" checked={tickerOn} onChange={e => setTickerOn(e.target.checked)} /> ticker cu titluri
+            </label>
+            <button onClick={composeBulletin} disabled={compositing || !videoUrl} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+              {compositing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Compun… {compPct}%</> : <><Clapperboard className="w-3.5 h-3.5" /> Compune buletinul TV</>}
+            </button>
+          </div>
+          {compositing && <p className="text-[11px] text-white/40">Randare în timp real (~durata clipului + 6s). Ține fila deschisă și în prim-plan.</p>}
+          <canvas ref={canvasRef} className="w-full max-w-md bg-black border border-white/[0.07]" style={{ display: compositing || bulletinUrl ? 'block' : 'none' }} />
+          {bulletinUrl && (
+            <div className="border border-white/[0.07] max-w-md mt-3">
+              <video src={bulletinUrl} controls className="w-full" />
+              <a href={bulletinUrl} download={`buletin-tt.${bulletinMime.includes('mp4') ? 'mp4' : 'webm'}`}
+                className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black">
+                <Download className="w-3.5 h-3.5" /> Descarcă buletinul {bulletinMime.includes('mp4') ? 'MP4' : 'WebM'}
+              </a>
+            </div>
+          )}
+        </Step>
+
+        {/* ── STEP 7 · PUBLISHING PACK ───────────────────────────────────── */}
+        <Step n={7} icon={Share2} title="Pachet de publicare" done={!!pack}>
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            <button onClick={genCaptions} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+              {busy === 'captions' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Scrie caption-urile
+            </button>
+            <button onClick={makeThumbnail} disabled={!!busy || !videoUrl} className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold px-3 py-2 hover:border-brand-red/60 disabled:opacity-40">
+              {busy === 'thumb' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />} Thumbnail PNG
+            </button>
+            <button onClick={downloadSrt} disabled={!cues.length} className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold px-3 py-2 hover:border-brand-red/60 disabled:opacity-40">
+              <Download className="w-3.5 h-3.5" /> Subtitrări SRT
+            </button>
+          </div>
+          {pack && (
+            <div className="space-y-2">
+              {([['Facebook', pack.facebook, packLinks.facebook], ['Instagram', pack.instagram, packLinks.instagram], ['TikTok', pack.tiktok, packLinks.tiktok], ['YouTube · titlu', pack.youtube_title, ''], ['YouTube · descriere', pack.youtube_description, packLinks.youtube]] as const).map(([label, text, link]) => text ? (
+                <div key={label} className="bg-[#111] border border-white/[0.07] p-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10.5px] font-bold uppercase tracking-widest text-brand-red">{label}</span>
+                    <button onClick={() => copy(String(text) + (link ? `\n${link}` : ''))} className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white"><Copy className="w-3 h-3" /> copiază</button>
+                  </div>
+                  <p className="text-[12.5px] text-white/85 whitespace-pre-wrap leading-relaxed">{text}{link ? <span className="block text-sky-300/80 mt-1">{link}</span> : null}</p>
+                </div>
+              ) : null)}
+              {pack.hashtags?.length ? (
+                <div className="bg-[#111] border border-white/[0.07] p-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10.5px] font-bold uppercase tracking-widest text-brand-red">Hashtags</span>
+                    <button onClick={() => copy((pack.hashtags || []).map(h => h.startsWith('#') ? h : '#' + h).join(' '))} className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white"><Copy className="w-3 h-3" /> copiază</button>
+                  </div>
+                  <p className="text-[12.5px] text-sky-300/80">{(pack.hashtags || []).map(h => h.startsWith('#') ? h : '#' + h).join(' ')}</p>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* Direct publishing */}
+          <div className="mt-4 pt-4 border-t border-white/[0.07]">
+            <p className="text-[10.5px] font-bold uppercase tracking-widest text-white/40 mb-2">Publicare directă {publishVideoUrl() ? '' : '· generează întâi videoul'}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              {([['facebook', 'Facebook · pagină'], ['instagram', 'Instagram · Reel'], ['youtube', 'YouTube']] as const).map(([k, label]) => (
+                <button key={k} onClick={() => publishTo(k)}
+                  disabled={!!pubBusy || !pub[k] || !publishVideoUrl()}
+                  title={pub[k] ? '' : 'Neconfigurat — vezi README pentru chei'}
+                  className={'flex items-center gap-1.5 text-[12px] font-bold px-3 py-2 border disabled:opacity-40 ' + (pub[k] ? 'bg-brand-red text-white border-brand-red hover:bg-red-700' : 'bg-[#111] text-white/40 border-white/[0.07]')}>
+                  {pubBusy === k ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />} {label}{!pub[k] && ' · neconfigurat'}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10.5px] text-white/30 mt-2">Publică {bulletinPublicUrl ? 'buletinul TV compus' : 'clipul brut (compune buletinul pentru versiunea brand-uită)'}. Caption-urile generate mai sus se atașează automat.</p>
+            {(['facebook', 'instagram', 'youtube'] as const).map(k => pubMsg[k] ? (
+              <p key={k} className={'text-[11.5px] mt-1.5 break-words ' + (pubMsg[k].startsWith('✓') ? 'text-green-400' : pubMsg[k].startsWith('✗') ? 'text-red-400' : 'text-white/50')}>{pubMsg[k]}</p>
+            ) : null)}
+          </div>
+        </Step>
+
+        {/* ── ARCHIVE ────────────────────────────────────────────────────── */}
+        {past.length > 0 && (
+          <div className="bg-[#1a1a1a] border border-white/[0.07]">
+            <div className="px-5 py-3.5 border-b border-white/[0.07] flex items-center gap-3">
+              <Archive className="w-4 h-4 text-white/50" />
+              <h2 className="font-sans text-[13px] font-bold text-white uppercase tracking-widest">Buletine anterioare</h2>
+            </div>
+            <div className="divide-y divide-white/[0.05]">
+              {past.map(b => (
+                <div key={b.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[12px] text-white/80">{new Date(b.created_at).toLocaleDateString('ro-RO', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                    <p className="text-[11px] text-white/35 truncate">{(b.story_titles || []).slice(0, 3).join(' · ')}</p>
+                  </div>
+                  {(b.bulletin_video_url || b.anchor_video_url) && (
+                    <a href={b.bulletin_video_url || b.anchor_video_url || '#'} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-brand-red hover:underline shrink-0">Deschide →</a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
