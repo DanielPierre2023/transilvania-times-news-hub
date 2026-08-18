@@ -22,7 +22,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, FileText, Rss, MessageSquare,
   Mail, Users, Inbox, Settings, LogOut, Menu, X,
-  ChevronRight, Newspaper, PenLine, BarChart2, Share2, PieChart, Image as ImageIcon
+  ChevronRight, Newspaper, PenLine, BarChart2, Share2, PieChart, Image as ImageIcon, Clapperboard
 } from 'lucide-react'
 
 const NAV = [
@@ -41,6 +41,7 @@ const NAV = [
   { label: 'Observabilitate', href: '/admin/analytics',   icon: BarChart2 },
   { label: 'Mix editorial',   href: '/admin/content-mix', icon: PieChart },
   { label: 'Vizualuri',       href: '/admin/vizualuri',   icon: ImageIcon },
+  { label: 'Studio',          href: '/admin/studio',      icon: Clapperboard },
 ]
 
 // Routes under /admin/* that must NOT receive the admin chrome (sidebar,
