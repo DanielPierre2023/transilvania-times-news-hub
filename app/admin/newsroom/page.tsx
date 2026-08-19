@@ -348,14 +348,18 @@ export default function NewsroomPage() {
   }
 
   // Lower-third timing: proportional by word count, refined by Whisper cues.
-  function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string }[] {
+  function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string; category?: string | null }[] {
+    const selectedPosts = posts.filter(p => sel.has(p.id))
     if (!sections || !sections.stories.length) {
-      const titles = posts.filter(p => sel.has(p.id)).map(p => ((lang === 'ro' ? p.title_ro : p.title_en) || '').slice(0, 44))
-      return titles.map((t, i) => ({ start: (dur / Math.max(1, titles.length)) * i, title: t }))
+      return selectedPosts.map((p, i) => ({
+        start: (dur / Math.max(1, selectedPosts.length)) * i,
+        title: ((lang === 'ro' ? p.title_ro : p.title_en) || '').slice(0, 60),
+        category: p.category,
+      }))
     }
     const parts = [sections.greeting, ...sections.stories.map(s => s.text), sections.signoff].filter(Boolean)
     const wc = parts.map(p => p.split(/\s+/).length); const total = wc.reduce((a, b) => a + b, 0) || 1
-    const out: { start: number; title: string }[] = []
+    const out: { start: number; title: string; category?: string | null }[] = []
     let acc = sections.greeting ? wc[0] : 0
     sections.stories.forEach((st, i) => {
       let start = (acc / total) * dur
@@ -364,7 +368,7 @@ export default function NewsroomPage() {
         const hit = cueList.find(c => norm(c.text).includes(probe))
         if (hit) start = hit.start
       }
-      out.push({ start, title: st.lower_third || `Știrea ${i + 1}` })
+      out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: selectedPosts[i]?.category })
       acc += wc[(sections.greeting ? 1 : 0) + i]
     })
     return out
@@ -427,6 +431,7 @@ export default function NewsroomPage() {
       const ctx = canvas.getContext('2d')!
       const total = INTRO + dur + OUTRO
       const dateStr = new Date().toLocaleDateString(lang === 'ro' ? 'ro-RO' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      const clockBaseMs = Date.now()   // live-advancing clock baked into the ticker
 
       // Audio: anchor clip audio → loudness gain → compressor → recorder.
       const ac = new AudioContext()
@@ -450,62 +455,270 @@ export default function NewsroomPage() {
       const isWide = orient === '16:9'
       const band = isWide ? 64 : 72
       const tick = isWide ? 54 : 62
-      // Layout boxes.
-      const win = isWide
-        ? { x: W * 0.515, y: band + 30, w: W * 0.45, h: H - band - tick - 60 }
-        : { x: 36, y: band + 26, w: W - 72, h: H * 0.5 }
-      const colX = isWide ? 48 : 40
-      const colW = isWide ? W * 0.44 : W - 80
+      // ══ Refined broadcast graphics package ══════════════════════════════
+      // Full-bleed anchor; glass overlays with hairline bevels layered on top.
+      const marginX = isWide ? 46 : 28
+      const P = {
+        crimson: '#C8102E', crimsonDk: '#8f0a1f', cream: '#FBF4E4', gold: '#E7C982',
+        glass: 'rgba(11,14,22,0.82)', glassSolid: 'rgba(11,14,22,0.94)',
+        hair: 'rgba(255,255,255,0.14)', hairDim: 'rgba(255,255,255,0.06)',
+      }
+      const sc = isWide ? 1 : (W / 1080) * 1.0            // caption/label scale
+      const drawCoverFull = (vv: HTMLVideoElement) => {
+        const vw = vv.videoWidth || 16, vh = vv.videoHeight || 9
+        const vr = vw / vh, cr = W / H
+        let dw: number, dh: number
+        if (vr > cr) { dh = H; dw = H * vr } else { dw = W; dh = W / vr }
+        ctx.drawImage(vv, (W - dw) / 2, (H - dh) / 2, dw, dh)
+      }
+      // A glass panel with a subtle top inner-highlight and bottom shadow line.
+      const glass = (x: number, y: number, w: number, h: number, r: number, fill = P.glass) => {
+        ctx.save()
+        ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 6
+        ctx.fillStyle = fill; rr(ctx, x, y, w, h, r); ctx.fill()
+        ctx.restore()
+        ctx.save(); rr(ctx, x, y, w, h, r); ctx.clip()
+        ctx.strokeStyle = P.hair; ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(x + r, y + 0.5); ctx.lineTo(x + w - r, y + 0.5); ctx.stroke()
+        ctx.restore()
+      }
+      const spaced = (str: string, px: string, x: number, y: number, ls = 2) => {
+        ctx.save(); (ctx as unknown as { letterSpacing: string }).letterSpacing = `${ls}px`
+        ctx.font = px; ctx.fillText(str, x, y)
+        ;(ctx as unknown as { letterSpacing: string }).letterSpacing = '0px'; ctx.restore()
+      }
 
       const drawContent = (t: number) => {
         const vt = t - INTRO
-        ctx.fillStyle = C.parchment; ctx.fillRect(0, 0, W, H)
-        // top band
-        ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, band)
-        ctx.fillStyle = C.crimson
-        ctx.font = `italic 700 ${isWide ? 30 : 28}px Lora, Georgia, serif`
-        ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
-        ctx.fillText('Transilvania Times', colX, band / 2)
-        ctx.fillStyle = C.gold; ctx.font = `600 ${isWide ? 13 : 12}px Inter, sans-serif`
-        ctx.textAlign = 'right'; ctx.fillText(dateStr, W - 28, band / 2)
-        // anchor window
-        ctx.save(); ctx.shadowColor = 'rgba(43,23,16,.35)'; ctx.shadowBlur = 26
-        ctx.fillStyle = C.ink; rr(ctx, win.x - 3, win.y - 3, win.w + 6, win.h + 6, 16); ctx.fill(); ctx.restore()
-        drawCoverInto(ctx, v, win.x, win.y, win.w, win.h)
-        // AI transparency badge
-        ctx.fillStyle = 'rgba(21,11,6,.66)'; rr(ctx, win.x + 10, win.y + win.h - 30, 198, 22, 4); ctx.fill()
-        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '600 11px Inter, sans-serif'; ctx.textAlign = 'left'
-        ctx.fillText('● Prezentator generat cu AI', win.x + 18, win.y + win.h - 19)
-        // left column: kicker + lower third
+        // 1) anchor fills the whole frame
+        ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
+        drawCoverFull(v)
+        // 2) cinematic scrims + corner vignette so overlays read over any studio
+        const scrimH = H * 0.42
+        const scB = ctx.createLinearGradient(0, H - scrimH, 0, H)
+        scB.addColorStop(0, 'rgba(6,8,14,0)'); scB.addColorStop(1, 'rgba(6,8,14,0.85)')
+        ctx.fillStyle = scB; ctx.fillRect(0, H - scrimH, W, H)
+        const scT = ctx.createLinearGradient(0, 0, 0, band * 1.8)
+        scT.addColorStop(0, 'rgba(6,8,14,0.6)'); scT.addColorStop(1, 'rgba(6,8,14,0)')
+        ctx.fillStyle = scT; ctx.fillRect(0, 0, W, band * 1.8)
+        const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.max(W, H) * 0.75)
+        vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.28)')
+        ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H)
+
+        // 3) top brand bar — glass, logo mark, letter-spaced wordmark, date + AI tag
+        const bg = ctx.createLinearGradient(0, 0, 0, band)
+        bg.addColorStop(0, 'rgba(9,11,18,0.94)'); bg.addColorStop(1, 'rgba(9,11,18,0.80)')
+        ctx.fillStyle = bg; ctx.fillRect(0, 0, W, band)
+        ctx.fillStyle = P.hairDim; ctx.fillRect(0, band - 4, W, 1)
+        ctx.fillStyle = P.crimson; ctx.fillRect(0, band - 3, W, 3)
+        // logo mark
+        const mk = isWide ? 32 : 34, mkY = (band - mk) / 2
+        ctx.fillStyle = P.crimson; rr(ctx, marginX, mkY, mk, mk, 5); ctx.fill()
+        ctx.fillStyle = P.cream; ctx.font = `700 ${mk * 0.66}px Lora, Georgia, serif`
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText('T', marginX + mk / 2, mkY + mk / 2 + 1)
+        // wordmark
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = P.cream
+        spaced('TRANSILVANIA', `700 ${isWide ? 19 : 17}px Inter, sans-serif`, marginX + mk + 14, band / 2, 3)
+        const twm = (() => { ctx.save(); (ctx as unknown as { letterSpacing: string }).letterSpacing = '3px'; ctx.font = `700 ${isWide ? 19 : 17}px Inter, sans-serif`; const w = ctx.measureText('TRANSILVANIA').width; (ctx as unknown as { letterSpacing: string }).letterSpacing = '0px'; ctx.restore(); return w })()
+        ctx.fillStyle = P.crimson
+        spaced('TIMES', `700 ${isWide ? 19 : 17}px Inter, sans-serif`, marginX + mk + 14 + twm + 12, band / 2, 3)
+        // right cluster: date + AI edition tag with a divider
+        ctx.textAlign = 'right'; ctx.fillStyle = P.gold
+        ctx.font = `600 ${isWide ? 13 : 12}px Inter, sans-serif`
+        ctx.fillText(dateStr, W - marginX, band / 2)
+        const dW = ctx.measureText(dateStr).width
+        ctx.strokeStyle = P.hair; ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(W - marginX - dW - 16, band / 2 - 10); ctx.lineTo(W - marginX - dW - 16, band / 2 + 10); ctx.stroke()
+        ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(251,244,228,0.65)'
+        spaced('EDIȚIE AI', `700 ${isWide ? 11 : 10}px Inter, sans-serif`, W - marginX - dW - 28, band / 2, 2)
+
+        // 4) AI badge (glass pill, pulsing dot) — top-right under the bar
+        {
+          ctx.font = `600 ${11 * sc}px Inter, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'
+          const label = lang === 'ro' ? 'GENERAT CU AI' : 'AI-GENERATED'
+          const pad = 12 * sc, dot = 7 * sc
+          const lw = ctx.measureText(label).width
+          const pw = pad + dot + 7 * sc + lw + pad, ph = 24 * sc
+          const px = W - marginX - pw, py = band + 14
+          glass(px, py, pw, ph, ph / 2)
+          const pulse = 0.5 + 0.5 * Math.sin(t * 4)
+          ctx.fillStyle = P.crimson; ctx.globalAlpha = 0.5 + 0.5 * pulse
+          ctx.beginPath(); ctx.arc(px + pad + dot / 2, py + ph / 2, dot / 2, 0, 7); ctx.fill(); ctx.globalAlpha = 1
+          ctx.fillStyle = 'rgba(251,244,228,0.9)'
+          spaced(label, `600 ${11 * sc}px Inter, sans-serif`, px + pad + dot + 7 * sc, py + ph / 2 + 0.5, 1.5)
+        }
+
+        // 5) ticker — glass track, gradient tab, edge fades
+        if (tickerOn && tickerText) {
+          const trackBg = ctx.createLinearGradient(0, H - tick, 0, H)
+          trackBg.addColorStop(0, 'rgba(9,11,18,0.96)'); trackBg.addColorStop(1, 'rgba(7,9,14,0.98)')
+          ctx.fillStyle = trackBg; ctx.fillRect(0, H - tick, W, tick)
+          ctx.fillStyle = P.crimson; ctx.fillRect(0, H - tick, W, 2)
+          const tabW = isWide ? 128 : 108
+          const tabBg = ctx.createLinearGradient(0, H - tick, tabW, H)
+          tabBg.addColorStop(0, P.crimson); tabBg.addColorStop(1, P.crimsonDk)
+          ctx.fillStyle = tabBg; ctx.fillRect(0, H - tick, tabW, tick)
+          ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'
+          spaced(lang === 'ro' ? 'ȘTIRI' : 'NEWS', `800 ${15 * sc}px Inter, sans-serif`, 22, H - tick / 2, 2)
+          ctx.font = `800 ${15 * sc}px Inter, sans-serif`; ctx.fillText('›', tabW - 22, H - tick / 2)
+          // scrolling content (seamless), separated by gold diamonds
+          const content = tickerText.replace(/\s*·\s*/g, '   ◆   ')
+          // live clock box on the right
+          const clockW = isWide ? 104 : 92
+          const clockX = W - clockW
+          ctx.font = `600 ${15 * sc}px Inter, sans-serif`; ctx.fillStyle = 'rgba(243,231,206,.95)'
+          const loopW = ctx.measureText(content).width + 120
+          const off = ((t * 115) % loopW)
+          ctx.save(); ctx.beginPath(); ctx.rect(tabW + 10, H - tick, clockX - tabW - 20, tick); ctx.clip()
+          ctx.fillText(content, W - clockW - off, H - tick / 2)
+          ctx.fillText(content, W - clockW - off + loopW, H - tick / 2)
+          ctx.restore()
+          // edge fades
+          const fadeL = ctx.createLinearGradient(tabW, 0, tabW + 40, 0)
+          fadeL.addColorStop(0, 'rgba(8,10,16,1)'); fadeL.addColorStop(1, 'rgba(8,10,16,0)')
+          ctx.fillStyle = fadeL; ctx.fillRect(tabW, H - tick, 40, tick)
+          const fadeR = ctx.createLinearGradient(clockX - 40, 0, clockX, 0)
+          fadeR.addColorStop(0, 'rgba(8,10,16,0)'); fadeR.addColorStop(1, 'rgba(8,10,16,1)')
+          ctx.fillStyle = fadeR; ctx.fillRect(clockX - 40, H - tick, 40, tick)
+          // clock
+          const now = new Date(clockBaseMs + t * 1000)
+          const clockStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+          ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(clockX, H - tick, clockW, tick)
+          ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1
+          ctx.beginPath(); ctx.moveTo(clockX + 0.5, H - tick + 10); ctx.lineTo(clockX + 0.5, H - 10); ctx.stroke()
+          const dotPulse = 0.5 + 0.5 * Math.sin(t * 3)
+          ctx.fillStyle = P.crimson; ctx.globalAlpha = 0.5 + 0.5 * dotPulse
+          ctx.beginPath(); ctx.arc(clockX + 22, H - tick / 2, 4, 0, 7); ctx.fill(); ctx.globalAlpha = 1
+          ctx.fillStyle = P.cream; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+          ctx.font = `700 ${16 * sc}px Inter, sans-serif`
+          ctx.fillText(clockStr, clockX + 34, H - tick / 2)
+        }
+
+        // 6) lower-third — crimson kicker tab over a glass headline bar, wipe-in
         const cur = [...thirds].reverse().find(s => vt >= s.start) || thirds[0]
         const idx = cur ? thirds.indexOf(cur) + 1 : 1
-        const colY = isWide ? band + 44 : win.y + win.h + 34
-        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
-        ctx.fillStyle = C.crimson; ctx.font = '800 13px Inter, sans-serif'
-        ctx.fillText((lang === 'ro' ? 'BULETINUL ZILEI' : 'DAILY BULLETIN') + `  ·  ${idx}/${thirds.length}`, colX, colY)
-        ctx.fillStyle = C.ink; ctx.font = `600 ${isWide ? 40 : 36}px Lora, Georgia, serif`
-        let ty = colY + (isWide ? 48 : 44)
-        for (const ln of wrapText(ctx, cur?.title || '', colW).slice(0, 3)) { ctx.fillText(ln, colX, ty); ty += isWide ? 48 : 44 }
-        ctx.fillStyle = C.crimson; ctx.fillRect(colX, ty - (isWide ? 30 : 26), 84, 4)
-        // captions — classic (segment) or karaoke (word-by-word highlight)
+        const ltH = isWide ? 100 : 116
+        const gapT = isWide ? 22 : 26
+        const ltY = H - tick - gapT - ltH
+        const barX = marginX, barW = W - marginX * 2
+        const tabH = isWide ? 32 : 36, tabY = ltY - tabH + 3
+        const ap = Math.max(0, Math.min(1, (vt - (cur?.start || 0)) / 0.5))
+        const apE = 1 - Math.pow(1 - ap, 3)
+        const tabIn = Math.max(0, Math.min(1, (vt - (cur?.start || 0) - 0.12) / 0.4))
+        const txtIn = Math.max(0, Math.min(1, (vt - (cur?.start || 0) - 0.22) / 0.4))
+
+        // main bar (wipes open from the left)
+        ctx.save(); ctx.beginPath(); ctx.rect(barX, ltY - 4, barW * apE, ltH + 8); ctx.clip()
+        glass(barX, ltY, barW, ltH, 9, P.glassSolid)
+        // crimson left spine (gradient)
+        const spine = ctx.createLinearGradient(barX, ltY, barX, ltY + ltH)
+        spine.addColorStop(0, P.crimson); spine.addColorStop(1, P.crimsonDk)
+        ctx.fillStyle = spine; rr(ctx, barX, ltY, 7, ltH, 3); ctx.fill()
+        ctx.restore()
+
+        // headline (vertically centered, fades/rises in)
+        if (txtIn > 0) {
+          ctx.save(); ctx.globalAlpha = txtIn
+          ctx.translate(0, (1 - txtIn) * 10)
+          ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+          ctx.font = `700 ${isWide ? 34 : 30}px Lora, Georgia, serif`
+          const lines = wrapText(ctx, cur?.title || '', barW - 60).slice(0, 2)
+          const lh = isWide ? 40 : 36
+          const cyc = ltY + ltH / 2 + (isWide ? 6 : 5)
+          let yy = cyc - (lines.length - 1) * lh / 2
+          for (const ln of lines) { ctx.fillText(ln, barX + 26, yy); yy += lh }
+          ctx.restore()
+        }
+        // sweep of light across the bar as it reveals
+        if (ap > 0.1 && ap < 0.85) {
+          ctx.save(); ctx.beginPath(); rr(ctx, barX, ltY, barW, ltH, 9); ctx.clip()
+          ctx.globalCompositeOperation = 'lighter'
+          const sx = barX + (ap - 0.1) / 0.75 * (barW + 240) - 120
+          const gsw = ctx.createLinearGradient(sx - 120, 0, sx + 120, 0)
+          gsw.addColorStop(0, 'rgba(255,255,255,0)'); gsw.addColorStop(0.5, 'rgba(255,255,255,0.10)'); gsw.addColorStop(1, 'rgba(255,255,255,0)')
+          ctx.fillStyle = gsw; ctx.fillRect(sx - 120, ltY, 240, ltH); ctx.restore()
+        }
+        // kicker tab (drops in)
+        if (tabIn > 0) {
+          ctx.save(); ctx.globalAlpha = tabIn
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+          const kick = lang === 'ro' ? 'BULETINUL ZILEI' : 'DAILY BULLETIN'
+          ;(ctx as unknown as { letterSpacing: string }).letterSpacing = '2px'
+          ctx.font = `800 ${isWide ? 13 : 12}px Inter, sans-serif`
+          const kw = ctx.measureText(kick).width
+          ;(ctx as unknown as { letterSpacing: string }).letterSpacing = '0px'
+          const countTxt = `${idx}/${thirds.length}`
+          ctx.font = `700 ${isWide ? 12 : 11}px Inter, sans-serif`
+          const cwd = ctx.measureText(countTxt).width
+          const tabW = kw + 24 + cwd + 22
+          const tabgrad = ctx.createLinearGradient(barX, tabY, barX + tabW, tabY)
+          tabgrad.addColorStop(0, P.crimson); tabgrad.addColorStop(1, P.crimsonDk)
+          ctx.fillStyle = tabgrad
+          rr(ctx, barX, tabY - (1 - tabIn) * 6, tabW, tabH, 5); ctx.fill()
+          ctx.fillStyle = '#fff'
+          spaced(kick, `800 ${isWide ? 13 : 12}px Inter, sans-serif`, barX + 14, tabY + tabH / 2 - (1 - tabIn) * 6, 2)
+          // count pill
+          ctx.fillStyle = 'rgba(255,255,255,0.22)'
+          rr(ctx, barX + 14 + kw + 8, tabY + tabH / 2 - 9 - (1 - tabIn) * 6, cwd + 16, 18, 9); ctx.fill()
+          ctx.fillStyle = '#fff'; ctx.textAlign = 'center'
+          ctx.font = `700 ${isWide ? 12 : 11}px Inter, sans-serif`
+          ctx.fillText(countTxt, barX + 14 + kw + 8 + (cwd + 16) / 2, tabY + tabH / 2 + 0.5 - (1 - tabIn) * 6)
+          ctx.restore()
+        }
+
+        // 6b) segment timer along the bar bottom + category chip top-right
+        {
+          const nextStart = thirds[idx]?.start ?? dur
+          const segP = Math.max(0, Math.min(1, (vt - (cur?.start || 0)) / Math.max(0.6, nextStart - (cur?.start || 0))))
+          ctx.save(); ctx.globalAlpha = apE
+          ctx.fillStyle = 'rgba(255,255,255,0.10)'; rr(ctx, barX + 14, ltY + ltH - 5, barW - 28, 3, 1.5); ctx.fill()
+          const pw = (barW - 28) * segP
+          if (pw > 2) {
+            const pg = ctx.createLinearGradient(barX, 0, barX + barW, 0)
+            pg.addColorStop(0, P.crimson); pg.addColorStop(1, P.gold)
+            ctx.fillStyle = pg; rr(ctx, barX + 14, ltY + ltH - 5, pw, 3, 1.5); ctx.fill()
+          }
+          ctx.restore()
+          const cat = (cur?.category || '').toString().trim()
+          if (cat && tabIn > 0) {
+            ctx.save(); ctx.globalAlpha = tabIn
+            const label = cat.toUpperCase()
+            ctx.font = `800 ${isWide ? 12 : 11}px Inter, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'
+            ;(ctx as unknown as { letterSpacing: string }).letterSpacing = '1.5px'
+            const cw = ctx.measureText(label).width
+            ;(ctx as unknown as { letterSpacing: string }).letterSpacing = '0px'
+            const chipW = cw + 26, chipH = isWide ? 26 : 28
+            const chipX = barX + barW - chipW, chipY = tabY + (tabH - chipH) / 2 - (1 - tabIn) * 6
+            ctx.fillStyle = 'rgba(200,16,46,0.18)'; rr(ctx, chipX, chipY, chipW, chipH, chipH / 2); ctx.fill()
+            ctx.strokeStyle = 'rgba(231,201,130,0.85)'; ctx.lineWidth = 1; rr(ctx, chipX, chipY, chipW, chipH, chipH / 2); ctx.stroke()
+            ctx.fillStyle = P.gold
+            spaced(label, `800 ${isWide ? 12 : 11}px Inter, sans-serif`, chipX + 13, chipY + chipH / 2 + 0.5, 1.5)
+            ctx.restore()
+          }
+        }
+
+        // 7) captions above the lower-third — glass pill, active-word glow
         if (subsOn) {
-          const cy0 = H - tick - 22
+          const cy0 = tabY - (isWide ? 26 : 30)
           if (capMode === 'karaoke' && karaoke.length) {
             const grp = karaoke.find(g => vt >= g.start && vt <= g.end + 0.12)
             if (grp) {
-              ctx.font = `800 ${isWide ? 26 : 28}px Inter, sans-serif`; ctx.textBaseline = 'middle'
-              const gap = 10
+              ctx.font = `800 ${(isWide ? 26 : 27) * (isWide ? 1 : 1)}px Inter, sans-serif`; ctx.textBaseline = 'middle'
+              const gap = 11
               const widths = grp.ws.map(w => ctx.measureText(w.word.toUpperCase()).width)
               const totalW = widths.reduce((a, b) => a + b, 0) + gap * (grp.ws.length - 1)
-              const lh = isWide ? 40 : 44
-              ctx.fillStyle = 'rgba(21,11,6,.8)'; rr(ctx, W / 2 - totalW / 2 - 16, cy0 - lh / 2, totalW + 32, lh, 6); ctx.fill()
+              const lh = isWide ? 42 : 46
+              glass(W / 2 - totalW / 2 - 20, cy0 - lh / 2, totalW + 40, lh, 8)
               let x = W / 2 - totalW / 2
               ctx.textAlign = 'left'
               grp.ws.forEach((w, i) => {
                 const spoken = vt >= w.start
                 const active = vt >= w.start && vt <= w.end
-                ctx.fillStyle = active ? '#FFD37A' : spoken ? '#FFFFFF' : 'rgba(255,255,255,.42)'
+                if (active) { ctx.save(); ctx.shadowColor = 'rgba(231,201,130,0.9)'; ctx.shadowBlur = 16 }
+                ctx.fillStyle = active ? P.gold : spoken ? '#FFFFFF' : 'rgba(255,255,255,.40)'
                 ctx.fillText(w.word.toUpperCase(), x, cy0)
+                if (active) ctx.restore()
                 x += widths[i] + gap
               })
               ctx.textBaseline = 'alphabetic'
@@ -513,33 +726,18 @@ export default function NewsroomPage() {
           } else {
             const cue = cueList.find(c => vt >= c.start && vt <= c.end)
             if (cue) {
-              ctx.font = `700 ${isWide ? 22 : 24}px Inter, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-              const lines = wrapText(ctx, cue.text.trim(), W * 0.82).slice(0, 2)
-              const lh = isWide ? 32 : 36
+              ctx.font = `600 ${isWide ? 23 : 24}px Inter, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+              const lines = wrapText(ctx, cue.text.trim(), W * 0.74).slice(0, 2)
+              const lh = isWide ? 34 : 38
               let cy = cy0 - (lines.length - 1) * lh
               for (const ln of lines) {
                 const tw = ctx.measureText(ln).width
-                ctx.fillStyle = 'rgba(21,11,6,.78)'; rr(ctx, W / 2 - tw / 2 - 14, cy - lh / 2, tw + 28, lh - 4, 5); ctx.fill()
+                glass(W / 2 - tw / 2 - 16, cy - lh / 2, tw + 32, lh - 4, 6)
                 ctx.fillStyle = '#fff'; ctx.fillText(ln, W / 2, cy); cy += lh
               }
               ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
             }
           }
-        }
-        // ticker
-        if (tickerOn && tickerText) {
-          ctx.fillStyle = C.ink; ctx.fillRect(0, H - tick, W, tick)
-          ctx.fillStyle = C.crimson; ctx.fillRect(0, H - tick, isWide ? 110 : 96, tick)
-          ctx.fillStyle = '#fff'; ctx.font = '800 14px Inter, sans-serif'; ctx.textBaseline = 'middle'
-          ctx.fillText(lang === 'ro' ? 'ȘTIRI' : 'NEWS', 22, H - tick / 2)
-          ctx.font = '600 15px Inter, sans-serif'; ctx.fillStyle = 'rgba(243,231,206,.94)'
-          const speed = 110 // px/s
-          const loopW = ctx.measureText(tickerText).width + 240
-          const off = ((t * speed) % loopW)
-          ctx.save(); ctx.beginPath(); ctx.rect((isWide ? 110 : 96) + 8, H - tick, W, tick); ctx.clip()
-          ctx.fillText(tickerText, W - off, H - tick / 2)
-          ctx.fillText(tickerText, W - off + loopW, H - tick / 2)
-          ctx.restore()
         }
       }
       // Cinematic broadcast open: dark stage → light streaks → forming wireframe
@@ -699,16 +897,48 @@ export default function NewsroomPage() {
       }
       const drawOutro = (t: number) => {
         const a = Math.min(1, (t - INTRO - dur) / 0.5)
-        ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, H)
-        ctx.globalAlpha = a; ctx.textAlign = 'center'
-        ctx.fillStyle = C.crimson; ctx.font = `italic 700 ${isWide ? 54 : 46}px Lora, Georgia, serif`
-        ctx.fillText('Transilvania Times', W / 2, H / 2 - 46)
-        ctx.fillStyle = C.gold; ctx.font = '600 15px Inter, sans-serif'
-        ctx.fillText(lang === 'ro' ? 'Știri din inima Transilvaniei' : 'News from the heart of Transylvania', W / 2, H / 2 - 8)
-        ctx.fillStyle = '#fff'; ctx.font = '800 22px Inter, sans-serif'
-        ctx.fillText('transilvaniatimes.com', W / 2, H / 2 + 42)
-        ctx.fillStyle = 'rgba(243,231,206,.6)'; ctx.font = '600 12px Inter, sans-serif'
-        ctx.fillText(lang === 'ro' ? 'Buletin realizat cu asistență AI' : 'Bulletin produced with AI assistance', W / 2, H - 44)
+        const e = 1 - Math.pow(1 - a, 3)
+        // cinematic navy stage (echoes the intro) with a crimson core glow
+        ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
+        const g = ctx.createRadialGradient(W / 2, H * 0.44, 0, W / 2, H / 2, Math.max(W, H) * 0.72)
+        g.addColorStop(0, '#111a2b'); g.addColorStop(0.5, '#0a1019'); g.addColorStop(1, '#05070c')
+        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H)
+        const rgl = ctx.createRadialGradient(W / 2, H * 0.40, 0, W / 2, H * 0.40, W * 0.42)
+        rgl.addColorStop(0, 'rgba(200,16,46,0.13)'); rgl.addColorStop(1, 'rgba(200,16,46,0)')
+        ctx.fillStyle = rgl; ctx.fillRect(0, 0, W, H)
+        const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.4, W / 2, H / 2, Math.max(W, H) * 0.75)
+        vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.42)')
+        ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H)
+
+        ctx.save(); ctx.globalAlpha = e; ctx.translate(0, (1 - e) * 14)
+        const cx = W / 2, cyc = H * 0.40
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        const big = isWide ? 62 : 52
+        ctx.fillStyle = P.cream; ctx.font = `800 ${big}px Inter, sans-serif`
+        letterSpacedC(ctx, 'TRANSILVANIA', big * 0.06, cx, cyc)
+        const small = big * 0.42
+        ctx.font = `600 ${small}px Inter, sans-serif`
+        const tw = measureSpacedC(ctx, 'T I M E S', small * 0.06)
+        const gap = tw / 2 + small * 0.9, ruleW = isWide ? W * 0.10 : W * 0.14
+        const rowY = cyc + big * 0.56
+        ctx.fillStyle = P.crimson
+        ctx.fillRect(cx - gap - ruleW, rowY - small * 0.06, ruleW, small * 0.12)
+        ctx.fillRect(cx + gap, rowY - small * 0.06, ruleW, small * 0.12)
+        ctx.fillStyle = P.cream; letterSpacedC(ctx, 'T I M E S', small * 0.06, cx, rowY)
+        ctx.fillStyle = P.gold; ctx.font = `600 ${isWide ? 17 : 16}px Inter, sans-serif`
+        ctx.fillText(lang === 'ro' ? 'Știri din inima Transilvaniei' : 'News from the heart of Transylvania', cx, cyc + big * 1.02)
+        // domain glass pill
+        ctx.font = `700 ${isWide ? 15 : 14}px Inter, sans-serif`
+        const dom = 'TRANSILVANIATIMES.COM'
+        const domW = ctx.measureText(dom).width + 48, pillY = cyc + big * 1.35
+        glass(cx - domW / 2, pillY, domW, 36, 18)
+        ctx.fillStyle = P.cream; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        spaced(dom, `700 ${isWide ? 15 : 14}px Inter, sans-serif`, cx, pillY + 18, 1.5)
+        ctx.restore()
+
+        ctx.globalAlpha = e; ctx.fillStyle = 'rgba(251,244,228,0.5)'
+        ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = `600 ${isWide ? 12 : 11}px Inter, sans-serif`
+        ctx.fillText(lang === 'ro' ? 'Buletin realizat cu asistență AI' : 'Bulletin produced with AI assistance', cx, H - 40)
         ctx.globalAlpha = 1; ctx.textAlign = 'left'
       }
 
@@ -777,38 +1007,95 @@ export default function NewsroomPage() {
     a.download = 'buletin.srt'; a.click(); URL.revokeObjectURL(a.href)
   }
 
-  async function makeThumbnail() {
-    if (!videoUrl) { setError('Generează întâi clipul cu prezentatorul.'); return }
-    setError(''); setBusy('thumb')
+  // Grab a poster frame from a video URL (CORS-safe). Returns null on any failure.
+  async function grabVideoFrame(srcUrl: string): Promise<HTMLVideoElement | null> {
     try {
       const v = document.createElement('video')
-      v.crossOrigin = 'anonymous'; v.preload = 'auto'; v.src = videoUrl
-      await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error('Nu am putut încărca clipul.')) })
-      v.currentTime = Math.min(1.2, (v.duration || 2) / 2)
-      await new Promise<void>(res => { v.onseeked = () => res() })
+      v.crossOrigin = 'anonymous'; v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = srcUrl
+      await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error('load')); setTimeout(() => rej(new Error('timeout')), 8000) })
+      v.currentTime = Math.min(1.4, (v.duration || 3) / 2)
+      await new Promise<void>((res) => { v.onseeked = () => res(); setTimeout(res, 2000) })
+      return v
+    } catch { return null }
+  }
+  function loadImage(srcUrl: string): Promise<HTMLImageElement | null> {
+    return new Promise((res) => {
+      const img = new Image(); img.crossOrigin = 'anonymous'
+      img.onload = () => res(img); img.onerror = () => res(null); img.src = srcUrl
+    })
+  }
+  function coverImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
+    const vr = (img.naturalWidth || 1) / (img.naturalHeight || 1), cr = w / h
+    let dw: number, dh: number
+    if (vr > cr) { dh = h; dw = h * vr } else { dw = w; dh = w / vr }
+    ctx.save(); rr(ctx, x, y, w, h, 14); ctx.clip()
+    ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh); ctx.restore()
+  }
+
+  // Thumbnail: always produces a PNG. Uses the best media available (composed
+  // bulletin → raw anchor clip → portrait) and falls back to a clean branded
+  // card if no media (or if the canvas would be tainted).
+  async function makeThumbnail() {
+    setError(''); setBusy('thumb')
+    try {
       const W = 1280, H = 720
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H
       const ctx = cv.getContext('2d')!
-      ctx.fillStyle = C.parchment; ctx.fillRect(0, 0, W, H)
-      drawCoverInto(ctx, v, W * 0.52, 64, W * 0.44, H - 128)
-      ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, 58)
-      ctx.fillStyle = C.crimson; ctx.font = 'italic 700 28px Lora, Georgia, serif'; ctx.textBaseline = 'middle'
-      ctx.fillText('Transilvania Times', 44, 29)
-      ctx.textBaseline = 'alphabetic'
-      ctx.fillStyle = C.crimson; ctx.font = '800 15px Inter, sans-serif'
-      ctx.fillText(lang === 'ro' ? 'BULETINUL ZILEI' : 'DAILY BULLETIN', 44, 130)
-      const headline = sections?.stories?.[0]?.lower_third || posts.filter(p => sel.has(p.id)).map(p => p.title_ro || '')[0] || ''
-      ctx.fillStyle = C.ink; ctx.font = '600 52px Lora, Georgia, serif'
-      let y = 196
-      for (const ln of wrapText(ctx, headline, W * 0.46).slice(0, 4)) { ctx.fillText(ln, 44, y); y += 62 }
-      ctx.fillStyle = C.crimson; ctx.fillRect(44, y - 34, 96, 5)
-      ctx.fillStyle = C.sepia; ctx.font = '600 17px Inter, sans-serif'
-      ctx.fillText('transilvaniatimes.com', 44, H - 52)
-      const blob: Blob | null = await new Promise(res => cv.toBlob(res, 'image/png'))
-      if (!blob) throw new Error('Thumbnail eșuat.')
+      const headline = sections?.stories?.[0]?.lower_third
+        || posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || p.title_ro)[0]
+        || (lang === 'ro' ? 'Buletinul zilei' : 'Daily bulletin')
+
+      // Try to obtain a media element (video frame or image), CORS-safe.
+      let media: HTMLVideoElement | HTMLImageElement | null = null
+      const vidSrc = bulletinUrl || bulletinPublicUrl || videoUrl
+      if (vidSrc) media = await grabVideoFrame(vidSrc)
+      if (!media && anchorImg) media = await loadImage(anchorImg)
+
+      const paint = (withMedia: boolean) => {
+        ctx.fillStyle = C.parchment; ctx.fillRect(0, 0, W, H)
+        let drew = false
+        if (withMedia && media) {
+          try {
+            if (media instanceof HTMLVideoElement) drawCoverInto(ctx, media, W * 0.52, 64, W * 0.44, H - 128)
+            else coverImage(ctx, media, W * 0.52, 64, W * 0.44, H - 128)
+            drew = true
+          } catch { drew = false }
+        }
+        const colW = drew ? W * 0.44 : W * 0.82
+        ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, 58)
+        ctx.fillStyle = C.crimson; ctx.font = 'italic 700 28px Lora, Georgia, serif'; ctx.textBaseline = 'middle'
+        ctx.fillText('Transilvania Times', 44, 29)
+        ctx.textBaseline = 'alphabetic'
+        ctx.fillStyle = C.crimson; ctx.font = '800 15px Inter, sans-serif'
+        ctx.fillText(lang === 'ro' ? 'BULETINUL ZILEI' : 'DAILY BULLETIN', 44, 130)
+        ctx.fillStyle = C.ink; ctx.font = `600 ${drew ? 52 : 64}px Lora, Georgia, serif`
+        let y = 196
+        for (const ln of wrapText(ctx, headline, colW).slice(0, 4)) { ctx.fillText(ln, 44, y); y += drew ? 62 : 76 }
+        ctx.fillStyle = C.crimson; ctx.fillRect(44, y - 34, 96, 5)
+        ctx.fillStyle = C.sepia; ctx.font = '600 17px Inter, sans-serif'
+        ctx.fillText('transilvaniatimes.com', 44, H - 52)
+        return drew
+      }
+
+      const exportPng = async (): Promise<Blob> => {
+        const b: Blob | null = await new Promise(res => cv.toBlob(res, 'image/png'))
+        if (b) return b
+        // toBlob can return null; try data URL, which also throws if tainted.
+        const dataUrl = cv.toDataURL('image/png')
+        const bin = atob(dataUrl.split(',')[1]); const arr = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+        return new Blob([arr], { type: 'image/png' })
+      }
+
+      paint(true)
+      let blob: Blob
+      try { blob = await exportPng() }
+      catch { paint(false); blob = await exportPng() } // media tainted → clean branded card
+
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob); a.download = 'buletin-thumbnail.png'; a.click(); URL.revokeObjectURL(a.href)
-    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+      a.href = URL.createObjectURL(blob); a.download = 'buletin-thumbnail.png'; a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000)
+    } catch (e) { setError('Thumbnail: ' + (e as Error).message) } finally { setBusy('') }
   }
 
   const copy = (t: string) => { navigator.clipboard?.writeText(t).catch(() => {}) }
@@ -956,7 +1243,16 @@ export default function NewsroomPage() {
             ) : (
               <>
                 <select value={geminiVoice} onChange={e => setGeminiVoice(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
-                  {['Charon','Orus','Puck','Kore','Zephyr','Leda'].map(v => <option key={v} value={v}>{v}</option>)}
+                  {[
+                    { v: 'Charon', l: '♂ Charon · grav, autoritar' },
+                    { v: 'Orus',   l: '♂ Orus · cald, echilibrat' },
+                    { v: 'Fenrir', l: '♂ Fenrir · puternic' },
+                    { v: 'Puck',   l: '♂ Puck · tânăr, energic' },
+                    { v: 'Kore',   l: '♀ Kore · clară, profesională' },
+                    { v: 'Leda',   l: '♀ Leda · caldă' },
+                    { v: 'Zephyr', l: '♀ Zephyr · luminoasă' },
+                    { v: 'Aoede',  l: '♀ Aoede · expresivă' },
+                  ].map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
                 </select>
                 <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
                   {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
@@ -1112,7 +1408,7 @@ export default function NewsroomPage() {
             <button onClick={genCaptions} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
               {busy === 'captions' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Scrie caption-urile
             </button>
-            <button onClick={makeThumbnail} disabled={!!busy || !videoUrl} className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold px-3 py-2 hover:border-brand-red/60 disabled:opacity-40">
+            <button onClick={makeThumbnail} disabled={!!busy || (!videoUrl && !bulletinUrl && !anchorImg && sel.size === 0)} className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold px-3 py-2 hover:border-brand-red/60 disabled:opacity-40">
               {busy === 'thumb' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />} Thumbnail PNG
             </button>
             <button onClick={downloadSrt} disabled={!cues.length} className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold px-3 py-2 hover:border-brand-red/60 disabled:opacity-40">
