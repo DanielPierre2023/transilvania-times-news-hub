@@ -99,6 +99,7 @@ export default function NewsroomPage() {
   const [capMode, setCapMode] = useState<'clasic' | 'karaoke'>('karaoke')
   const [subsOn, setSubsOn] = useState(true)
   const [tickerOn, setTickerOn] = useState(true)
+  const [bedOn, setBedOn] = useState(true)          // subtle news bed under the voice
   const [bulletinPublicUrl, setBulletinPublicUrl] = useState('')
   const [pub, setPub] = useState<{ facebook: boolean; instagram: boolean; youtube: boolean }>({ facebook: false, instagram: false, youtube: false })
   const [pubBusy, setPubBusy] = useState('')
@@ -285,7 +286,7 @@ export default function NewsroomPage() {
     try {
       const body: Record<string, unknown> = elConfigured
         ? { text: script.trim(), voice_id: voiceId, tone, language: lang }
-        : { text: script.trim(), provider: 'gemini', gemini_voice: geminiVoice, tone, language: lang }
+        : { text: script.trim(), gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
       const r = await invokeRaw('generate-voiceover', body)
       if (r.error) throw new Error(String(r.error))
       setVoUrl(String(r.publicUrl || ''))
@@ -1155,7 +1156,54 @@ export default function NewsroomPage() {
 
       rec.start(200)
       await ac.resume().catch(() => {})   // ensure the clock runs during the (silent-video) intro
-      scheduleIntroSting(ac.currentTime + 0.1)
+      const acT0 = ac.currentTime + 0.1
+      scheduleIntroSting(acT0)
+      // News bed — a discreet broadcast underscore while the presenter talks:
+      // warm low pad (A2+E3) + the classic newsroom pulse, ~14 dB under the
+      // voice, fading in after the intro and dipping through the endcard.
+      if (bedOn) {
+        const bed = ac.createGain(); bed.gain.value = 0
+        bed.connect(dest); bed.connect(ac.destination)
+        const bT0 = acT0 + INTRO, bEnd = bT0 + dur
+        bed.gain.setValueAtTime(0, bT0)
+        bed.gain.linearRampToValueAtTime(0.34, bT0 + 1.4)
+        bed.gain.setValueAtTime(0.34, Math.max(bT0 + 1.4, bEnd - 1.0))
+        bed.gain.linearRampToValueAtTime(0.14, bEnd + 0.6)                 // dip under the endcard
+        bed.gain.setValueAtTime(0.14, bEnd + Math.max(0, OUTRO - 1.4))
+        bed.gain.linearRampToValueAtTime(0, bEnd + OUTRO - 0.15)
+        // pad: two detuned A2 + a fifth (E3) through a lowpass, slow breathing LFO
+        const padLp = ac.createBiquadFilter(); padLp.type = 'lowpass'; padLp.frequency.value = 420
+        const padG = ac.createGain(); padG.gain.value = 0.16
+        padLp.connect(padG); padG.connect(bed)
+        ;[110, 110.6, 164.8].forEach((f, i) => {
+          const o = ac.createOscillator(); o.type = i < 2 ? 'triangle' : 'sine'; o.frequency.value = f
+          const g = ac.createGain(); g.gain.value = i < 2 ? 0.10 : 0.06
+          o.connect(g); g.connect(padLp); o.start(bT0); o.stop(bEnd + OUTRO)
+        })
+        const lfo = ac.createOscillator(); lfo.frequency.value = 0.11
+        const lfoG = ac.createGain(); lfoG.gain.value = 0.05
+        lfo.connect(lfoG); lfoG.connect(padG.gain); lfo.start(bT0); lfo.stop(bEnd + OUTRO)
+        // pulse: 2-second looped buffer with the news "tick" pattern (efficient — one node)
+        const sr = ac.sampleRate
+        const pb = ac.createBuffer(1, Math.floor(sr * 2), sr)
+        const ch = pb.getChannelData(0)
+        const pluck = (at: number, freq: number, amp: number, decay: number) => {
+          const start = Math.floor(at * sr), len = Math.floor(decay * sr)
+          for (let i = 0; i < len && start + i < ch.length; i++) {
+            ch[start + i] += Math.sin(2 * Math.PI * freq * (i / sr)) * amp * Math.exp(-i / (sr * decay * 0.3))
+          }
+        }
+        pluck(0.0, 440, 0.16, 0.14)     // downbeat, lower
+        pluck(0.5, 660, 0.10, 0.10)
+        pluck(1.0, 660, 0.12, 0.10)
+        pluck(1.5, 660, 0.10, 0.10)
+        pluck(1.75, 880, 0.05, 0.07)    // light pickup into the next bar
+        const pulse = ac.createBufferSource(); pulse.buffer = pb; pulse.loop = true
+        const pulseG = ac.createGain(); pulseG.gain.value = 0.5
+        const pulseHp = ac.createBiquadFilter(); pulseHp.type = 'highpass'; pulseHp.frequency.value = 300
+        pulse.connect(pulseHp); pulseHp.connect(pulseG); pulseG.connect(bed)
+        pulse.start(bT0); pulse.stop(bEnd + OUTRO)
+      }
       const t0 = performance.now()
       let started = false
       await new Promise<void>(resolve => {
@@ -1470,7 +1518,7 @@ export default function NewsroomPage() {
                 <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
                   {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
                 </select>
-                <span className="text-[10.5px] text-sky-300/70">Gemini · natural · gratuit</span>
+                <span className="text-[10.5px] text-sky-300/70">auto: ElevenLabs prin fal (dacă ai FAL_KEY) › Gemini Pro › Flash — vocea aleasă setează genul</span>
               </>
             )}
             <button onClick={genVoice} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
@@ -1727,6 +1775,9 @@ export default function NewsroomPage() {
             </select>
             <label className="flex items-center gap-1.5 text-[12px] text-white/60 cursor-pointer">
               <input type="checkbox" checked={tickerOn} onChange={e => setTickerOn(e.target.checked)} /> ticker cu titluri
+            </label>
+            <label className="flex items-center gap-1.5 text-[11.5px] text-white/55 cursor-pointer">
+              <input type="checkbox" checked={bedOn} onChange={e => setBedOn(e.target.checked)} /> fundal sonor (news bed)
             </label>
             <label className="flex items-center gap-1.5 text-[11.5px] text-white/55">
               monitor imagine știre:
