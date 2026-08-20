@@ -323,7 +323,7 @@ export default function NewsroomPage() {
         title: (lang === 'ro' ? p.title_ro : p.title_en) || p.title_ro || p.title_en || '',
         summary: (lang === 'ro' ? p.summary_ro : p.summary_en) || '',
       }))
-      const r = await invokeRaw('newsroom-anchor', { action: 'script', language: lang, target_seconds: target, articles })
+      const r = await invokeRaw('newsroom-anchor', { action: 'script', language: lang, target_seconds: target, edition: edition || undefined, articles })
       if (r.error) throw new Error(String(r.error))
       const text = String(r.script || '')
       setScript(text); setScriptModel(String(r.model || ''))
@@ -539,43 +539,45 @@ export default function NewsroomPage() {
   }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone, presScale, presX, presY, deskLine, bedOn, voUrl, videoUrl])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
-  const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement } | null>(null)
-  const getKeyedFrame = useCallback(async (): Promise<HTMLCanvasElement | null> => {
-    const srcKey = anchorVideo || anchorImg
-    if (!srcKey) return null
-    if (keyedFrameRef.current?.key === srcKey) return keyedFrameRef.current.cv
-    const cv = document.createElement('canvas'); cv.width = 640; cv.height = 360
-    const cx2 = cv.getContext('2d')!
-    const drawCover = (img: CanvasImageSource, iw: number, ih: number) => {
-      const vr = iw / ih, cr = 640 / 360; let dw: number, dh: number
-      if (vr > cr) { dh = 360; dw = 360 * vr } else { dw = 640; dh = 640 / vr }
-      cx2.drawImage(img, (640 - dw) / 2, (360 - dh) / 2, dw, dh)
-    }
+  const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement; ar: number } | null>(null)
+  const getPresenterFrame = useCallback(async (): Promise<{ cv: HTMLCanvasElement; ar: number } | null> => {
+    const srcKey = (anchorVideo || anchorImg) + (greenscreen ? '|key' : '|raw')
+    if (!anchorVideo && !anchorImg) return null
+    if (keyedFrameRef.current?.key === srcKey) return keyedFrameRef.current
     try {
+      let src: CanvasImageSource, iw = 16, ih = 9
       if (anchorVideo) {
         const vv = document.createElement('video')
         vv.crossOrigin = 'anonymous'; vv.muted = true; vv.playsInline = true; vv.preload = 'auto'; vv.src = anchorVideo
         await new Promise<void>((res, rej) => { vv.onloadeddata = () => res(); vv.onerror = () => rej(new Error('video')); setTimeout(() => rej(new Error('timeout')), 8000) })
         vv.currentTime = Math.min(0.4, (vv.duration || 1) / 3)
         await new Promise<void>(res => { vv.onseeked = () => res(); setTimeout(res, 1500) })
-        drawCover(vv, vv.videoWidth || 16, vv.videoHeight || 9)
+        src = vv; iw = vv.videoWidth || 16; ih = vv.videoHeight || 9
       } else {
         const img = await loadImage(anchorImg, 6000)
         if (!img) return null
-        drawCover(img, img.naturalWidth || 1, img.naturalHeight || 1)
+        src = img; iw = img.naturalWidth || 1; ih = img.naturalHeight || 1
       }
-      const id = cx2.getImageData(0, 0, 640, 360); const d = id.data
-      for (let i = 0; i < d.length; i += 4) {
-        const r = d[i], g = d[i + 1], b = d[i + 2]
-        if (g > 90 && g > r * 1.35 && g > b * 1.35) d[i + 3] = 0
+      const ar = iw / ih
+      const cw = Math.min(640, iw), chh = Math.round(cw / ar)
+      const cv = document.createElement('canvas'); cv.width = cw; cv.height = chh
+      const cx2 = cv.getContext('2d')!
+      cx2.drawImage(src, 0, 0, cw, chh)
+      if (greenscreen) {
+        const id = cx2.getImageData(0, 0, cw, chh); const d = id.data
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i + 1], b = d[i + 2]
+          if (g > 90 && g > r * 1.35 && g > b * 1.35) d[i + 3] = 0
+        }
+        cx2.putImageData(id, 0, 0)
       }
-      cx2.putImageData(id, 0, 0)
-      keyedFrameRef.current = { key: srcKey, cv }
-      return cv
+      const out = { key: srcKey, cv, ar }
+      keyedFrameRef.current = out
+      return out
     } catch { return null }
-  }, [anchorVideo, anchorImg])
+  }, [anchorVideo, anchorImg, greenscreen])
   useEffect(() => {
-    if (!greenscreen || !studioBg) return
+    if (!studioBg) return
     let alive = true
     ;(async () => {
       const canvas = placementPreviewRef.current; if (!canvas) return
@@ -583,7 +585,7 @@ export default function NewsroomPage() {
       canvas.width = PW; canvas.height = PH
       const c2 = canvas.getContext('2d')!
       const studio = await loadImage(studioBg, 6000)
-      const frame = await getKeyedFrame()
+      const frame = await getPresenterFrame()
       if (!alive) return
       c2.fillStyle = '#05070c'; c2.fillRect(0, 0, PW, PH)
       const cover = (img: CanvasImageSource, iw: number, ih: number) => {
@@ -593,8 +595,18 @@ export default function NewsroomPage() {
       }
       if (studio) cover(studio, studio.naturalWidth || 16, studio.naturalHeight || 9)
       if (frame) {
-        const dw = PW * presScale, dh = PH * presScale
-        c2.drawImage(frame, PW * presX - dw / 2, PH - dh + PH * presY, dw, dh)
+        if (greenscreen) {
+          // keyed: full-frame cover placement (matches the compositor's keyed path)
+          const dw = PW * presScale, dh = PH * presScale
+          c2.drawImage(frame.cv, PW * presX - dw / 2, PH - dh + PH * presY, dw, dh)
+        } else {
+          // window mode: framed presenter at native aspect (matches portraitSrc path)
+          const wh = PH * presScale, ww = wh * frame.ar
+          const wx = PW * presX - ww / 2, wy = PH - wh + PH * presY
+          c2.fillStyle = '#0a0d14'; c2.fillRect(wx - 3, wy - 3, ww + 6, wh + 6)
+          c2.drawImage(frame.cv, wx, wy, ww, wh)
+          c2.strokeStyle = 'rgba(255,255,255,0.25)'; c2.strokeRect(wx - 3, wy - 3, ww + 6, wh + 6)
+        }
       }
       if (studio && deskLine < 0.99) {
         c2.save(); c2.beginPath(); c2.rect(0, PH * deskLine, PW, PH * (1 - deskLine)); c2.clip()
@@ -606,10 +618,72 @@ export default function NewsroomPage() {
       c2.beginPath(); c2.moveTo(0, PH * deskLine); c2.lineTo(PW, PH * deskLine); c2.stroke(); c2.setLineDash([])
     })()
     return () => { alive = false }
-  }, [greenscreen, studioBg, anchorVideo, anchorImg, presScale, presX, presY, deskLine, getKeyedFrame])
+  }, [greenscreen, studioBg, anchorVideo, anchorImg, presScale, presX, presY, deskLine, getPresenterFrame])
 
   // ── AUTOPILOT — one click: script → voice → lipsync → broadcast compose ──
   const [autoStage, setAutoStage] = useState('')
+  const [edition, setEdition] = useState<'morning' | 'evening' | ''>('')
+  const [presetsAvail, setPresetsAvail] = useState<Record<string, boolean>>({})
+  const [presetMsg, setPresetMsg] = useState('')
+  // ── EDITION PRESETS (DB-backed): the whole setup bundled per daypart ────
+  function presetPayload() {
+    return {
+      anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
+      presScale, presX, presY, deskLine, bedOn, lang, target, capMode, subsOn, tickerOn,
+    }
+  }
+  function applyPresetPayload(d: Record<string, unknown>) {
+    if (typeof d.anchorVideo === 'string') setAnchorVideo(d.anchorVideo)
+    if (typeof d.anchorImg === 'string') setAnchorImg(d.anchorImg)
+    if (typeof d.studioBg === 'string') setStudioBg(d.studioBg)
+    if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
+    if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
+    if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
+    if (typeof d.tone === 'string') setTone(d.tone)
+    if (typeof d.presScale === 'number') setPresScale(d.presScale)
+    if (typeof d.presX === 'number') setPresX(d.presX)
+    if (typeof d.presY === 'number') setPresY(d.presY)
+    if (typeof d.deskLine === 'number') setDeskLine(d.deskLine)
+    if (typeof d.bedOn === 'boolean') setBedOn(d.bedOn)
+    if (d.lang === 'ro' || d.lang === 'en') setLang(d.lang)
+    if (typeof d.target === 'number') setTarget(d.target)
+    if (d.capMode === 'clasic' || d.capMode === 'karaoke') setCapMode(d.capMode)
+    if (typeof d.subsOn === 'boolean') setSubsOn(d.subsOn)
+    if (typeof d.tickerOn === 'boolean') setTickerOn(d.tickerOn)
+  }
+  async function loadEdition(kind: 'morning' | 'evening') {
+    try {
+      const { data } = await db.from('newsroom_presets').select('payload').eq('kind', kind).maybeSingle()
+      if (data?.payload) { applyPresetPayload(data.payload as Record<string, unknown>); setEdition(kind); setPresetMsg('') }
+      else setPresetMsg(kind === 'morning' ? 'Nu există încă ediția de dimineață — configurează și salveaz-o.' : 'Nu există încă ediția de seară — configurează și salveaz-o.')
+    } catch { setPresetMsg('Rulează întâi sql/tt-newsroom-presets.sql.') }
+  }
+  async function saveEdition(kind: 'morning' | 'evening') {
+    try {
+      const { error: e } = await db.from('newsroom_presets')
+        .upsert({ kind, name: kind === 'morning' ? 'Matinal TT' : 'Jurnalul de Seară', payload: presetPayload(), updated_at: new Date().toISOString() }, { onConflict: 'kind' })
+      if (e) throw new Error(e.message)
+      setPresetsAvail(a => ({ ...a, [kind]: true })); setEdition(kind)
+      setPresetMsg(kind === 'morning' ? 'Ediția de dimineață salvată ✓' : 'Ediția de seară salvată ✓')
+      setTimeout(() => setPresetMsg(''), 3500)
+    } catch (e) { setPresetMsg('Salvare eșuată: ' + (e as Error).message) }
+  }
+  // Auto-daypart: on load, apply the preset matching the local hour (if it exists).
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { data } = await db.from('newsroom_presets').select('kind')
+        const avail: Record<string, boolean> = {}
+        for (const r of (data || []) as { kind: string }[]) avail[r.kind] = true
+        setPresetsAvail(avail)
+        const wanted: 'morning' | 'evening' = new Date().getHours() < 14 ? 'morning' : 'evening'
+        if (avail[wanted]) await loadEdition(wanted)
+        else if (avail[wanted === 'morning' ? 'evening' : 'morning']) await loadEdition(wanted === 'morning' ? 'evening' : 'morning')
+      } catch { /* presets table not created yet */ }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function autoBulletin() {
     if (sel.size === 0) { setError('Selectează cel puțin o știre (sau lasă selecția automată).'); return }
     if (!anchorVideo && !anchorImg && !hgConfigured) { setError('Setează o dată prezentatorul (pasul 4) — apoi Autopilot îl refolosește zilnic.'); return }
@@ -864,10 +938,40 @@ export default function NewsroomPage() {
 
       const drawContent = (t: number) => {
         const vt = t - INTRO
-        // 1) anchor fills the whole frame (over a studio backdrop if chosen)
+        // 1) anchor layer — aspect-aware. A portrait/square presenter must NEVER
+        // cover-fill a 16:9 frame (it decapitates the presenter and hides the
+        // studio). Portrait sources render as a framed window over the studio.
         ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
+        const srcAR = (v.videoWidth || 16) / (v.videoHeight || 9)
+        const portraitSrc = srcAR < (W / H) * 0.85
         if (studioImg) coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
         if (studioImg && greenscreen) drawAnchorKeyed()
+        else if (portraitSrc) {
+          if (!studioImg) {
+            // no studio chosen → blurred, darkened self-backdrop (broadcast standard)
+            ctx.save(); ctx.filter = 'blur(26px) brightness(0.45)'
+            drawCoverFull(v); ctx.restore(); ctx.filter = 'none'
+          }
+          // presenter window: height set by the placement scale, position by sliders
+          const wh = H * presScale, ww = wh * srcAR
+          const wx = W * presX - ww / 2
+          const wy = H - wh + H * presY
+          ctx.save()
+          ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 10
+          ctx.fillStyle = '#0a0d14'; rr(ctx, wx - 6, wy - 6, ww + 12, wh + 12, 14); ctx.fill()
+          ctx.restore()
+          ctx.save(); rr(ctx, wx, wy, ww, wh, 10); ctx.clip()
+          ctx.drawImage(v, wx, wy, ww, wh)
+          ctx.restore()
+          ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1
+          rr(ctx, wx - 6, wy - 6, ww + 12, wh + 12, 14); ctx.stroke()
+          // desk occlusion works here too
+          if (studioImg && deskLine < 0.99) {
+            ctx.save(); ctx.beginPath(); ctx.rect(0, H * deskLine, W, H * (1 - deskLine)); ctx.clip()
+            coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
+            ctx.restore()
+          }
+        }
         else drawCoverFull(v)
         // 2) cinematic scrims + corner vignette so overlays read over any studio
         const scrimH = H * 0.42
@@ -948,7 +1052,8 @@ export default function NewsroomPage() {
         ctx.strokeStyle = P.hair; ctx.lineWidth = 1
         ctx.beginPath(); ctx.moveTo(W - marginX - dW - 16, band / 2 - 10); ctx.lineTo(W - marginX - dW - 16, band / 2 + 10); ctx.stroke()
         ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(251,244,228,0.65)'
-        spaced('EDIȚIE AI', `700 ${isWide ? 11 : 10}px Inter, sans-serif`, W - marginX - dW - 28, band / 2, 2)
+        const edLabel = edition === 'morning' ? 'MATINAL TT' : edition === 'evening' ? 'JURNALUL DE SEARĂ' : 'EDIȚIE AI'
+        spaced(edLabel, `700 ${isWide ? 11 : 10}px Inter, sans-serif`, W - marginX - dW - 28, band / 2, 2)
 
         // 4) AI badge (glass pill, pulsing dot) — top-right under the bar
         {
@@ -1399,11 +1504,14 @@ export default function NewsroomPage() {
             ch[start + i] += Math.sin(2 * Math.PI * freq * (i / sr)) * amp * Math.exp(-i / (sr * decay * 0.3))
           }
         }
-        pluck(0.0, 440, 0.16, 0.14)     // downbeat, lower
-        pluck(0.5, 660, 0.10, 0.10)
-        pluck(1.0, 660, 0.12, 0.10)
-        pluck(1.5, 660, 0.10, 0.10)
-        pluck(1.75, 880, 0.05, 0.07)    // light pickup into the next bar
+        // Edition mood: morning = brighter, major-feel plucks; evening = the
+        // sober default. Same rhythm, different color.
+        const bf = edition === 'morning' ? [523.25, 784, 784, 784, 1046.5] : [440, 660, 660, 660, 880]
+        pluck(0.0, bf[0], 0.16, 0.14)   // downbeat, lower
+        pluck(0.5, bf[1], 0.10, 0.10)
+        pluck(1.0, bf[2], 0.12, 0.10)
+        pluck(1.5, bf[3], 0.10, 0.10)
+        pluck(1.75, bf[4], 0.05, 0.07)  // light pickup into the next bar
         const pulse = ac.createBufferSource(); pulse.buffer = pb; pulse.loop = true
         const pulseG = ac.createGain(); pulseG.gain.value = 0.5
         const pulseHp = ac.createBiquadFilter(); pulseHp.type = 'highpass'; pulseHp.frequency.value = 300
@@ -1645,6 +1753,20 @@ export default function NewsroomPage() {
             <p className="font-sans text-[14px] font-bold text-white flex items-center gap-2">
               <Wand2 className="w-4 h-4 text-brand-red" /> Buletin automat
             </p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <button onClick={() => loadEdition('morning')}
+                className={'px-3 py-1.5 text-[12px] font-bold border ' + (edition === 'morning' ? 'bg-amber-400/20 border-amber-300/60 text-amber-200' : presetsAvail.morning ? 'bg-[#111] border-white/15 text-white/70 hover:border-amber-300/50' : 'bg-[#111] border-white/[0.07] text-white/30')}>
+                🌅 Matinal TT
+              </button>
+              <button onClick={() => loadEdition('evening')}
+                className={'px-3 py-1.5 text-[12px] font-bold border ' + (edition === 'evening' ? 'bg-indigo-400/20 border-indigo-300/60 text-indigo-200' : presetsAvail.evening ? 'bg-[#111] border-white/15 text-white/70 hover:border-indigo-300/50' : 'bg-[#111] border-white/[0.07] text-white/30')}>
+                🌆 Jurnalul de Seară
+              </button>
+              <span className="text-[10.5px] text-white/30">salvează setarea curentă ca:</span>
+              <button onClick={() => saveEdition('morning')} className="text-[10.5px] text-white/50 underline hover:text-amber-200">dimineață</button>
+              <button onClick={() => saveEdition('evening')} className="text-[10.5px] text-white/50 underline hover:text-indigo-200">seară</button>
+              {presetMsg && <span className="text-[10.5px] text-sky-300/80">{presetMsg}</span>}
+            </div>
             <p className="text-[12px] text-white/45 mt-1 max-w-xl">
               Un click face tot: scriptul din știrile selectate → vocea → prezentatorul → buletinul TV complet.
               Folosește setările salvate (prezentator, platou, voce) — le configurezi o singură dată în pasul 4.
@@ -1981,9 +2103,9 @@ export default function NewsroomPage() {
                   <span>Prezentatorul este pe <b>fundal verde</b> — decupează verdele și îl pune peste platou. Dacă e debifat, platoul se vede doar dacă clipul prezentatorului e transparent.</span>
                 </label>
               )}
-              {studioBg && greenscreen && (
+              {studioBg && (
                 <div className="border border-white/[0.07] p-3 space-y-3 max-w-xl">
-                  <p className="text-[11px] uppercase tracking-wider text-white/40 font-bold">Așezarea prezentatorului în platou</p>
+                  <p className="text-[11px] uppercase tracking-wider text-white/40 font-bold">Așezarea prezentatorului în platou {greenscreen ? '· decupaj verde' : '· fereastră cadru'}</p>
                   <canvas ref={placementPreviewRef} className="w-full border border-white/[0.07] bg-black" />
                   <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[11.5px] text-white/55">
                     <label className="flex items-center gap-2">mărime
