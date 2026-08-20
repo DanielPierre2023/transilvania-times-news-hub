@@ -1836,7 +1836,7 @@ export default function NewsroomPage() {
               {compositing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {compPct > 0 ? `Compun… ${compPct}%` : (compStage || 'pregătesc…')}</> : <><Clapperboard className="w-3.5 h-3.5" /> Compune buletinul TV</>}
             </button>
           </div>
-          {compositing && <p className="text-[11px] text-amber-300/80">⚠ Randare în timp real — durează cât clipul finit. <b>Nu schimba fila și nu minimiza fereastra</b>, altfel browserul oprește randarea și pare blocată. Dacă procentul stă pe loc la 0%, o imagine de copertă se încarcă greu — pune „monitor imagine știre" pe „fără".</p>}
+          {compositing && <p className="text-[11px] text-amber-300/80">⚠ Randare în timp real — durează cât clipul finit. <b>Nu schimba fila și nu minimiza fereastra</b>, altfel browserul oprește randarea și pare blocată. Dacă procentul stă pe loc la 0%, o imagine de copertă se încarcă greu — pune monitorul pe „fără”.</p>}
           <canvas ref={canvasRef} className="w-full max-w-md bg-black border border-white/[0.07]" style={{ display: compositing || bulletinUrl ? 'block' : 'none' }} />
           {bulletinUrl && (
             <div className="border border-white/[0.07] max-w-md mt-3">
