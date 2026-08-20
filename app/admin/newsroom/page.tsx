@@ -19,9 +19,9 @@ import {
   Clapperboard, Share2, Copy, Image as ImageIcon, Archive,
 } from 'lucide-react'
 
-interface Post { id: string; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null }
+interface Post { id: string; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null; cover_image: string | null }
 interface ElVoice { voice_id: string; name: string; category: string }
-interface LibAsset { id: string; kind: 'presenter' | 'studio'; name: string; url: string; is_real_person?: boolean; person_name?: string | null }
+interface LibAsset { id: string; kind: 'presenter' | 'presenter_video' | 'studio'; name: string; url: string; is_real_person?: boolean; person_name?: string | null }
 interface Avatar { avatar_id: string; avatar_name: string; preview_image_url: string }
 interface Story { lower_third: string; text: string }
 interface Sections { greeting: string; stories: Story[]; signoff: string }
@@ -80,6 +80,10 @@ export default function NewsroomPage() {
   const [libStudios, setLibStudios] = useState<LibAsset[]>([])
   const [studioBg, setStudioBg] = useState('')        // chosen studio backdrop url ('' = none)
   const [greenscreen, setGreenscreen] = useState(false) // key the anchor over the studio
+  const [libVideos, setLibVideos] = useState<LibAsset[]>([])
+  const [anchorVideo, setAnchorVideo] = useState('')  // presenter VIDEO clip -> pro lipsync
+  const [libVideoName, setLibVideoName] = useState('')
+  const [monitorSide, setMonitorSide] = useState<'left' | 'right' | 'off'>('right')
   const [libPresName, setLibPresName] = useState('')
   const [libPresReal, setLibPresReal] = useState(false)
   const [libPresPerson, setLibPresPerson] = useState('')
@@ -139,7 +143,7 @@ export default function NewsroomPage() {
       const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
       const { data } = await supabase
         .from('blog_posts')
-        .select('id, title_ro, title_en, summary_ro, summary_en, published_at, category')
+        .select('id, title_ro, title_en, summary_ro, summary_en, published_at, category, cover_image')
         .eq('status', 'published')
         .gte('published_at', since)
         .order('published_at', { ascending: false })
@@ -191,9 +195,10 @@ export default function NewsroomPage() {
     const { data } = await db.from('newsroom_assets').select('id, kind, name, url, is_real_person, person_name').order('created_at', { ascending: false })
     const rows = (data || []) as LibAsset[]
     setLibPresenters(rows.filter(r => r.kind === 'presenter'))
+    setLibVideos(rows.filter(r => r.kind === 'presenter_video'))
     setLibStudios(rows.filter(r => r.kind === 'studio'))
   }
-  async function uploadLibraryAsset(file: File | undefined, kind: 'presenter' | 'studio', name: string, isReal = false, personName = '') {
+  async function uploadLibraryAsset(file: File | undefined, kind: 'presenter' | 'presenter_video' | 'studio', name: string, isReal = false, personName = '') {
     if (!file) return
     if (!name.trim()) { setError('Dă un nume asset-ului din bibliotecă.'); return }
     if (kind === 'presenter' && isReal && !personName.trim()) { setError('Pentru o persoană reală, completează numele și bifează consimțământul.'); return }
@@ -331,10 +336,14 @@ export default function NewsroomPage() {
     // ── Free-stack engine (fal / SadTalker) when HeyGen is absent ─────────
     if (!hgConfigured) {
       if (!falConfigured) { setError('Configurează FAL_KEY (credite preplătite, fără abonament) sau HEYGEN_API_KEY.'); return }
-      if (!anchorImg) { setError('Alege sau generează portretul prezentatorului (pasul 4).'); return }
+      if (!anchorVideo && !anchorImg) { setError('Alege un clip de prezentator (recomandat) sau un portret (pasul 4).'); return }
       setError(''); setVideoUrl(''); setVideoStatus('se trimite')
       try {
-        const r = await invokeRaw('newsroom-anchor', { action: 'generate_fal', image_url: anchorImg, audio_url: voUrl })
+        // Video-to-video lipsync (sync.so) is the professional path: the clip keeps
+        // its real studio, body language and lighting — only the mouth is resynced.
+        const r = await invokeRaw('newsroom-anchor', anchorVideo
+          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voUrl }
+          : { action: 'generate_fal', engine: 'sadtalker', image_url: anchorImg, audio_url: voUrl })
         if (r.error) throw new Error(String(r.error))
         const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
         for (let i = 0; i < 150; i++) {
@@ -435,18 +444,19 @@ export default function NewsroomPage() {
   }
 
   // Lower-third timing: proportional by word count, refined by Whisper cues.
-  function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string; category?: string | null }[] {
+  function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string; category?: string | null; cover?: string | null }[] {
     const selectedPosts = posts.filter(p => sel.has(p.id))
     if (!sections || !sections.stories.length) {
       return selectedPosts.map((p, i) => ({
         start: (dur / Math.max(1, selectedPosts.length)) * i,
         title: ((lang === 'ro' ? p.title_ro : p.title_en) || '').slice(0, 60),
         category: p.category,
+        cover: p.cover_image,
       }))
     }
     const parts = [sections.greeting, ...sections.stories.map(s => s.text), sections.signoff].filter(Boolean)
     const wc = parts.map(p => p.split(/\s+/).length); const total = wc.reduce((a, b) => a + b, 0) || 1
-    const out: { start: number; title: string; category?: string | null }[] = []
+    const out: { start: number; title: string; category?: string | null; cover?: string | null }[] = []
     let acc = sections.greeting ? wc[0] : 0
     sections.stories.forEach((st, i) => {
       let start = (acc / total) * dur
@@ -455,7 +465,7 @@ export default function NewsroomPage() {
         const hit = cueList.find(c => norm(c.text).includes(probe))
         if (hit) start = hit.start
       }
-      out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: selectedPosts[i]?.category })
+      out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: selectedPosts[i]?.category, cover: selectedPosts[i]?.cover_image })
       acc += wc[(sections.greeting ? 1 : 0) + i]
     })
     return out
@@ -510,6 +520,9 @@ export default function NewsroomPage() {
         flush()
       }
       const thirds = storyTimes(dur, cueList)
+      // Preload article cover images for the in-studio monitor (best-effort).
+      const monitorImgs: (HTMLImageElement | null)[] = monitorSide === 'off' ? [] :
+        await Promise.all(thirds.map(th => th.cover ? loadImage(th.cover) : Promise.resolve(null)))
       const tickerText = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean).join('   •   ')
 
       const [W, H] = orient === '16:9' ? [1280, 720] : [720, 1280]
@@ -661,6 +674,47 @@ export default function NewsroomPage() {
         vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.28)')
         ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H)
 
+        // 2b) in-studio monitor — the current story's article image on a framed
+        // screen beside the presenter, with bezel, glare, and per-story crossfade
+        if (monitorSide !== 'off' && monitorImgs.length) {
+          const curIdx = Math.max(0, thirds.reduce((k, th, j) => (vt >= th.start ? j : k), 0))
+          const mImg = monitorImgs[curIdx]
+          if (mImg) {
+            const mw = isWide ? W * 0.285 : W * 0.42
+            const mh = mw * 9 / 16
+            const mx = monitorSide === 'left' ? marginX : W - marginX - mw
+            const my = band + (isWide ? 38 : 30)
+            const fade = Math.min(1, (vt - (thirds[curIdx]?.start || 0)) / 0.5)
+            ctx.save(); ctx.globalAlpha = 0.55 + 0.45 * fade
+            // drop shadow + bezel
+            ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10
+            ctx.fillStyle = '#0a0d14'; rr(ctx, mx - 8, my - 8, mw + 16, mh + 16, 12); ctx.fill()
+            ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
+            ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1
+            rr(ctx, mx - 8, my - 8, mw + 16, mh + 16, 12); ctx.stroke()
+            // screen
+            ctx.save(); rr(ctx, mx, my, mw, mh, 6); ctx.clip()
+            ctx.fillStyle = '#05070c'; ctx.fillRect(mx, my, mw, mh)
+            const ir = (mImg.naturalWidth || 16) / (mImg.naturalHeight || 9), sr = mw / mh
+            let dw2: number, dh2: number
+            if (ir > sr) { dh2 = mh; dw2 = mh * ir } else { dw2 = mw; dh2 = mw / ir }
+            ctx.drawImage(mImg, mx + (mw - dw2) / 2, my + (mh - dh2) / 2, dw2, dh2)
+            // subtle moving glare so the screen reads as live glass
+            ctx.globalCompositeOperation = 'lighter'
+            const gx = mx + ((t * 0.05) % 1.4 - 0.2) * mw
+            const gl = ctx.createLinearGradient(gx, my, gx + mw * 0.35, my + mh)
+            gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(0.5, 'rgba(255,255,255,0.06)'); gl.addColorStop(1, 'rgba(255,255,255,0)')
+            ctx.fillStyle = gl; ctx.fillRect(mx, my, mw, mh)
+            ctx.restore()
+            // crimson underline + station tag
+            ctx.fillStyle = P.crimson; ctx.fillRect(mx - 8, my + mh + 8, mw + 16, 3)
+            ctx.fillStyle = 'rgba(251,244,228,0.75)'; ctx.textAlign = monitorSide === 'left' ? 'left' : 'right'
+            ctx.textBaseline = 'alphabetic'; ctx.font = `700 ${isWide ? 11 : 10}px Inter, sans-serif`
+            spaced('TT · IMAGINEA ȘTIRII', `700 ${isWide ? 11 : 10}px Inter, sans-serif`, monitorSide === 'left' ? mx - 8 : mx + mw + 8 - 1, my + mh + 26, 1.5)
+            ctx.restore(); ctx.textAlign = 'left'
+          }
+        }
+
         // 3) top brand bar — glass, logo mark, letter-spaced wordmark, date + AI tag
         const bg = ctx.createLinearGradient(0, 0, 0, band)
         bg.addColorStop(0, 'rgba(9,11,18,0.94)'); bg.addColorStop(1, 'rgba(9,11,18,0.80)')
@@ -696,7 +750,7 @@ export default function NewsroomPage() {
           const pad = 12 * sc, dot = 7 * sc
           const lw = ctx.measureText(label).width
           const pw = pad + dot + 7 * sc + lw + pad, ph = 24 * sc
-          const px = W - marginX - pw, py = band + 14
+          const px = monitorSide === 'right' ? marginX : W - marginX - pw, py = band + 14
           glass(px, py, pw, ph, ph / 2)
           const pulse = 0.5 + 0.5 * Math.sin(t * 4)
           ctx.fillStyle = P.crimson; ctx.globalAlpha = 0.5 + 0.5 * pulse
@@ -860,11 +914,12 @@ export default function NewsroomPage() {
           if (capMode === 'karaoke' && karaoke.length) {
             const grp = karaoke.find(g => vt >= g.start && vt <= g.end + 0.12)
             if (grp) {
-              ctx.font = `800 ${(isWide ? 26 : 27) * (isWide ? 1 : 1)}px Inter, sans-serif`; ctx.textBaseline = 'middle'
-              const gap = 11
-              const widths = grp.ws.map(w => ctx.measureText(w.word.toUpperCase()).width)
+              // Mixed case, compact — reads like broadcast subtitles, not shouting.
+              ctx.font = `600 ${isWide ? 21 : 22}px Inter, sans-serif`; ctx.textBaseline = 'middle'
+              const gap = 8
+              const widths = grp.ws.map(w => ctx.measureText(w.word).width)
               const totalW = widths.reduce((a, b) => a + b, 0) + gap * (grp.ws.length - 1)
-              const lh = isWide ? 42 : 46
+              const lh = isWide ? 34 : 38
               glass(W / 2 - totalW / 2 - 20, cy0 - lh / 2, totalW + 40, lh, 8)
               let x = W / 2 - totalW / 2
               ctx.textAlign = 'left'
@@ -873,7 +928,7 @@ export default function NewsroomPage() {
                 const active = vt >= w.start && vt <= w.end
                 if (active) { ctx.save(); ctx.shadowColor = 'rgba(231,201,130,0.9)'; ctx.shadowBlur = 16 }
                 ctx.fillStyle = active ? P.gold : spoken ? '#FFFFFF' : 'rgba(255,255,255,.40)'
-                ctx.fillText(w.word.toUpperCase(), x, cy0)
+                ctx.fillText(w.word, x, cy0)
                 if (active) ctx.restore()
                 x += widths[i] + gap
               })
@@ -882,9 +937,9 @@ export default function NewsroomPage() {
           } else {
             const cue = cueList.find(c => vt >= c.start && vt <= c.end)
             if (cue) {
-              ctx.font = `600 ${isWide ? 23 : 24}px Inter, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+              ctx.font = `500 ${isWide ? 20 : 21}px Inter, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
               const lines = wrapText(ctx, cue.text.trim(), W * 0.74).slice(0, 2)
-              const lh = isWide ? 34 : 38
+              const lh = isWide ? 30 : 34
               let cy = cy0 - (lines.length - 1) * lh
               for (const ln of lines) {
                 const tw = ctx.measureText(ln).width
@@ -1507,7 +1562,37 @@ export default function NewsroomPage() {
 
             {!hgConfigured && (
               <div className="space-y-2">
-                <p className="text-[12px] text-white/70 font-semibold">Prezentatori salvați</p>
+                <p className="text-[12px] text-white/70 font-semibold">Clipuri de prezentator (recomandat — lipsync profesional)</p>
+                <p className="text-[10.5px] text-white/35">Încarcă un clip MP4 cu prezentatorul în studio (ca cele de stoc). Motorul sincronizează DOAR buzele pe vocea generată — studioul, gesturile și lumina rămân reale. Calitate net superioară animării unei fotografii.</p>
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {anchorVideo === '' && libVideos.length === 0 && <p className="col-span-full text-[11.5px] text-white/30">Niciun clip salvat încă.</p>}
+                  {libVideos.map(a => (
+                    <div key={a.id} className="relative group">
+                      <button onClick={() => { setAnchorVideo(anchorVideo === a.url ? '' : a.url) }}
+                        className={'border overflow-hidden w-full ' + (anchorVideo === a.url ? 'border-brand-red' : 'border-white/[0.07] hover:border-white/30')}>
+                        <video src={a.url} muted playsInline className="w-full aspect-square object-cover" />
+                        <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.name}</span>
+                      </button>
+                      <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
+                        className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input value={libVideoName} onChange={e => setLibVideoName(e.target.value)} placeholder="Nume clip"
+                    className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-44" />
+                  <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-1.5 cursor-pointer hover:border-white/20 w-fit">
+                    {busy === 'lib' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Adaugă clip prezentator (MP4)
+                    <input type="file" accept="video/mp4,video/webm" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'presenter_video', libVideoName); e.currentTarget.value = '' }} />
+                  </label>
+                  {anchorVideo && <span className="text-[11px] text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> clip selectat — se folosește lipsync video (sync.so)</span>}
+                </div>
+              </div>
+            )}
+
+            {!hgConfigured && (
+              <div className="space-y-2">
+                <p className="text-[12px] text-white/70 font-semibold">Prezentatori salvați (portrete — fallback)</p>
                 {libPresenters.length > 0 ? (
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-48 overflow-y-auto pr-1">
                     {libPresenters.map(a => (
@@ -1612,7 +1697,7 @@ export default function NewsroomPage() {
             </button>
             {working && <button onClick={() => setVideoStatus('')} className="text-white/30 hover:text-white"><RefreshCw className="w-3.5 h-3.5" /></button>}
           </div>
-          {working && <p className="text-[11px] text-white/40">{hgConfigured ? 'HeyGen' : 'SadTalker (fal)'} randează lipsync-ul — de obicei 1–4 minute. Poți lăsa pagina deschisă.</p>}
+          {working && <p className="text-[11px] text-white/40">{hgConfigured ? 'HeyGen' : anchorVideo ? 'Lipsync video (sync.so, fal)' : 'SadTalker (fal)'} randează lipsync-ul — de obicei 1–4 minute. Poți lăsa pagina deschisă.</p>}
           {!hgConfigured && falConfigured && <p className="text-[10.5px] text-white/30 mb-2">Motorul liber livrează formatul portretului (pătrat/portret). 9:16/16:9 exacte sunt disponibile pe motorul premium.</p>}
           {videoUrl && (
             <div className="border border-white/[0.07] max-w-md">
@@ -1642,6 +1727,15 @@ export default function NewsroomPage() {
             </select>
             <label className="flex items-center gap-1.5 text-[12px] text-white/60 cursor-pointer">
               <input type="checkbox" checked={tickerOn} onChange={e => setTickerOn(e.target.checked)} /> ticker cu titluri
+            </label>
+            <label className="flex items-center gap-1.5 text-[11.5px] text-white/55">
+              monitor imagine știre:
+              <select value={monitorSide} onChange={e => setMonitorSide(e.target.value as 'left' | 'right' | 'off')}
+                className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1">
+                <option value="right">dreapta</option>
+                <option value="left">stânga</option>
+                <option value="off">fără</option>
+              </select>
             </label>
             <button onClick={composeBulletin} disabled={compositing || !videoUrl} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
               {compositing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Compun… {compPct}%</> : <><Clapperboard className="w-3.5 h-3.5" /> Compune buletinul TV</>}
