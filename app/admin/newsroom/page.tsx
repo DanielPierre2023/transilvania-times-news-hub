@@ -10,7 +10,7 @@
 // Uses: newsroom-anchor (script/avatars/upload_photo/generate/status),
 //       voice-lab (voice list), generate-voiceover (TTS).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -38,6 +38,21 @@ const TONES = [
   { v: 'calm', label: 'Calm · documentar' },
   { v: 'energic', label: 'Energic' },
 ]
+
+// Hoisted to module scope — defining this inside the page component recreated it
+// on every keystroke, remounting all children and making inputs lose focus.
+const Step = ({ n, icon: Icon, title, done, children }: { n: number; icon: typeof Tv; title: string; done: boolean; children: React.ReactNode }) => (
+  <div className="bg-[#1a1a1a] border border-white/[0.07]">
+    <div className="px-5 py-3.5 border-b border-white/[0.07] flex items-center gap-3">
+      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${done ? 'bg-green-500/20 text-green-400' : 'bg-brand-red text-white'}`}>
+        {done ? <CheckCircle2 className="w-4 h-4" /> : n}
+      </span>
+    <Icon className="w-4 h-4 text-white/50" />
+    <h2 className="font-sans text-[13px] font-bold text-white uppercase tracking-widest">{title}</h2>
+    </div>
+    <div className="p-5">{children}</div>
+  </div>
+)
 
 export default function NewsroomPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
@@ -84,6 +99,14 @@ export default function NewsroomPage() {
   const [anchorVideo, setAnchorVideo] = useState('')  // presenter VIDEO clip -> pro lipsync
   const [libVideoName, setLibVideoName] = useState('')
   const [monitorSide, setMonitorSide] = useState<'left' | 'right' | 'off'>('right')
+  // Presenter placement over a studio (greenscreen mode): scale, position and a
+  // "desk line" — the studio strip below it is re-drawn IN FRONT of the presenter,
+  // so a bust sits naturally BEHIND the studio's desk instead of floating on it.
+  const [presScale, setPresScale] = useState(0.85)
+  const [presX, setPresX] = useState(0.5)
+  const [presY, setPresY] = useState(0.06)
+  const [deskLine, setDeskLine] = useState(0.74)
+  const placementPreviewRef = useRef<HTMLCanvasElement>(null)
   const [libPresName, setLibPresName] = useState('')
   const [libPresReal, setLibPresReal] = useState(false)
   const [libPresPerson, setLibPresPerson] = useState('')
@@ -291,9 +314,9 @@ export default function NewsroomPage() {
     } catch { window.open(url, '_blank') }
   }
 
-  async function genScript() {
+  async function genScript(): Promise<string | null> {
     const chosen = posts.filter(p => sel.has(p.id))
-    if (chosen.length === 0) { setError('Selectează cel puțin o știre.'); return }
+    if (chosen.length === 0) { setError('Selectează cel puțin o știre.'); return null }
     setError(''); setBusy('script')
     try {
       const articles = chosen.map(p => ({
@@ -302,22 +325,27 @@ export default function NewsroomPage() {
       }))
       const r = await invokeRaw('newsroom-anchor', { action: 'script', language: lang, target_seconds: target, articles })
       if (r.error) throw new Error(String(r.error))
-      setScript(String(r.script || '')); setScriptModel(String(r.model || ''))
+      const text = String(r.script || '')
+      setScript(text); setScriptModel(String(r.model || ''))
       setSections((r.sections as Sections | null) || null)
-    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+      return text || null
+    } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
   }
 
-  async function genVoice() {
-    if (!script.trim()) { setError('Generează sau scrie scriptul mai întâi.'); return }
+  async function genVoice(scriptParam?: string): Promise<string | null> {
+    const text = (scriptParam ?? script).trim()
+    if (!text) { setError('Generează sau scrie scriptul mai întâi.'); return null }
     setError(''); setBusy('voice')
     try {
       const body: Record<string, unknown> = elConfigured
-        ? { text: script.trim(), voice_id: voiceId, tone, language: lang }
-        : { text: script.trim(), gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
+        ? { text, voice_id: voiceId, tone, language: lang }
+        : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
       const r = await invokeRaw('generate-voiceover', body)
       if (r.error) throw new Error(String(r.error))
-      setVoUrl(String(r.publicUrl || ''))
-    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+      const url = String(r.publicUrl || '')
+      setVoUrl(url)
+      return url || null
+    } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
   }
 
   async function uploadPhoto(file?: File) {
@@ -358,20 +386,21 @@ export default function NewsroomPage() {
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
 
-  async function genVideo() {
-    if (!voUrl) { setError('Generează vocea mai întâi (pasul 3).'); return }
+  async function genVideo(voParam?: string): Promise<string | null> {
+    const voice = voParam || voUrl
+    if (!voice) { setError('Generează vocea mai întâi (pasul 3).'); return null }
 
     // ── Free-stack engine (fal / SadTalker) when HeyGen is absent ─────────
     if (!hgConfigured) {
-      if (!falConfigured) { setError('Configurează FAL_KEY (credite preplătite, fără abonament) sau HEYGEN_API_KEY.'); return }
-      if (!anchorVideo && !anchorImg) { setError('Alege un clip de prezentator (recomandat) sau un portret (pasul 4).'); return }
+      if (!falConfigured) { setError('Configurează FAL_KEY (credite preplătite, fără abonament) sau HEYGEN_API_KEY.'); return null }
+      if (!anchorVideo && !anchorImg) { setError('Alege un clip de prezentator (recomandat) sau un portret (pasul 4).'); return null }
       setError(''); setVideoUrl(''); setVideoStatus('se trimite')
       try {
         // Video-to-video lipsync (sync.so) is the professional path: the clip keeps
         // its real studio, body language and lighting — only the mouth is resynced.
         const r = await invokeRaw('newsroom-anchor', anchorVideo
-          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voUrl }
-          : { action: 'generate_fal', engine: 'sadtalker', image_url: anchorImg, audio_url: voUrl })
+          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voice }
+          : { action: 'generate_fal', engine: 'sadtalker', image_url: anchorImg, audio_url: voice })
         if (r.error) throw new Error(String(r.error))
         const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
         for (let i = 0; i < 150; i++) {
@@ -380,23 +409,23 @@ export default function NewsroomPage() {
           if (st.error) throw new Error(String(st.error))
           const s = String(st.status || '')
           setVideoStatus(s === 'IN_QUEUE' ? 'în coadă' : s === 'IN_PROGRESS' ? 'processing' : s)
-          if (s === 'completed' && st.publicUrl) { setVideoUrl(String(st.publicUrl)); return }
+          if (s === 'completed' && st.publicUrl) { const u = String(st.publicUrl); setVideoUrl(u); return u }
         }
         throw new Error('Durează neobișnuit de mult — reîncearcă.')
       } catch (e) { setError((e as Error).message); setVideoStatus('') }
-      return
+      return null
     }
 
     // ── HeyGen engine (premium) ───────────────────────────────────────────
     const character = mode === 'avatar'
       ? { type: 'avatar', avatar_id: avatarId }
       : { type: 'talking_photo', talking_photo_id: photoId }
-    if (mode === 'avatar' && !avatarId) { setError('Alege un prezentator.'); return }
-    if (mode === 'photo' && !photoId) { setError('Încarcă fotografia prezentatorului.'); return }
+    if (mode === 'avatar' && !avatarId) { setError('Alege un prezentator.'); return null }
+    if (mode === 'photo' && !photoId) { setError('Încarcă fotografia prezentatorului.'); return null }
     const [width, height] = orient === '16:9' ? [1280, 720] : [720, 1280]
     setError(''); setVideoUrl(''); setVideoStatus('se trimite')
     try {
-      const r = await invokeRaw('newsroom-anchor', { action: 'generate', character, audio_url: voUrl, width, height })
+      const r = await invokeRaw('newsroom-anchor', { action: 'generate', character, audio_url: voice, width, height })
       if (r.error) throw new Error(String(r.error))
       const videoId = String(r.video_id || '')
       for (let i = 0; i < 150; i++) {
@@ -405,11 +434,12 @@ export default function NewsroomPage() {
         if (st.error) throw new Error(String(st.error))
         const s = String(st.status || '')
         setVideoStatus(s)
-        if (s === 'completed' && st.publicUrl) { setVideoUrl(String(st.publicUrl)); return }
+        if (s === 'completed' && st.publicUrl) { const u = String(st.publicUrl); setVideoUrl(u); return u }
         if (s === 'failed') throw new Error('HeyGen a eșuat: ' + String(st.error_detail || 'necunoscut'))
       }
       throw new Error('Durează neobișnuit de mult — verifică în contul HeyGen.')
     } catch (e) { setError((e as Error).message); setVideoStatus('') }
+    return null
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -472,6 +502,132 @@ export default function NewsroomPage() {
   }
 
   // Lower-third timing: proportional by word count, refined by Whisper cues.
+  // ── Defaults persistence: the studio/presenter/voice setup survives reloads,
+  // so the daily flow is just: open page → Autopilot. ──────────────────────
+  const defaultsLoaded = useRef(false)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('tt_newsroom_defaults')
+      if (raw) {
+        const d = JSON.parse(raw)
+        if (typeof d.anchorVideo === 'string') setAnchorVideo(d.anchorVideo)
+        if (typeof d.anchorImg === 'string') setAnchorImg(d.anchorImg)
+        if (typeof d.studioBg === 'string') setStudioBg(d.studioBg)
+        if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
+        if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
+        if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
+        if (typeof d.tone === 'string') setTone(d.tone)
+        if (typeof d.presScale === 'number') setPresScale(d.presScale)
+        if (typeof d.presX === 'number') setPresX(d.presX)
+        if (typeof d.presY === 'number') setPresY(d.presY)
+        if (typeof d.deskLine === 'number') setDeskLine(d.deskLine)
+        if (typeof d.bedOn === 'boolean') setBedOn(d.bedOn)
+      }
+    } catch { /* defaults are best-effort */ }
+    defaultsLoaded.current = true
+  }, [])
+  useEffect(() => {
+    if (!defaultsLoaded.current) return
+    try {
+      localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
+        anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
+        presScale, presX, presY, deskLine, bedOn,
+      }))
+    } catch { /* ignore */ }
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone, presScale, presX, presY, deskLine, bedOn])
+
+  // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
+  const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement } | null>(null)
+  const getKeyedFrame = useCallback(async (): Promise<HTMLCanvasElement | null> => {
+    const srcKey = anchorVideo || anchorImg
+    if (!srcKey) return null
+    if (keyedFrameRef.current?.key === srcKey) return keyedFrameRef.current.cv
+    const cv = document.createElement('canvas'); cv.width = 640; cv.height = 360
+    const cx2 = cv.getContext('2d')!
+    const drawCover = (img: CanvasImageSource, iw: number, ih: number) => {
+      const vr = iw / ih, cr = 640 / 360; let dw: number, dh: number
+      if (vr > cr) { dh = 360; dw = 360 * vr } else { dw = 640; dh = 640 / vr }
+      cx2.drawImage(img, (640 - dw) / 2, (360 - dh) / 2, dw, dh)
+    }
+    try {
+      if (anchorVideo) {
+        const vv = document.createElement('video')
+        vv.crossOrigin = 'anonymous'; vv.muted = true; vv.playsInline = true; vv.preload = 'auto'; vv.src = anchorVideo
+        await new Promise<void>((res, rej) => { vv.onloadeddata = () => res(); vv.onerror = () => rej(new Error('video')); setTimeout(() => rej(new Error('timeout')), 8000) })
+        vv.currentTime = Math.min(0.4, (vv.duration || 1) / 3)
+        await new Promise<void>(res => { vv.onseeked = () => res(); setTimeout(res, 1500) })
+        drawCover(vv, vv.videoWidth || 16, vv.videoHeight || 9)
+      } else {
+        const img = await loadImage(anchorImg, 6000)
+        if (!img) return null
+        drawCover(img, img.naturalWidth || 1, img.naturalHeight || 1)
+      }
+      const id = cx2.getImageData(0, 0, 640, 360); const d = id.data
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2]
+        if (g > 90 && g > r * 1.35 && g > b * 1.35) d[i + 3] = 0
+      }
+      cx2.putImageData(id, 0, 0)
+      keyedFrameRef.current = { key: srcKey, cv }
+      return cv
+    } catch { return null }
+  }, [anchorVideo, anchorImg])
+  useEffect(() => {
+    if (!greenscreen || !studioBg) return
+    let alive = true
+    ;(async () => {
+      const canvas = placementPreviewRef.current; if (!canvas) return
+      const PW = 480, PH = 270
+      canvas.width = PW; canvas.height = PH
+      const c2 = canvas.getContext('2d')!
+      const studio = await loadImage(studioBg, 6000)
+      const frame = await getKeyedFrame()
+      if (!alive) return
+      c2.fillStyle = '#05070c'; c2.fillRect(0, 0, PW, PH)
+      const cover = (img: CanvasImageSource, iw: number, ih: number) => {
+        const vr = iw / ih, cr = PW / PH; let dw: number, dh: number
+        if (vr > cr) { dh = PH; dw = PH * vr } else { dw = PW; dh = PW / vr }
+        c2.drawImage(img, (PW - dw) / 2, (PH - dh) / 2, dw, dh)
+      }
+      if (studio) cover(studio, studio.naturalWidth || 16, studio.naturalHeight || 9)
+      if (frame) {
+        const dw = PW * presScale, dh = PH * presScale
+        c2.drawImage(frame, PW * presX - dw / 2, PH - dh + PH * presY, dw, dh)
+      }
+      if (studio && deskLine < 0.99) {
+        c2.save(); c2.beginPath(); c2.rect(0, PH * deskLine, PW, PH * (1 - deskLine)); c2.clip()
+        cover(studio, studio.naturalWidth || 16, studio.naturalHeight || 9)
+        c2.restore()
+      }
+      // desk-line indicator
+      c2.strokeStyle = 'rgba(231,201,130,0.9)'; c2.setLineDash([6, 5]); c2.lineWidth = 1.5
+      c2.beginPath(); c2.moveTo(0, PH * deskLine); c2.lineTo(PW, PH * deskLine); c2.stroke(); c2.setLineDash([])
+    })()
+    return () => { alive = false }
+  }, [greenscreen, studioBg, anchorVideo, anchorImg, presScale, presX, presY, deskLine, getKeyedFrame])
+
+  // ── AUTOPILOT — one click: script → voice → lipsync → broadcast compose ──
+  const [autoStage, setAutoStage] = useState('')
+  async function autoBulletin() {
+    if (sel.size === 0) { setError('Selectează cel puțin o știre (sau lasă selecția automată).'); return }
+    if (!anchorVideo && !anchorImg && !hgConfigured) { setError('Setează o dată prezentatorul (pasul 4) — apoi Autopilot îl refolosește zilnic.'); return }
+    setError('')
+    try {
+      setAutoStage('script')
+      const text = await genScript(); if (!text) throw new Error('scriptul a eșuat')
+      setAutoStage('voice')
+      const voice = await genVoice(text); if (!voice) throw new Error('vocea a eșuat')
+      setAutoStage('anchor')
+      const vid = await genVideo(voice); if (!vid) throw new Error('clipul prezentatorului a eșuat')
+      setAutoStage('compose')
+      await composeBulletin(vid, voice)
+      setAutoStage('done')
+    } catch (e) {
+      if (!String((e as Error).message).includes('eșuat')) setError((e as Error).message)
+      setAutoStage('')
+    }
+  }
+
   function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string; category?: string | null; cover?: string | null }[] {
     const selectedPosts = posts.filter(p => sel.has(p.id))
     if (!sections || !sections.stories.length) {
@@ -515,25 +671,27 @@ export default function NewsroomPage() {
     } catch { return 1 }
   }
 
-  async function composeBulletin() {
-    if (!videoUrl) { setError('Generează întâi clipul cu prezentatorul (pasul 5).'); return }
+  async function composeBulletin(videoParam?: string, voParam?: string) {
+    const vidUrl = videoParam || videoUrl
+    const voiceUrl = voParam || voUrl
+    if (!vidUrl) { setError('Generează întâi clipul cu prezentatorul (pasul 5).'); return }
     setError(''); setCompositing(true); setCompPct(0); setBulletinUrl('')
     try {
       // Anchor clip.
       const v = document.createElement('video')
-      v.crossOrigin = 'anonymous'; v.playsInline = true; v.preload = 'auto'; v.src = videoUrl
+      v.crossOrigin = 'anonymous'; v.playsInline = true; v.preload = 'auto'; v.src = vidUrl
       await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error('Nu am putut încărca clipul (CORS?).')) })
       const dur = Math.min(300, Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 60)
 
       // Captions from the voiceover (once) — segments + word timings.
       let cueList = cues
       let wordList = words
-      if (subsOn && (cueList.length === 0 || (capMode === 'karaoke' && wordList.length === 0)) && voUrl) {
+      if (subsOn && (cueList.length === 0 || (capMode === 'karaoke' && wordList.length === 0)) && voiceUrl) {
         try {
           setCompStage('aliniez subtitrările…')
           // Cap the transcription wait — captions are optional, never block the render.
           const timeout = new Promise<Record<string, unknown>>((_r, rej) => setTimeout(() => rej(new Error('subtitle timeout')), 60000))
-          const r = await Promise.race([invokeRaw('align-subtitles', { audio_url: voUrl, language: lang }), timeout])
+          const r = await Promise.race([invokeRaw('align-subtitles', { audio_url: voiceUrl, language: lang }), timeout])
           if (Array.isArray(r.segments)) { cueList = r.segments as Cue[]; setCues(cueList) }
           if (Array.isArray(r.words)) { wordList = r.words as Word[]; setWords(wordList) }
         } catch { /* captions optional — proceed without them */ }
@@ -576,7 +734,7 @@ export default function NewsroomPage() {
       const src = ac.createMediaElementSource(v)
       const dest = ac.createMediaStreamDestination()
       const gain = ac.createGain()
-      gain.gain.value = voUrl ? await measureVoiceGain(ac, voUrl) : 1
+      gain.gain.value = voiceUrl ? await measureVoiceGain(ac, voiceUrl) : 1
       const comp = ac.createDynamicsCompressor()
       comp.threshold.value = -6; comp.knee.value = 10; comp.ratio.value = 6
       comp.attack.value = 0.003; comp.release.value = 0.25
@@ -672,7 +830,18 @@ export default function NewsroomPage() {
           }
           okx.putImageData(id, 0, 0)
         } catch { /* tainted canvas — skip keying, fall back to full frame */ }
-        ctx.drawImage(okv, 0, 0)
+        // Place the presenter: scaled, positioned, bottom pushed below the desk line.
+        const dw = W * presScale, dh = H * presScale
+        const dx = W * presX - dw / 2
+        const dy = H - dh + H * presY
+        ctx.drawImage(okv, dx, dy, dw, dh)
+        // Desk occlusion — the studio's foreground strip goes back on top, so the
+        // desk sits IN FRONT of the presenter's bust.
+        if (studioImg && deskLine < 0.99) {
+          ctx.save(); ctx.beginPath(); ctx.rect(0, H * deskLine, W, H * (1 - deskLine)); ctx.clip()
+          coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
+          ctx.restore()
+        }
       }
       // A glass panel with a subtle top inner-highlight and bottom shadow line.
       const glass = (x: number, y: number, w: number, h: number, r: number, fill = P.glass) => {
@@ -1270,7 +1439,7 @@ export default function NewsroomPage() {
         const { data: row } = await db.from('newsroom_bulletins').insert({
           language: lang, script, sections,
           story_titles: posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || ''),
-          anchor_video_url: videoUrl, bulletin_video_url: publicUrl || null, voice_url: voUrl, status: 'rendered',
+          anchor_video_url: vidUrl, bulletin_video_url: publicUrl || null, voice_url: voiceUrl, status: 'rendered',
         }).select('id').single()
         if (row?.id) setSavedId(String(row.id))
       } catch { /* archive optional */ }
@@ -1456,19 +1625,6 @@ export default function NewsroomPage() {
   }
   const working = ['se trimite', 'pending', 'waiting', 'processing'].includes(videoStatus)
 
-  const Step = ({ n, icon: Icon, title, done, children }: { n: number; icon: typeof Tv; title: string; done: boolean; children: React.ReactNode }) => (
-    <div className="bg-[#1a1a1a] border border-white/[0.07]">
-      <div className="px-5 py-3.5 border-b border-white/[0.07] flex items-center gap-3">
-        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${done ? 'bg-green-500/20 text-green-400' : 'bg-brand-red text-white'}`}>
-          {done ? <CheckCircle2 className="w-4 h-4" /> : n}
-        </span>
-        <Icon className="w-4 h-4 text-white/50" />
-        <h2 className="font-sans text-[13px] font-bold text-white uppercase tracking-widest">{title}</h2>
-      </div>
-      <div className="p-5">{children}</div>
-    </div>
-  )
-
   return (
     <div>
       <div className="mb-6">
@@ -1478,6 +1634,54 @@ export default function NewsroomPage() {
         <p className="font-sans text-[13px] text-white/40 mt-1">
           Buletinul zilei cu prezentator AI — știri → script → voce naturală → lipsync → MP4
         </p>
+      </div>
+
+      {/* ── AUTOPILOT — the two-click daily flow ─────────────────────────── */}
+      <div className="mb-6 bg-gradient-to-r from-[#1c0f12] to-[#16161a] border border-brand-red/30 p-5">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="min-w-[240px]">
+            <p className="font-sans text-[14px] font-bold text-white flex items-center gap-2">
+              <Wand2 className="w-4 h-4 text-brand-red" /> Buletin automat
+            </p>
+            <p className="text-[12px] text-white/45 mt-1 max-w-xl">
+              Un click face tot: scriptul din știrile selectate → vocea → prezentatorul → buletinul TV complet.
+              Folosește setările salvate (prezentator, platou, voce) — le configurezi o singură dată în pasul 4.
+            </p>
+            <div className="flex items-center gap-2 mt-2.5">
+              {anchorVideo
+                ? <video src={anchorVideo} muted playsInline className="w-10 h-10 object-cover border border-white/10" />
+                : anchorImg
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  ? <img src={anchorImg} alt="Prezentator" className="w-10 h-10 object-cover border border-white/10" />
+                  : <span className="text-[11px] text-amber-300/80">fără prezentator setat — pasul 4</span>}
+              {studioBg && /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={studioBg} alt="Platou" className="w-16 h-10 object-cover border border-white/10" />}
+              <span className="text-[11px] text-white/35">{sel.size} știri · voce {elConfigured ? 'ElevenLabs' : geminiVoice} · {tone}</span>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <button onClick={autoBulletin} disabled={!!autoStage && autoStage !== 'done'}
+              className="flex items-center gap-2 bg-brand-red text-white text-[13px] font-bold px-5 py-3 hover:bg-red-700 disabled:opacity-50">
+              {autoStage && autoStage !== 'done' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
+              {autoStage && autoStage !== 'done' ? 'Lucrez…' : 'Generează buletinul'}
+            </button>
+            {(autoStage || compositing) && (
+              <div className="flex items-center gap-1.5 text-[10.5px]">
+                {[['script', 'Script'], ['voice', 'Voce'], ['anchor', 'Prezentator'], ['compose', 'Buletin TV']].map(([k, label]) => {
+                  const order = ['script', 'voice', 'anchor', 'compose', 'done']
+                  const idx = order.indexOf(autoStage || 'script'), me = order.indexOf(k)
+                  const doneStep = idx > me || autoStage === 'done'
+                  const active = autoStage === k
+                  return (
+                    <span key={k} className={'px-2 py-0.5 border ' + (doneStep ? 'border-green-500/40 text-green-400' : active ? 'border-brand-red text-white' : 'border-white/10 text-white/30')}>
+                      {doneStep ? '✓ ' : active ? '● ' : ''}{label}{active && k === 'compose' && compPct > 0 ? ` ${compPct}%` : ''}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {hgConfigured === false && !falConfigured && (
@@ -1561,7 +1765,7 @@ export default function NewsroomPage() {
                 <span className="text-[10.5px] text-sky-300/70">auto: ElevenLabs prin fal (dacă ai FAL_KEY) › Gemini Pro › Flash — vocea aleasă setează genul</span>
               </>
             )}
-            <button onClick={genVoice} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+            <button onClick={() => genVoice()} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
               {busy === 'voice' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />} Generează vocea
             </button>
           </div>
@@ -1775,6 +1979,27 @@ export default function NewsroomPage() {
                   <span>Prezentatorul este pe <b>fundal verde</b> — decupează verdele și îl pune peste platou. Dacă e debifat, platoul se vede doar dacă clipul prezentatorului e transparent.</span>
                 </label>
               )}
+              {studioBg && greenscreen && (
+                <div className="border border-white/[0.07] p-3 space-y-3 max-w-xl">
+                  <p className="text-[11px] uppercase tracking-wider text-white/40 font-bold">Așezarea prezentatorului în platou</p>
+                  <canvas ref={placementPreviewRef} className="w-full border border-white/[0.07] bg-black" />
+                  <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[11.5px] text-white/55">
+                    <label className="flex items-center gap-2">mărime
+                      <input type="range" min={0.4} max={1.3} step={0.01} value={presScale} onChange={e => setPresScale(Number(e.target.value))} className="flex-1 accent-red-600" />
+                    </label>
+                    <label className="flex items-center gap-2">stânga–dreapta
+                      <input type="range" min={0.15} max={0.85} step={0.01} value={presX} onChange={e => setPresX(Number(e.target.value))} className="flex-1 accent-red-600" />
+                    </label>
+                    <label className="flex items-center gap-2">coborâre
+                      <input type="range" min={-0.1} max={0.4} step={0.01} value={presY} onChange={e => setPresY(Number(e.target.value))} className="flex-1 accent-red-600" />
+                    </label>
+                    <label className="flex items-center gap-2">linia biroului
+                      <input type="range" min={0.4} max={1} step={0.01} value={deskLine} onChange={e => setDeskLine(Number(e.target.value))} className="flex-1 accent-red-600" />
+                    </label>
+                  </div>
+                  <p className="text-[10.5px] text-white/30 leading-snug">Linia punctată aurie = linia biroului: tot ce e sub ea din platou se desenează <b>peste</b> prezentator, deci bustul „stă” în spatele biroului. Trage prezentatorul în jos („coborâre”) până sub linie, ca marginea tăiată a bustului să fie ascunsă de birou. Setările se salvează automat.</p>
+                </div>
+              )}
             </div>
           </div>
         </Step>
@@ -1784,7 +2009,7 @@ export default function NewsroomPage() {
             {(['16:9', '9:16'] as const).map(o => (
               <button key={o} onClick={() => setOrient(o)} className={'px-3 py-1.5 text-[12px] border ' + (orient === o ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>{o === '16:9' ? '16:9 · YouTube/FB' : '9:16 · Reels/TikTok'}</button>
             ))}
-            <button onClick={genVideo} disabled={working || (hgConfigured === false && !falConfigured)} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+            <button onClick={() => genVideo()} disabled={working || (hgConfigured === false && !falConfigured)} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
               {working ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {videoStatus}…</> : <><Film className="w-3.5 h-3.5" /> Generează buletinul</>}
             </button>
             {working && <button onClick={() => setVideoStatus('')} className="text-white/30 hover:text-white"><RefreshCw className="w-3.5 h-3.5" /></button>}
@@ -1832,7 +2057,7 @@ export default function NewsroomPage() {
                 <option value="off">fără</option>
               </select>
             </label>
-            <button onClick={composeBulletin} disabled={compositing || !videoUrl} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+            <button onClick={() => composeBulletin()} disabled={compositing || !videoUrl} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
               {compositing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {compPct > 0 ? `Compun… ${compPct}%` : (compStage || 'pregătesc…')}</> : <><Clapperboard className="w-3.5 h-3.5" /> Compune buletinul TV</>}
             </button>
           </div>
