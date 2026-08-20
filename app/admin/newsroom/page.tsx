@@ -106,6 +106,7 @@ export default function NewsroomPage() {
   const [pubMsg, setPubMsg] = useState<Record<string, string>>({})
   const [compositing, setCompositing] = useState(false)
   const [compPct, setCompPct] = useState(0)
+  const [compStage, setCompStage] = useState('')
   const [bulletinUrl, setBulletinUrl] = useState('')      // local object URL (download/preview)
   const [bulletinMime, setBulletinMime] = useState('')
   const [savedId, setSavedId] = useState('')
@@ -529,10 +530,13 @@ export default function NewsroomPage() {
       let wordList = words
       if (subsOn && (cueList.length === 0 || (capMode === 'karaoke' && wordList.length === 0)) && voUrl) {
         try {
-          const r = await invokeRaw('align-subtitles', { audio_url: voUrl, language: lang })
+          setCompStage('aliniez subtitrările…')
+          // Cap the transcription wait — captions are optional, never block the render.
+          const timeout = new Promise<Record<string, unknown>>((_r, rej) => setTimeout(() => rej(new Error('subtitle timeout')), 60000))
+          const r = await Promise.race([invokeRaw('align-subtitles', { audio_url: voUrl, language: lang }), timeout])
           if (Array.isArray(r.segments)) { cueList = r.segments as Cue[]; setCues(cueList) }
           if (Array.isArray(r.words)) { wordList = r.words as Word[]; setWords(wordList) }
-        } catch { /* captions optional */ }
+        } catch { /* captions optional — proceed without them */ }
       }
       // Karaoke groups: chunks of ≤4 words / ≤26 chars, timed word-by-word.
       const karaoke: { start: number; end: number; ws: Word[] }[] = []
@@ -547,9 +551,14 @@ export default function NewsroomPage() {
         flush()
       }
       const thirds = storyTimes(dur, cueList)
-      // Preload article cover images for the in-studio monitor (best-effort).
-      const monitorImgs: (HTMLImageElement | null)[] = monitorSide === 'off' ? [] :
-        await Promise.all(thirds.map(th => th.cover ? loadImage(th.cover) : Promise.resolve(null)))
+      // Preload article cover images for the in-studio monitor. Each has its own
+      // timeout inside loadImage, so a slow/broken URL can never stall the compose.
+      let monitorImgs: (HTMLImageElement | null)[] = []
+      if (monitorSide !== 'off') {
+        setCompStage('încarc imaginile pentru monitor…')
+        monitorImgs = await Promise.all(thirds.map(th => th.cover ? loadImage(th.cover, 6000) : Promise.resolve(null)))
+      }
+      setCompStage('randez buletinul…')
       const tickerText = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean).join('   •   ')
 
       const [W, H] = orient === '16:9' ? [1280, 720] : [720, 1280]
@@ -1267,7 +1276,7 @@ export default function NewsroomPage() {
       } catch { /* archive optional */ }
     } catch (e) {
       setError('Compunerea a eșuat: ' + (e as Error).message)
-    } finally { setCompositing(false) }
+    } finally { setCompositing(false); setCompStage('') }
   }
 
   // ── Publishing pack ──────────────────────────────────────────────────────
@@ -1305,10 +1314,15 @@ export default function NewsroomPage() {
       return v
     } catch { return null }
   }
-  function loadImage(srcUrl: string): Promise<HTMLImageElement | null> {
+  function loadImage(srcUrl: string, timeoutMs = 6000): Promise<HTMLImageElement | null> {
     return new Promise((res) => {
       const img = new Image(); img.crossOrigin = 'anonymous'
-      img.onload = () => res(img); img.onerror = () => res(null); img.src = srcUrl
+      let done = false
+      const finish = (v: HTMLImageElement | null) => { if (done) return; done = true; res(v) }
+      const timer = setTimeout(() => finish(null), timeoutMs)   // never let one slow URL stall a compose
+      img.onload = () => { clearTimeout(timer); finish(img) }
+      img.onerror = () => { clearTimeout(timer); finish(null) }
+      img.src = srcUrl
     })
   }
   function coverImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
@@ -1819,10 +1833,10 @@ export default function NewsroomPage() {
               </select>
             </label>
             <button onClick={composeBulletin} disabled={compositing || !videoUrl} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
-              {compositing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Compun… {compPct}%</> : <><Clapperboard className="w-3.5 h-3.5" /> Compune buletinul TV</>}
+              {compositing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {compPct > 0 ? `Compun… ${compPct}%` : (compStage || 'pregătesc…')}</> : <><Clapperboard className="w-3.5 h-3.5" /> Compune buletinul TV</>}
             </button>
           </div>
-          {compositing && <p className="text-[11px] text-white/40">Randare în timp real (~durata clipului + 6s). Ține fila deschisă și în prim-plan.</p>}
+          {compositing && <p className="text-[11px] text-amber-300/80">⚠ Randare în timp real — durează cât clipul finit. <b>Nu schimba fila și nu minimiza fereastra</b>, altfel browserul oprește randarea și pare blocată. Dacă procentul stă pe loc la 0%, o imagine de copertă se încarcă greu — pune „monitor imagine știre" pe „fără".</p>}
           <canvas ref={canvasRef} className="w-full max-w-md bg-black border border-white/[0.07]" style={{ display: compositing || bulletinUrl ? 'block' : 'none' }} />
           {bulletinUrl && (
             <div className="border border-white/[0.07] max-w-md mt-3">
