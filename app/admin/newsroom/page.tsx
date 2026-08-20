@@ -222,9 +222,35 @@ export default function NewsroomPage() {
   function pickPresenter(a: LibAsset) { setAnchorImg(a.url); setAnchorIsReal(!!a.is_real_person) }
 
   // Save a generated image URL into the library (best-effort DB insert).
-  async function saveGeneratedToLibrary(url: string, kind: 'presenter' | 'studio', name: string) {
+  async function saveGeneratedToLibrary(url: string, kind: 'presenter' | 'presenter_video' | 'studio', name: string) {
     try { await db.from('newsroom_assets').insert({ kind, name, url, is_real_person: false, person_name: null }); await refreshLibrary() } catch { /* table missing — still usable this session */ }
   }
+  // Portrait -> idle presenter CLIP via Kling image-to-video (generate-motion).
+  // The clip (breathing, blinks, mouth closed) becomes a first-class lipsync
+  // source for the sync.so engine — the pro path, fully in-app.
+  async function genPresenterClip() {
+    if (!anchorImg) { setError('Alege sau generează întâi un portret de prezentator.'); return }
+    setError(''); setBusy('genclip')
+    try {
+      const prompt = 'A professional news anchor at the desk, subtle natural idle motion only: gentle breathing, slight head movements, occasional blink, hands calmly resting, mouth stays CLOSED, no talking, no gestures toward the face. Locked-off camera, no zoom, no pan. Preserve the person, framing, lighting and background exactly. Seamless loop feel.'
+      const r = await invokeRaw('generate-motion', { action: 'create', image_url: anchorImg, prompt, duration: '10' })
+      if (r.error) throw new Error(String(r.error))
+      const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
+      for (let i = 0; i < 120; i++) {
+        await sleep(5000)
+        const st = await invokeRaw('generate-motion', { action: 'poll', status_url: statusUrl, response_url: responseUrl })
+        if (st.error) throw new Error(String(st.error))
+        if (String(st.status) === 'COMPLETED' && st.publicUrl) {
+          const url = String(st.publicUrl)
+          await saveGeneratedToLibrary(url, 'presenter_video', 'Clip AI — prezentator')
+          setAnchorVideo(url)
+          return
+        }
+      }
+      throw new Error('Kling nu a terminat în 10 minute — reîncearcă.')
+    } catch (e) { setError('Clip prezentator: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
   // Prompt-based STUDIO backdrop (16:9) via the existing image generator.
   async function genStudioFromPrompt() {
     const p = studioPrompt.trim()
@@ -1633,6 +1659,10 @@ export default function NewsroomPage() {
                     {busy === 'lib' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Adaugă clip prezentator (MP4)
                     <input type="file" accept="video/mp4,video/webm" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'presenter_video', libVideoName); e.currentTarget.value = '' }} />
                   </label>
+                  <button onClick={genPresenterClip} disabled={!!busy || !anchorImg} title={anchorImg ? 'Animă portretul selectat într-un clip idle de 10s (Kling)' : 'Alege întâi un portret mai jos'}
+                    className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-1.5 hover:bg-red-700 disabled:opacity-40">
+                    {busy === 'genclip' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează clip din portret (AI)
+                  </button>
                   {anchorVideo && <span className="text-[11px] text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> clip selectat — se folosește lipsync video (sync.so)</span>}
                 </div>
               </div>
