@@ -690,58 +690,72 @@ export default function NewsroomPage() {
   // ── One-click AI edition setup: generates the studio + anchorwoman with AI,
   // saves them in the library, wires the voice, and stores the preset. ──────
   const [setupBusy, setSetupBusy] = useState('')
+  const [setupStage, setSetupStage] = useState('')
+  // ONE-CLICK EDITION — the guaranteed-correct 16:9 recipe. The presenter is
+  // generated ALREADY SEATED IN HER STUDIO as a single 16:9 scene, that scene is
+  // animated into an idle clip (Kling), and lipsync runs on the full clip
+  // (sync v2). One asset, native 16:9 → cover-fills the frame perfectly. No
+  // window boxes, no greenscreen, no placement needed. This is the same shape
+  // as professional stock anchor footage.
   async function setupEdition(kind: 'morning' | 'evening') {
+    if (!falConfigured) { setError('Configurarea automată necesită FAL_KEY (Kling + lipsync).'); return }
     setSetupBusy(kind); setError('')
     try {
-      const studioPrompt = kind === 'morning'
-        ? 'An exquisite bright morning television news studio: a full glass wall opening onto Cheile Turzii gorge at sunrise, golden limestone cliffs, thin mist over the valley, light noble-wood paneling, a white stone anchor desk in the centre foreground with its straight top edge in the lower third of frame, brass and subtle crimson accents, soft warm key light, ultra photorealistic, broadcast design of the highest order, 16:9. No people, no text, no logos, no watermark.'
-        : 'An exquisite flagship evening television news studio at blue hour: a vast curved panoramic window behind a monolithic smoked-glass anchor desk revealing the skyline of Turda, Romania — the warm-lit town hall clock tower, terracotta rooftops, Transylvanian hills at dusk — a thin crimson light strip along the desk edge with its straight top edge in the lower third of frame, polished dark reflective floor, subtle blue video walls, cinematic lighting, ultra photorealistic, 16:9. No people, no text, no logos, no watermark.'
-      const sr = await invokeRaw('generate-cover-image', { raw_prompt: studioPrompt, aspect: '16:9' })
+      setSetupStage('generez scena 16:9…')
+      const scenePrompt = kind === 'morning'
+        ? 'Exquisite bright morning television news studio, 16:9 wide broadcast frame. A fictional female news anchor, age 29, natural blonde shoulder-length hair, sage-green blazer, seated at a white stone anchor desk slightly LEFT of centre, visible from mid-torso up with the desk edge along the lower frame, hands calmly folded on the desk, facing the camera directly, mouth closed and relaxed, warm friendly authority, her face clearly lit and unobstructed. Behind her a full glass wall opens onto Cheile Turzii gorge at sunrise — golden limestone cliffs, thin mist over the valley; light noble-wood paneling, brass and subtle crimson accents, soft warm key light, photorealistic, sharp focus, broadcast-grade composition with clean space on the right side of frame. No text, no logos, no watermark.'
+        : 'Exquisite flagship evening television news studio at blue hour, 16:9 wide broadcast frame. A fictional female news anchor, age 35, chestnut hair in an elegant low chignon, structured navy blazer with a subtle crimson lapel pin, professional TV makeup, seated at a monolithic smoked-glass anchor desk slightly LEFT of centre, visible from mid-torso up with the desk edge along the lower frame, hands calmly folded, facing the camera directly, mouth closed and relaxed, composed authority, her face clearly lit and unobstructed. Behind her a vast curved panoramic window reveals the skyline of Turda, Romania — the warm-lit town hall clock tower, terracotta rooftops, Transylvanian hills at dusk; a thin crimson light strip along the desk edge, polished dark reflective floor, cinematic lighting, photorealistic, sharp focus, broadcast-grade composition with clean space on the right side of frame. No text, no logos, no watermark.'
+      const sr = await invokeRaw('generate-cover-image', { raw_prompt: scenePrompt, aspect: '16:9' })
       if (sr.error) throw new Error(String(sr.error))
-      const studioUrl = String(sr.publicUrl || ''); if (!studioUrl) throw new Error('platoul nu s-a generat')
+      const sceneUrl = String(sr.publicUrl || ''); if (!sceneUrl) throw new Error('scena nu s-a generat')
 
-      const presPrompt = kind === 'morning'
-        ? 'Broadcast-quality studio portrait of a fictional female news anchor, age 29, natural blonde shoulder-length hair, sage-green office dress, luminous restrained smile with mouth closed and relaxed, both eyes to camera, facing the camera directly, head and shoulders, soft warm morning key light, even light on the lower face, neutral warm background, photorealistic, sharp focus. No text, no logo, no watermark.'
-        : 'Broadcast-quality studio portrait of a fictional female news anchor, age 35, chestnut hair in an elegant low chignon, structured navy blazer with a subtle crimson lapel pin, professional TV makeup, warm authoritative expression, mouth closed and relaxed, both eyes to camera, facing the camera directly, head and shoulders, three-point studio lighting, even light on the lower face, neutral dark background, photorealistic, sharp focus. No text, no logo, no watermark.'
-      const pr = await invokeRaw('generate-cover-image', { raw_prompt: presPrompt, aspect: '4:5' })
-      if (pr.error) throw new Error(String(pr.error))
-      const presUrl = String(pr.publicUrl || ''); if (!presUrl) throw new Error('prezentatoarea nu s-a generat')
+      setSetupStage('animez clipul (2–4 min)…')
+      const idlePrompt = 'A professional news anchor at the desk, subtle natural idle motion only: gentle breathing, slight head movements, occasional blink, hands calmly resting, mouth stays CLOSED, no talking, no gestures toward the face. Locked-off camera, no zoom, no pan. Preserve the person, framing, lighting and background exactly. Seamless loop feel.'
+      const mr = await invokeRaw('generate-motion', { action: 'create', image_url: sceneUrl, prompt: idlePrompt, duration: '10' })
+      if (mr.error) throw new Error(String(mr.error))
+      const statusUrl = String(mr.status_url || ''), responseUrl = String(mr.response_url || '')
+      let clipUrl = ''
+      for (let i = 0; i < 120; i++) {
+        await sleep(5000)
+        const st = await invokeRaw('generate-motion', { action: 'poll', status_url: statusUrl, response_url: responseUrl })
+        if (st.error) throw new Error(String(st.error))
+        if (String(st.status) === 'COMPLETED' && st.publicUrl) { clipUrl = String(st.publicUrl); break }
+      }
+      if (!clipUrl) throw new Error('Kling nu a terminat în 10 minute — reîncearcă.')
 
-      // Library rows (best-effort — the preset carries the URLs regardless).
+      setSetupStage('salvez ediția…')
       try {
         await db.from('newsroom_assets').insert([
-          { kind: 'studio', name: kind === 'morning' ? 'Platou Matinal — Cheile Turzii' : 'Platou Seară — Panorama Turzii', url: studioUrl, is_real_person: false, person_name: null },
-          { kind: 'presenter', name: kind === 'morning' ? 'Ioana (Matinal)' : 'Ana (Seară)', url: presUrl, is_real_person: false, person_name: null },
+          { kind: 'presenter_video', name: kind === 'morning' ? 'Ioana — Matinal (Cheile Turzii, 16:9)' : 'Ana — Seară (Panorama Turzii, 16:9)', url: clipUrl, is_real_person: false, person_name: null },
+          { kind: 'presenter', name: kind === 'morning' ? 'Ioana — poster 16:9' : 'Ana — poster 16:9', url: sceneUrl, is_real_person: false, person_name: null },
         ])
         await refreshLibrary()
-      } catch { /* library table missing — non-fatal */ }
+      } catch { /* library table missing — preset still carries the URLs */ }
 
-      // Complete broadcast kit, explicit and deterministic — the edition carries
-      // EVERYTHING: presenter, studio, placement, voice, monitor window for the
-      // article images, news bed, ticker, karaoke captions. Romanian only for
-      // now (translation stays a per-click choice, like the voices).
+      // Complete broadcast kit — deterministic. anchorVideo is 16:9 with the
+      // studio IN the shot, so no separate studio / greenscreen / placement.
       const payload = {
-        anchorVideo: '', anchorImg: presUrl, studioBg: studioUrl, greenscreen: false,
+        anchorVideo: clipUrl, anchorImg: sceneUrl, studioBg: '', greenscreen: false,
         geminiVoice: kind === 'morning' ? 'Aoede' : 'Zephyr', tone: 'stiri',
-        presScale: 0.82, presX: 0.5, presY: 0.06, deskLine: 0.78,
-        monitorSide: 'right' as const,           // article-image monitor beside the presenter
-        bedOn: true, bedLevel: 0.6,              // news bed at broadcast level
-        tickerOn: true,                          // headline ticker
-        subsOn: true, capMode: 'karaoke' as const, // burned karaoke captions
+        presScale: 0.85, presX: 0.5, presY: 0.06, deskLine: 1,
+        monitorSide: 'right' as const,             // clean right-side space is in the prompt
+        bedOn: true, bedLevel: 0.6,
+        tickerOn: true,
+        subsOn: true, capMode: 'karaoke' as const,
         lang: 'ro' as const, target: 75,
       }
       const { error: e } = await db.from('newsroom_presets')
         .upsert({ kind, name: kind === 'morning' ? 'Matinal TT' : 'Jurnalul de Seară', payload, updated_at: new Date().toISOString() }, { onConflict: 'kind' })
       if (e) throw new Error(e.message)
       applyPresetPayload(payload); setEdition(kind); setPresetsAvail(a => ({ ...a, [kind]: true }))
-      setPresetMsg(kind === 'morning' ? 'Matinal TT creat: platou + Ioana + Aoede ✓' : 'Jurnalul de Seară creat: platou + Ana + Zephyr ✓')
-      setTimeout(() => setPresetMsg(''), 6000)
-    } catch (e) { setError('Configurare ediție: ' + (e as Error).message) } finally { setSetupBusy('') }
+      setPresetMsg(kind === 'morning' ? 'Matinal TT gata: Ioana în platoul Cheile Turzii — clip 16:9 + Aoede ✓' : 'Jurnalul de Seară gata: Ana în Panorama Turzii — clip 16:9 + Zephyr ✓')
+      setTimeout(() => setPresetMsg(''), 8000)
+    } catch (e) { setError('Configurare ediție: ' + (e as Error).message) } finally { setSetupBusy(''); setSetupStage('') }
   }
 
   async function deleteEdition(kind: 'morning' | 'evening') {
     const label = kind === 'morning' ? 'Matinal TT' : 'Jurnalul de Seară'
-    if (!window.confirm(`Ștergi ediția „${label}”? Platoul și prezentatoarea rămân în bibliotecă (le poți șterge de acolo cu ✕); doar presetul dispare.`)) return
+    if (!window.confirm(`Ștergi ediția „${label}”? Clipul și posterul rămân în bibliotecă (le poți șterge de acolo cu ✕); doar presetul dispare.`)) return
     try {
       const { error: e } = await db.from('newsroom_presets').delete().eq('kind', kind)
       if (e) throw new Error(e.message)
@@ -1854,6 +1868,7 @@ export default function NewsroomPage() {
                 className="flex items-center gap-1 text-[10.5px] font-bold text-indigo-200/90 border border-indigo-300/30 px-2 py-1 hover:border-indigo-300/70 disabled:opacity-50">
                 {setupBusy === 'evening' ? <Loader2 className="w-3 h-3 animate-spin" /> : '🌆'} seara · Zephyr
               </button>
+              {setupStage && <span className="text-[10.5px] text-amber-200/90">{setupStage}</span>}
               {presetMsg && <span className="text-[10.5px] text-sky-300/80">{presetMsg}</span>}
             </div>
             <p className="text-[12px] text-white/45 mt-1 max-w-xl">
