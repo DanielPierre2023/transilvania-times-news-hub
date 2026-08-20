@@ -84,6 +84,9 @@ export default function NewsroomPage() {
   const [libPresReal, setLibPresReal] = useState(false)
   const [libPresPerson, setLibPresPerson] = useState('')
   const [libStudioName, setLibStudioName] = useState('')
+  const [studioPrompt, setStudioPrompt] = useState('')
+  const [presenterPrompt, setPresenterPrompt] = useState('')
+  const [presenterGender, setPresenterGender] = useState<'f' | 'm'>('f')
 
   // Broadcast compositor + publishing pack + archive.
   const [sections, setSections] = useState<Sections | null>(null)
@@ -211,6 +214,49 @@ export default function NewsroomPage() {
     try { await db.from('newsroom_assets').delete().eq('id', id); await refreshLibrary() } catch { /* ignore */ }
   }
   function pickPresenter(a: LibAsset) { setAnchorImg(a.url); setAnchorIsReal(!!a.is_real_person) }
+
+  // Save a generated image URL into the library (best-effort DB insert).
+  async function saveGeneratedToLibrary(url: string, kind: 'presenter' | 'studio', name: string) {
+    try { await db.from('newsroom_assets').insert({ kind, name, url, is_real_person: false, person_name: null }); await refreshLibrary() } catch { /* table missing — still usable this session */ }
+  }
+  // Prompt-based STUDIO backdrop (16:9) via the existing image generator.
+  async function genStudioFromPrompt() {
+    const p = studioPrompt.trim()
+    if (!p) { setError('Scrie un prompt pentru platou (ex: „știri de seară, oraș noaptea, ecrane albastre”).'); return }
+    setError(''); setBusy('genstudio')
+    try {
+      const prompt = `Professional television news studio set: ${p}. Wide establishing shot, empty anchor desk in the centre foreground, large broadcast video walls, modern studio lighting, cinematic depth of field, ultra photorealistic, 16:9. No people, no text, no logos, no watermark.`
+      const r = await invokeRaw('generate-cover-image', { raw_prompt: prompt, aspect: '16:9' })
+      if (r.error) throw new Error(String(r.error))
+      const url = String(r.publicUrl || ''); if (!url) throw new Error('Generarea platoului a eșuat.')
+      await saveGeneratedToLibrary(url, 'studio', p.slice(0, 40))
+      setStudioBg(url); setStudioPrompt('')
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+  // Prompt-based PRESENTER portrait (4:5) — fictional AI anchor, no consent needed.
+  async function genPresenterFromPrompt() {
+    const p = presenterPrompt.trim()
+    const who = presenterGender === 'f' ? 'a professional female news anchor' : 'a professional male news anchor'
+    setError(''); setBusy('genpres')
+    try {
+      const prompt = `Studio portrait photograph of ${who}${p ? ', ' + p : ' in their 30s'}, fictional person, facing the camera directly, head and shoulders, neutral warm studio background, soft professional lighting, smart attire with a subtle crimson accent, natural friendly expression, mouth closed, photorealistic, sharp focus. No text, no logo, no watermark.`
+      const r = await invokeRaw('generate-cover-image', { raw_prompt: prompt, aspect: '4:5' })
+      if (r.error) throw new Error(String(r.error))
+      const url = String(r.publicUrl || ''); if (!url) throw new Error('Generarea prezentatorului a eșuat.')
+      await saveGeneratedToLibrary(url, 'presenter', (p || (presenterGender === 'f' ? 'Prezentatoare' : 'Prezentator')).slice(0, 40))
+      setAnchorImg(url); setAnchorIsReal(false); setPresenterPrompt('')
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+  // Download any library image to disk (CORS-safe fetch → blob).
+  async function downloadAsset(url: string, name: string) {
+    try {
+      const res = await fetch(url); const blob = await res.blob()
+      const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob); a.download = `${name.replace(/[^\w-]+/g, '_') || 'asset'}.${ext}`
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000)
+    } catch { window.open(url, '_blank') }
+  }
 
   async function genScript() {
     const chosen = posts.filter(p => sel.has(p.id))
@@ -1472,6 +1518,8 @@ export default function NewsroomPage() {
                           <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" />
                           <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.name}</span>
                         </button>
+                        <button onClick={() => downloadAsset(a.url, a.name)} title="Descarcă"
+                          className="absolute top-1 right-7 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">⤓</button>
                         <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
                           className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
                       </div>
@@ -1493,6 +1541,17 @@ export default function NewsroomPage() {
                     <input type="file" accept="image/*" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'presenter', libPresName, libPresReal, libPresPerson); e.currentTarget.value = '' }} />
                   </label>
                 </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select value={presenterGender} onChange={e => setPresenterGender(e.target.value as 'f' | 'm')} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                    <option value="f">♀ Prezentatoare</option>
+                    <option value="m">♂ Prezentator</option>
+                  </select>
+                  <input value={presenterPrompt} onChange={e => setPresenterPrompt(e.target.value)} placeholder="Prompt opțional (ex: 40 ani, ochelari, costum bleumarin)"
+                    className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 flex-1 min-w-[200px]" />
+                  <button onClick={genPresenterFromPrompt} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-1.5 hover:bg-red-700 disabled:opacity-50">
+                    {busy === 'genpres' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează prezentator (AI)
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1511,6 +1570,8 @@ export default function NewsroomPage() {
                       <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" />
                       <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.name}</span>
                     </button>
+                    <button onClick={() => downloadAsset(a.url, a.name)} title="Descarcă"
+                      className="absolute top-1 right-7 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">⤓</button>
                     <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
                       className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
                   </div>
@@ -1523,6 +1584,13 @@ export default function NewsroomPage() {
                   {busy === 'lib' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Adaugă platou
                   <input type="file" accept="image/*" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'studio', libStudioName); e.currentTarget.value = '' }} />
                 </label>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input value={studioPrompt} onChange={e => setStudioPrompt(e.target.value)} placeholder="Prompt platou (ex: știri de seară, oraș noaptea, ecrane albastre, breaking news)"
+                  className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 flex-1 min-w-[220px]" />
+                <button onClick={genStudioFromPrompt} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-1.5 hover:bg-red-700 disabled:opacity-50">
+                  {busy === 'genstudio' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează platou (AI)
+                </button>
               </div>
               {studioBg && (
                 <label className="flex items-start gap-2 text-[11.5px] text-white/60 cursor-pointer leading-snug max-w-md">
