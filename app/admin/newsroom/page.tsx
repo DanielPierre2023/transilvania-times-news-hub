@@ -409,7 +409,7 @@ export default function NewsroomPage() {
           if (st.error) throw new Error(String(st.error))
           const s = String(st.status || '')
           setVideoStatus(s === 'IN_QUEUE' ? 'în coadă' : s === 'IN_PROGRESS' ? 'processing' : s)
-          if (s === 'completed' && st.publicUrl) { const u = String(st.publicUrl); setVideoUrl(u); return u }
+          if (s === 'completed' && st.publicUrl) { const u = String(st.publicUrl); setVideoUrl(u); setVideoStatus('gata ✓'); return u }
         }
         throw new Error('Durează neobișnuit de mult — reîncearcă.')
       } catch (e) { setError((e as Error).message); setVideoStatus('') }
@@ -434,7 +434,7 @@ export default function NewsroomPage() {
         if (st.error) throw new Error(String(st.error))
         const s = String(st.status || '')
         setVideoStatus(s)
-        if (s === 'completed' && st.publicUrl) { const u = String(st.publicUrl); setVideoUrl(u); return u }
+        if (s === 'completed' && st.publicUrl) { const u = String(st.publicUrl); setVideoUrl(u); setVideoStatus('gata ✓'); return u }
         if (s === 'failed') throw new Error('HeyGen a eșuat: ' + String(st.error_detail || 'necunoscut'))
       }
       throw new Error('Durează neobișnuit de mult — verifică în contul HeyGen.')
@@ -522,6 +522,8 @@ export default function NewsroomPage() {
         if (typeof d.presY === 'number') setPresY(d.presY)
         if (typeof d.deskLine === 'number') setDeskLine(d.deskLine)
         if (typeof d.bedOn === 'boolean') setBedOn(d.bedOn)
+        if (typeof d.voUrl === 'string' && d.voUrl) setVoUrl(d.voUrl)
+        if (typeof d.videoUrl === 'string' && d.videoUrl) { setVideoUrl(d.videoUrl); setVideoStatus('gata ✓ (sesiunea anterioară)') }
       }
     } catch { /* defaults are best-effort */ }
     defaultsLoaded.current = true
@@ -531,10 +533,10 @@ export default function NewsroomPage() {
     try {
       localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
         anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
-        presScale, presX, presY, deskLine, bedOn,
+        presScale, presX, presY, deskLine, bedOn, voUrl, videoUrl,
       }))
     } catch { /* ignore */ }
-  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone, presScale, presX, presY, deskLine, bedOn])
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone, presScale, presX, presY, deskLine, bedOn, voUrl, videoUrl])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
   const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement } | null>(null)
@@ -1649,7 +1651,7 @@ export default function NewsroomPage() {
             </p>
             <div className="flex items-center gap-2 mt-2.5">
               {anchorVideo
-                ? <video src={anchorVideo} muted playsInline className="w-10 h-10 object-cover border border-white/10" />
+                ? <video src={anchorVideo + '#t=0.1'} preload="metadata" muted playsInline className="w-10 h-10 object-cover border border-white/10" />
                 : anchorImg
                   /* eslint-disable-next-line @next/next/no-img-element */
                   ? <img src={anchorImg} alt="Prezentator" className="w-10 h-10 object-cover border border-white/10" />
@@ -1862,7 +1864,7 @@ export default function NewsroomPage() {
                     <div key={a.id} className="relative group">
                       <button onClick={() => { setAnchorVideo(anchorVideo === a.url ? '' : a.url) }}
                         className={'border overflow-hidden w-full ' + (anchorVideo === a.url ? 'border-brand-red' : 'border-white/[0.07] hover:border-white/30')}>
-                        <video src={a.url} muted playsInline className="w-full aspect-square object-cover" />
+                        <video src={a.url + '#t=0.1'} preload="metadata" muted playsInline className="w-full aspect-square object-cover" />
                         <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.name}</span>
                       </button>
                       <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
@@ -2018,7 +2020,7 @@ export default function NewsroomPage() {
           {!hgConfigured && falConfigured && <p className="text-[10.5px] text-white/30 mb-2">Motorul liber livrează formatul portretului (pătrat/portret). 9:16/16:9 exacte sunt disponibile pe motorul premium.</p>}
           {videoUrl && (
             <div className="border border-white/[0.07] max-w-md">
-              <video src={videoUrl} controls className="w-full" />
+              <video src={videoUrl} controls preload="metadata" className="w-full" />
               <a href={videoUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black">
                 <Download className="w-3.5 h-3.5" /> Descarcă clipul brut
               </a>
@@ -2065,7 +2067,7 @@ export default function NewsroomPage() {
           <canvas ref={canvasRef} className="w-full max-w-md bg-black border border-white/[0.07]" style={{ display: compositing || bulletinUrl ? 'block' : 'none' }} />
           {bulletinUrl && (
             <div className="border border-white/[0.07] max-w-md mt-3">
-              <video src={bulletinUrl} controls className="w-full" />
+              <video src={bulletinUrl} controls preload="metadata" className="w-full" />
               <a href={bulletinUrl} download={`buletin-tt.${bulletinMime.includes('mp4') ? 'mp4' : 'webm'}`}
                 className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black">
                 <Download className="w-3.5 h-3.5" /> Descarcă buletinul {bulletinMime.includes('mp4') ? 'MP4' : 'WebM'}
