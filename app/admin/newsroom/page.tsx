@@ -21,6 +21,7 @@ import {
 
 interface Post { id: string; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null }
 interface ElVoice { voice_id: string; name: string; category: string }
+interface LibAsset { id: string; kind: 'presenter' | 'studio'; name: string; url: string; is_real_person?: boolean; person_name?: string | null }
 interface Avatar { avatar_id: string; avatar_name: string; preview_image_url: string }
 interface Story { lower_third: string; text: string }
 interface Sections { greeting: string; stories: Story[]; signoff: string }
@@ -73,6 +74,16 @@ export default function NewsroomPage() {
   const [orient, setOrient] = useState<'16:9' | '9:16'>('16:9')
   const [videoStatus, setVideoStatus] = useState('')
   const [videoUrl, setVideoUrl] = useState('')
+
+  // Newsroom media library — reusable presenters + studio backdrops.
+  const [libPresenters, setLibPresenters] = useState<LibAsset[]>([])
+  const [libStudios, setLibStudios] = useState<LibAsset[]>([])
+  const [studioBg, setStudioBg] = useState('')        // chosen studio backdrop url ('' = none)
+  const [greenscreen, setGreenscreen] = useState(false) // key the anchor over the studio
+  const [libPresName, setLibPresName] = useState('')
+  const [libPresReal, setLibPresReal] = useState(false)
+  const [libPresPerson, setLibPresPerson] = useState('')
+  const [libStudioName, setLibStudioName] = useState('')
 
   // Broadcast compositor + publishing pack + archive.
   const [sections, setSections] = useState<Sections | null>(null)
@@ -165,11 +176,41 @@ export default function NewsroomPage() {
           .limit(7)
         if (pb) setPast(pb as PastBulletin[])
       } catch { /* table not created yet — archive stays hidden */ }
+      try { await refreshLibrary() } catch { /* library table not created yet */ }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const toggle = (id: string) => setSel(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+
+  // ── Newsroom media library ───────────────────────────────────────────────
+  async function refreshLibrary() {
+    const { data } = await db.from('newsroom_assets').select('id, kind, name, url, is_real_person, person_name').order('created_at', { ascending: false })
+    const rows = (data || []) as LibAsset[]
+    setLibPresenters(rows.filter(r => r.kind === 'presenter'))
+    setLibStudios(rows.filter(r => r.kind === 'studio'))
+  }
+  async function uploadLibraryAsset(file: File | undefined, kind: 'presenter' | 'studio', name: string, isReal = false, personName = '') {
+    if (!file) return
+    if (!name.trim()) { setError('Dă un nume asset-ului din bibliotecă.'); return }
+    if (kind === 'presenter' && isReal && !personName.trim()) { setError('Pentru o persoană reală, completează numele și bifează consimțământul.'); return }
+    setError(''); setBusy('lib')
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      const path = `library/${kind}s/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: upErr } = await supabase.storage.from('studio-assets').upload(path, file, { contentType: file.type, upsert: false })
+      if (upErr) throw new Error(upErr.message)
+      const url = supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
+      const { error: insErr } = await db.from('newsroom_assets').insert({ kind, name: name.trim(), url, is_real_person: isReal, person_name: isReal ? personName.trim() : null })
+      if (insErr) throw new Error(insErr.message)
+      if (kind === 'presenter') { setLibPresName(''); setLibPresReal(false); setLibPresPerson('') } else setLibStudioName('')
+      await refreshLibrary()
+    } catch (e) { setError('Bibliotecă: ' + (e as Error).message) } finally { setBusy('') }
+  }
+  async function deleteLibraryAsset(id: string) {
+    try { await db.from('newsroom_assets').delete().eq('id', id); await refreshLibrary() } catch { /* ignore */ }
+  }
+  function pickPresenter(a: LibAsset) { setAnchorImg(a.url); setAnchorIsReal(!!a.is_real_person) }
 
   async function genScript() {
     const chosen = posts.filter(p => sel.has(p.id))
@@ -432,6 +473,8 @@ export default function NewsroomPage() {
       const total = INTRO + dur + OUTRO
       const dateStr = new Date().toLocaleDateString(lang === 'ro' ? 'ro-RO' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
       const clockBaseMs = Date.now()   // live-advancing clock baked into the ticker
+      let studioImg: HTMLImageElement | null = null
+      if (studioBg) { try { studioImg = await loadImage(studioBg) } catch { studioImg = null } }
 
       // Audio: anchor clip audio → loudness gain → compressor → recorder.
       const ac = new AudioContext()
@@ -515,6 +558,27 @@ export default function NewsroomPage() {
         if (vr > cr) { dh = H; dw = H * vr } else { dw = W; dh = W / vr }
         ctx.drawImage(vv, (W - dw) / 2, (H - dh) / 2, dw, dh)
       }
+      // studio backdrop compositing + optional greenscreen key on the anchor
+      const okv = document.createElement('canvas'); okv.width = W; okv.height = H
+      const okx = okv.getContext('2d')!
+      const coverDraw = (c: CanvasRenderingContext2D, img: CanvasImageSource, iw: number, ih: number) => {
+        const vr = iw / ih, cr = W / H; let dw: number, dh: number
+        if (vr > cr) { dh = H; dw = H * vr } else { dw = W; dh = W / vr }
+        c.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh)
+      }
+      const drawAnchorKeyed = () => {
+        okx.clearRect(0, 0, W, H)
+        coverDraw(okx, v, v.videoWidth || 16, v.videoHeight || 9)
+        try {
+          const id = okx.getImageData(0, 0, W, H); const d = id.data
+          for (let i = 0; i < d.length; i += 4) {
+            const r = d[i], g = d[i + 1], b = d[i + 2]
+            if (g > 90 && g > r * 1.35 && g > b * 1.35) d[i + 3] = 0   // key out green
+          }
+          okx.putImageData(id, 0, 0)
+        } catch { /* tainted canvas — skip keying, fall back to full frame */ }
+        ctx.drawImage(okv, 0, 0)
+      }
       // A glass panel with a subtle top inner-highlight and bottom shadow line.
       const glass = (x: number, y: number, w: number, h: number, r: number, fill = P.glass) => {
         ctx.save()
@@ -534,9 +598,11 @@ export default function NewsroomPage() {
 
       const drawContent = (t: number) => {
         const vt = t - INTRO
-        // 1) anchor fills the whole frame
+        // 1) anchor fills the whole frame (over a studio backdrop if chosen)
         ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
-        drawCoverFull(v)
+        if (studioImg) coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
+        if (studioImg && greenscreen) drawAnchorKeyed()
+        else drawCoverFull(v)
         // 2) cinematic scrims + corner vignette so overlays read over any studio
         const scrimH = H * 0.42
         const scB = ctx.createLinearGradient(0, H - scrimH, 0, H)
@@ -1388,6 +1454,84 @@ export default function NewsroomPage() {
             </div>
           )}
           </>}
+
+          {/* ── Newsroom media library ─────────────────────────────────── */}
+          <div className="mt-5 border-t border-white/[0.07] pt-4 space-y-4">
+            <p className="text-[11px] uppercase tracking-wider text-white/40 font-bold">Bibliotecă platou &amp; prezentatori</p>
+
+            {!hgConfigured && (
+              <div className="space-y-2">
+                <p className="text-[12px] text-white/70 font-semibold">Prezentatori salvați</p>
+                {libPresenters.length > 0 ? (
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-48 overflow-y-auto pr-1">
+                    {libPresenters.map(a => (
+                      <div key={a.id} className="relative group">
+                        <button onClick={() => pickPresenter(a)}
+                          className={'border overflow-hidden w-full ' + (anchorImg === a.url ? 'border-brand-red' : 'border-white/[0.07] hover:border-white/30')}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" />
+                          <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.name}</span>
+                        </button>
+                        <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
+                          className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-[11.5px] text-white/30">Niciun prezentator salvat încă.</p>}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input value={libPresName} onChange={e => setLibPresName(e.target.value)} placeholder="Nume prezentator"
+                    className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-44" />
+                  <label className="flex items-center gap-1.5 text-[11px] text-white/55 cursor-pointer">
+                    <input type="checkbox" checked={libPresReal} onChange={e => setLibPresReal(e.target.checked)} /> persoană reală
+                  </label>
+                  {libPresReal && (
+                    <input value={libPresPerson} onChange={e => setLibPresPerson(e.target.value)} placeholder="Nume persoană (consimțământ)"
+                      className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-52" />
+                  )}
+                  <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-1.5 cursor-pointer hover:border-white/20 w-fit">
+                    {busy === 'lib' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Adaugă prezentator
+                    <input type="file" accept="image/*" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'presenter', libPresName, libPresReal, libPresPerson); e.currentTarget.value = '' }} />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-[12px] text-white/70 font-semibold">Platouri (fundal studio)</p>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-48 overflow-y-auto pr-1">
+                <button onClick={() => setStudioBg('')}
+                  className={'border flex items-center justify-center aspect-square text-[10px] text-white/50 px-1 text-center ' + (studioBg === '' ? 'border-brand-red' : 'border-white/[0.07] hover:border-white/30')}>
+                  Fără platou
+                </button>
+                {libStudios.map(a => (
+                  <div key={a.id} className="relative group">
+                    <button onClick={() => setStudioBg(a.url)}
+                      className={'border overflow-hidden w-full ' + (studioBg === a.url ? 'border-brand-red' : 'border-white/[0.07] hover:border-white/30')}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" />
+                      <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.name}</span>
+                    </button>
+                    <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
+                      className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input value={libStudioName} onChange={e => setLibStudioName(e.target.value)} placeholder="Nume platou"
+                  className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-44" />
+                <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-1.5 cursor-pointer hover:border-white/20 w-fit">
+                  {busy === 'lib' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Adaugă platou
+                  <input type="file" accept="image/*" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'studio', libStudioName); e.currentTarget.value = '' }} />
+                </label>
+              </div>
+              {studioBg && (
+                <label className="flex items-start gap-2 text-[11.5px] text-white/60 cursor-pointer leading-snug max-w-md">
+                  <input type="checkbox" checked={greenscreen} onChange={e => setGreenscreen(e.target.checked)} className="mt-0.5" />
+                  <span>Prezentatorul este pe <b>fundal verde</b> — decupează verdele și îl pune peste platou. Dacă e debifat, platoul se vede doar dacă clipul prezentatorului e transparent.</span>
+                </label>
+              )}
+            </div>
+          </div>
         </Step>
 
         <Step n={5} icon={Film} title="Videoul" done={!!videoUrl}>
