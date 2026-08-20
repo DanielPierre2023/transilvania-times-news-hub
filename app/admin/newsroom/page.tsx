@@ -443,6 +443,50 @@ export default function NewsroomPage() {
       comp.threshold.value = -6; comp.knee.value = 10; comp.ratio.value = 6
       comp.attack.value = 0.003; comp.release.value = 0.25
       src.connect(gain).connect(comp).connect(dest)
+
+      // Intro sting — a short cinematic sound bed under the branded open so the
+      // first ~4s isn't silent (drone → whoosh → riser → impact at the logo
+      // slam → shimmer). Routed into BOTH the recorder and the speakers.
+      const stingBus = ac.createGain(); stingBus.gain.value = 0.9
+      stingBus.connect(dest); stingBus.connect(ac.destination)
+      const noiseBuf = (d: number) => { const n = Math.floor(ac.sampleRate * d); const b = ac.createBuffer(1, n, ac.sampleRate); const ch = b.getChannelData(0); for (let i = 0; i < n; i++) ch[i] = Math.random() * 2 - 1; return b }
+      const scheduleIntroSting = (t0: number) => {
+        const slam = t0 + 2.55   // aligns with the logo slam in drawIntro
+        ;[55, 110].forEach((f, i) => {
+          const o = ac.createOscillator(); o.type = i ? 'sine' : 'triangle'; o.frequency.value = f
+          const g = ac.createGain(); const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320
+          g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.11, t0 + 2.2)
+          g.gain.setValueAtTime(0.11, t0 + 3.4); g.gain.linearRampToValueAtTime(0, t0 + 4.2)
+          o.connect(lp); lp.connect(g); g.connect(stingBus); o.start(t0); o.stop(t0 + 4.3)
+        })
+        ;[[0.5, 0.8], [1.5, 0.8]].forEach(([st, du]) => {
+          const s = ac.createBufferSource(); s.buffer = noiseBuf(du)
+          const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8
+          bp.frequency.setValueAtTime(300, t0 + st); bp.frequency.exponentialRampToValueAtTime(3500, t0 + st + du)
+          const g = ac.createGain(); g.gain.setValueAtTime(0, t0 + st)
+          g.gain.linearRampToValueAtTime(0.14, t0 + st + du * 0.4); g.gain.linearRampToValueAtTime(0, t0 + st + du)
+          s.connect(bp); bp.connect(g); g.connect(stingBus); s.start(t0 + st); s.stop(t0 + st + du)
+        })
+        { const o = ac.createOscillator(); o.type = 'sawtooth'
+          o.frequency.setValueAtTime(90, t0 + 1.1); o.frequency.exponentialRampToValueAtTime(900, slam)
+          const g = ac.createGain(); const lp = ac.createBiquadFilter(); lp.type = 'lowpass'
+          lp.frequency.setValueAtTime(400, t0 + 1.1); lp.frequency.exponentialRampToValueAtTime(6000, slam)
+          g.gain.setValueAtTime(0.0001, t0 + 1.1); g.gain.exponentialRampToValueAtTime(0.13, slam - 0.02); g.gain.linearRampToValueAtTime(0, slam + 0.12)
+          o.connect(lp); lp.connect(g); g.connect(stingBus); o.start(t0 + 1.1); o.stop(slam + 0.2) }
+        { const o = ac.createOscillator(); o.type = 'sine'
+          o.frequency.setValueAtTime(120, slam); o.frequency.exponentialRampToValueAtTime(45, slam + 0.5)
+          const g = ac.createGain(); g.gain.setValueAtTime(0.9, slam); g.gain.exponentialRampToValueAtTime(0.001, slam + 0.7)
+          o.connect(g); g.connect(stingBus); o.start(slam); o.stop(slam + 0.75) }
+        { const s = ac.createBufferSource(); s.buffer = noiseBuf(0.12)
+          const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1200
+          const g = ac.createGain(); g.gain.setValueAtTime(0.32, slam); g.gain.exponentialRampToValueAtTime(0.001, slam + 0.12)
+          s.connect(hp); hp.connect(g); g.connect(stingBus); s.start(slam); s.stop(slam + 0.13) }
+        ;[320, 470, 705].forEach((f, i) => {
+          const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f
+          const g = ac.createGain(); g.gain.setValueAtTime(0.13 / (i + 1), slam + 0.005); g.gain.exponentialRampToValueAtTime(0.001, slam + 1.2)
+          o.connect(g); g.connect(stingBus); o.start(slam); o.stop(slam + 1.25)
+        })
+      }
       const stream = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()])
       let mime = 'video/mp4'
       if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp9,opus'
@@ -943,6 +987,8 @@ export default function NewsroomPage() {
       }
 
       rec.start(200)
+      await ac.resume().catch(() => {})   // ensure the clock runs during the (silent-video) intro
+      scheduleIntroSting(ac.currentTime + 0.1)
       const t0 = performance.now()
       let started = false
       await new Promise<void>(resolve => {
