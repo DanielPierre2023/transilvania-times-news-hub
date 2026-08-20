@@ -122,7 +122,8 @@ export default function NewsroomPage() {
   const [capMode, setCapMode] = useState<'clasic' | 'karaoke'>('karaoke')
   const [subsOn, setSubsOn] = useState(true)
   const [tickerOn, setTickerOn] = useState(true)
-  const [bedOn, setBedOn] = useState(true)          // subtle news bed under the voice
+  const [bedOn, setBedOn] = useState(true)          // news bed under the voice
+  const [bedLevel, setBedLevel] = useState(0.6)     // 0.35 discret · 0.6 normal · 0.9 prezent
   const [bulletinPublicUrl, setBulletinPublicUrl] = useState('')
   const [pub, setPub] = useState<{ facebook: boolean; instagram: boolean; youtube: boolean }>({ facebook: false, instagram: false, youtube: false })
   const [pubBusy, setPubBusy] = useState('')
@@ -522,6 +523,7 @@ export default function NewsroomPage() {
         if (typeof d.presY === 'number') setPresY(d.presY)
         if (typeof d.deskLine === 'number') setDeskLine(d.deskLine)
         if (typeof d.bedOn === 'boolean') setBedOn(d.bedOn)
+        if (typeof d.bedLevel === 'number') setBedLevel(d.bedLevel)
         if (typeof d.voUrl === 'string' && d.voUrl) setVoUrl(d.voUrl)
         if (typeof d.videoUrl === 'string' && d.videoUrl) { setVideoUrl(d.videoUrl); setVideoStatus('gata ✓ (sesiunea anterioară)') }
       }
@@ -533,10 +535,10 @@ export default function NewsroomPage() {
     try {
       localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
         anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
-        presScale, presX, presY, deskLine, bedOn, voUrl, videoUrl,
+        presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl,
       }))
     } catch { /* ignore */ }
-  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone, presScale, presX, presY, deskLine, bedOn, voUrl, videoUrl])
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
   const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement; ar: number } | null>(null)
@@ -629,7 +631,7 @@ export default function NewsroomPage() {
   function presetPayload() {
     return {
       anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
-      presScale, presX, presY, deskLine, bedOn, lang, target, capMode, subsOn, tickerOn,
+      presScale, presX, presY, deskLine, bedOn, bedLevel, lang, target, capMode, subsOn, tickerOn,
     }
   }
   function applyPresetPayload(d: Record<string, unknown>) {
@@ -645,6 +647,7 @@ export default function NewsroomPage() {
     if (typeof d.presY === 'number') setPresY(d.presY)
     if (typeof d.deskLine === 'number') setDeskLine(d.deskLine)
     if (typeof d.bedOn === 'boolean') setBedOn(d.bedOn)
+    if (typeof d.bedLevel === 'number') setBedLevel(d.bedLevel)
     if (d.lang === 'ro' || d.lang === 'en') setLang(d.lang)
     if (typeof d.target === 'number') setTarget(d.target)
     if (d.capMode === 'clasic' || d.capMode === 'karaoke') setCapMode(d.capMode)
@@ -683,6 +686,71 @@ export default function NewsroomPage() {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── One-click AI edition setup: generates the studio + anchorwoman with AI,
+  // saves them in the library, wires the voice, and stores the preset. ──────
+  const [setupBusy, setSetupBusy] = useState('')
+  async function setupEdition(kind: 'morning' | 'evening') {
+    setSetupBusy(kind); setError('')
+    try {
+      const studioPrompt = kind === 'morning'
+        ? 'An exquisite bright morning television news studio: a full glass wall opening onto Cheile Turzii gorge at sunrise, golden limestone cliffs, thin mist over the valley, light noble-wood paneling, a white stone anchor desk in the centre foreground with its straight top edge in the lower third of frame, brass and subtle crimson accents, soft warm key light, ultra photorealistic, broadcast design of the highest order, 16:9. No people, no text, no logos, no watermark.'
+        : 'An exquisite flagship evening television news studio at blue hour: a vast curved panoramic window behind a monolithic smoked-glass anchor desk revealing the skyline of Turda, Romania — the warm-lit town hall clock tower, terracotta rooftops, Transylvanian hills at dusk — a thin crimson light strip along the desk edge with its straight top edge in the lower third of frame, polished dark reflective floor, subtle blue video walls, cinematic lighting, ultra photorealistic, 16:9. No people, no text, no logos, no watermark.'
+      const sr = await invokeRaw('generate-cover-image', { raw_prompt: studioPrompt, aspect: '16:9' })
+      if (sr.error) throw new Error(String(sr.error))
+      const studioUrl = String(sr.publicUrl || ''); if (!studioUrl) throw new Error('platoul nu s-a generat')
+
+      const presPrompt = kind === 'morning'
+        ? 'Broadcast-quality studio portrait of a fictional female news anchor, age 29, natural blonde shoulder-length hair, sage-green office dress, luminous restrained smile with mouth closed and relaxed, both eyes to camera, facing the camera directly, head and shoulders, soft warm morning key light, even light on the lower face, neutral warm background, photorealistic, sharp focus. No text, no logo, no watermark.'
+        : 'Broadcast-quality studio portrait of a fictional female news anchor, age 35, chestnut hair in an elegant low chignon, structured navy blazer with a subtle crimson lapel pin, professional TV makeup, warm authoritative expression, mouth closed and relaxed, both eyes to camera, facing the camera directly, head and shoulders, three-point studio lighting, even light on the lower face, neutral dark background, photorealistic, sharp focus. No text, no logo, no watermark.'
+      const pr = await invokeRaw('generate-cover-image', { raw_prompt: presPrompt, aspect: '4:5' })
+      if (pr.error) throw new Error(String(pr.error))
+      const presUrl = String(pr.publicUrl || ''); if (!presUrl) throw new Error('prezentatoarea nu s-a generat')
+
+      // Library rows (best-effort — the preset carries the URLs regardless).
+      try {
+        await db.from('newsroom_assets').insert([
+          { kind: 'studio', name: kind === 'morning' ? 'Platou Matinal — Cheile Turzii' : 'Platou Seară — Panorama Turzii', url: studioUrl, is_real_person: false, person_name: null },
+          { kind: 'presenter', name: kind === 'morning' ? 'Ioana (Matinal)' : 'Ana (Seară)', url: presUrl, is_real_person: false, person_name: null },
+        ])
+        await refreshLibrary()
+      } catch { /* library table missing — non-fatal */ }
+
+      // Complete broadcast kit, explicit and deterministic — the edition carries
+      // EVERYTHING: presenter, studio, placement, voice, monitor window for the
+      // article images, news bed, ticker, karaoke captions. Romanian only for
+      // now (translation stays a per-click choice, like the voices).
+      const payload = {
+        anchorVideo: '', anchorImg: presUrl, studioBg: studioUrl, greenscreen: false,
+        geminiVoice: kind === 'morning' ? 'Aoede' : 'Zephyr', tone: 'stiri',
+        presScale: 0.82, presX: 0.5, presY: 0.06, deskLine: 0.78,
+        monitorSide: 'right' as const,           // article-image monitor beside the presenter
+        bedOn: true, bedLevel: 0.6,              // news bed at broadcast level
+        tickerOn: true,                          // headline ticker
+        subsOn: true, capMode: 'karaoke' as const, // burned karaoke captions
+        lang: 'ro' as const, target: 75,
+      }
+      const { error: e } = await db.from('newsroom_presets')
+        .upsert({ kind, name: kind === 'morning' ? 'Matinal TT' : 'Jurnalul de Seară', payload, updated_at: new Date().toISOString() }, { onConflict: 'kind' })
+      if (e) throw new Error(e.message)
+      applyPresetPayload(payload); setEdition(kind); setPresetsAvail(a => ({ ...a, [kind]: true }))
+      setPresetMsg(kind === 'morning' ? 'Matinal TT creat: platou + Ioana + Aoede ✓' : 'Jurnalul de Seară creat: platou + Ana + Zephyr ✓')
+      setTimeout(() => setPresetMsg(''), 6000)
+    } catch (e) { setError('Configurare ediție: ' + (e as Error).message) } finally { setSetupBusy('') }
+  }
+
+  async function deleteEdition(kind: 'morning' | 'evening') {
+    const label = kind === 'morning' ? 'Matinal TT' : 'Jurnalul de Seară'
+    if (!window.confirm(`Ștergi ediția „${label}”? Platoul și prezentatoarea rămân în bibliotecă (le poți șterge de acolo cu ✕); doar presetul dispare.`)) return
+    try {
+      const { error: e } = await db.from('newsroom_presets').delete().eq('kind', kind)
+      if (e) throw new Error(e.message)
+      setPresetsAvail(a => ({ ...a, [kind]: false }))
+      if (edition === kind) setEdition('')
+      setPresetMsg(`${label} ștearsă. Recreeaz-o oricând cu butonul AI sau cu „salvează setarea curentă”.`)
+      setTimeout(() => setPresetMsg(''), 5000)
+    } catch (e) { setPresetMsg('Ștergere eșuată: ' + (e as Error).message) }
+  }
 
   async function autoBulletin() {
     if (sel.size === 0) { setError('Selectează cel puțin o știre (sau lasă selecția automată).'); return }
@@ -1477,10 +1545,10 @@ export default function NewsroomPage() {
         bed.connect(dest); bed.connect(ac.destination)
         const bT0 = acT0 + INTRO, bEnd = bT0 + dur
         bed.gain.setValueAtTime(0, bT0)
-        bed.gain.linearRampToValueAtTime(0.34, bT0 + 1.4)
-        bed.gain.setValueAtTime(0.34, Math.max(bT0 + 1.4, bEnd - 1.0))
-        bed.gain.linearRampToValueAtTime(0.14, bEnd + 0.6)                 // dip under the endcard
-        bed.gain.setValueAtTime(0.14, bEnd + Math.max(0, OUTRO - 1.4))
+        bed.gain.linearRampToValueAtTime(bedLevel, bT0 + 1.4)
+        bed.gain.setValueAtTime(bedLevel, Math.max(bT0 + 1.4, bEnd - 1.0))
+        bed.gain.linearRampToValueAtTime(bedLevel * 0.4, bEnd + 0.6)       // dip under the endcard
+        bed.gain.setValueAtTime(bedLevel * 0.4, bEnd + Math.max(0, OUTRO - 1.4))
         bed.gain.linearRampToValueAtTime(0, bEnd + OUTRO - 0.15)
         // pad: two detuned A2 + a fifth (E3) through a lowpass, slow breathing LFO
         const padLp = ac.createBiquadFilter(); padLp.type = 'lowpass'; padLp.frequency.value = 420
@@ -1754,17 +1822,38 @@ export default function NewsroomPage() {
               <Wand2 className="w-4 h-4 text-brand-red" /> Buletin automat
             </p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <button onClick={() => loadEdition('morning')}
-                className={'px-3 py-1.5 text-[12px] font-bold border ' + (edition === 'morning' ? 'bg-amber-400/20 border-amber-300/60 text-amber-200' : presetsAvail.morning ? 'bg-[#111] border-white/15 text-white/70 hover:border-amber-300/50' : 'bg-[#111] border-white/[0.07] text-white/30')}>
-                🌅 Matinal TT
-              </button>
-              <button onClick={() => loadEdition('evening')}
-                className={'px-3 py-1.5 text-[12px] font-bold border ' + (edition === 'evening' ? 'bg-indigo-400/20 border-indigo-300/60 text-indigo-200' : presetsAvail.evening ? 'bg-[#111] border-white/15 text-white/70 hover:border-indigo-300/50' : 'bg-[#111] border-white/[0.07] text-white/30')}>
-                🌆 Jurnalul de Seară
-              </button>
+              <span className="inline-flex items-stretch">
+                <button onClick={() => loadEdition('morning')}
+                  className={'px-3 py-1.5 text-[12px] font-bold border ' + (edition === 'morning' ? 'bg-amber-400/20 border-amber-300/60 text-amber-200' : presetsAvail.morning ? 'bg-[#111] border-white/15 text-white/70 hover:border-amber-300/50' : 'bg-[#111] border-white/[0.07] text-white/30')}>
+                  🌅 Matinal TT
+                </button>
+                {presetsAvail.morning && (
+                  <button onClick={() => deleteEdition('morning')} title="Șterge ediția de dimineață"
+                    className="px-1.5 border border-l-0 border-white/15 text-white/40 hover:text-red-400 hover:border-red-400/50 text-[11px]">✕</button>
+                )}
+              </span>
+              <span className="inline-flex items-stretch">
+                <button onClick={() => loadEdition('evening')}
+                  className={'px-3 py-1.5 text-[12px] font-bold border ' + (edition === 'evening' ? 'bg-indigo-400/20 border-indigo-300/60 text-indigo-200' : presetsAvail.evening ? 'bg-[#111] border-white/15 text-white/70 hover:border-indigo-300/50' : 'bg-[#111] border-white/[0.07] text-white/30')}>
+                  🌆 Jurnalul de Seară
+                </button>
+                {presetsAvail.evening && (
+                  <button onClick={() => deleteEdition('evening')} title="Șterge ediția de seară"
+                    className="px-1.5 border border-l-0 border-white/15 text-white/40 hover:text-red-400 hover:border-red-400/50 text-[11px]">✕</button>
+                )}
+              </span>
               <span className="text-[10.5px] text-white/30">salvează setarea curentă ca:</span>
               <button onClick={() => saveEdition('morning')} className="text-[10.5px] text-white/50 underline hover:text-amber-200">dimineață</button>
               <button onClick={() => saveEdition('evening')} className="text-[10.5px] text-white/50 underline hover:text-indigo-200">seară</button>
+              <span className="text-[10.5px] text-white/30 ml-2">· creează automat cu AI:</span>
+              <button onClick={() => setupEdition('morning')} disabled={!!setupBusy}
+                className="flex items-center gap-1 text-[10.5px] font-bold text-amber-200/90 border border-amber-300/30 px-2 py-1 hover:border-amber-300/70 disabled:opacity-50">
+                {setupBusy === 'morning' ? <Loader2 className="w-3 h-3 animate-spin" /> : '🌅'} dimineața · Aoede
+              </button>
+              <button onClick={() => setupEdition('evening')} disabled={!!setupBusy}
+                className="flex items-center gap-1 text-[10.5px] font-bold text-indigo-200/90 border border-indigo-300/30 px-2 py-1 hover:border-indigo-300/70 disabled:opacity-50">
+                {setupBusy === 'evening' ? <Loader2 className="w-3 h-3 animate-spin" /> : '🌆'} seara · Zephyr
+              </button>
               {presetMsg && <span className="text-[10.5px] text-sky-300/80">{presetMsg}</span>}
             </div>
             <p className="text-[12px] text-white/45 mt-1 max-w-xl">
@@ -2170,7 +2259,13 @@ export default function NewsroomPage() {
               <input type="checkbox" checked={tickerOn} onChange={e => setTickerOn(e.target.checked)} /> ticker cu titluri
             </label>
             <label className="flex items-center gap-1.5 text-[11.5px] text-white/55 cursor-pointer">
-              <input type="checkbox" checked={bedOn} onChange={e => setBedOn(e.target.checked)} /> fundal sonor (news bed)
+              <input type="checkbox" checked={bedOn} onChange={e => setBedOn(e.target.checked)} /> fundal sonor
+              <select value={String(bedLevel)} onChange={e => setBedLevel(Number(e.target.value))} disabled={!bedOn}
+                className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-1.5 py-1">
+                <option value="0.35">discret</option>
+                <option value="0.6">normal</option>
+                <option value="0.9">prezent</option>
+              </select>
             </label>
             <label className="flex items-center gap-1.5 text-[11.5px] text-white/55">
               monitor imagine știre:
