@@ -812,12 +812,21 @@ export default function NewsroomPage() {
   }
 
   async function autoBulletin() {
-    if (sel.size === 0) { setError('Selectează cel puțin o știre (sau lasă selecția automată).'); return }
+    // A bulletin does not require fresh articles. With no news selected but a
+    // script written or pasted by hand at step 2, Autopilot uses THAT text
+    // instead of generating one — otherwise a slow news day (or a special
+    // edition written manually) locks the whole pipeline.
+    const manualScript = script.trim()
+    if (sel.size === 0 && !manualScript) {
+      setError('Selectează cel puțin o știre — sau scrie/lipește un script la pasul 2 și Autopilot îl folosește pe acela.'); return
+    }
     if (!anchorVideo && !anchorImg && !hgConfigured) { setError('Setează o dată prezentatorul (pasul 4) — apoi Autopilot îl refolosește zilnic.'); return }
     setError('')
     try {
       setAutoStage('script')
-      const text = await genScript(); if (!text) throw new Error('scriptul a eșuat')
+      // Fresh news selected → write from the news. Otherwise keep the manual text.
+      const text = sel.size > 0 ? await genScript() : manualScript
+      if (!text) throw new Error('scriptul a eșuat')
       setAutoStage('voice')
       const voice = await genVoice(text); if (!voice) throw new Error('vocea a eșuat')
       setAutoStage('anchor')
@@ -989,7 +998,19 @@ export default function NewsroomPage() {
         monitorImgs = await Promise.all(thirds.map(th => th.cover ? loadImage(th.cover, 6000) : Promise.resolve(null)))
       }
       setCompStage('randez buletinul…')
-      const tickerText = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean).join('   •   ')
+      // Ticker headlines: selected articles first; with a hand-written script
+      // and no articles, fall back to the script's own section headings, then to
+      // a station line — the ticker (and the branded frame) must never go blank
+      // just because there was no news feed to draw on.
+      const tickerFromPosts = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean)
+      const tickerFromScript = (sections?.stories || []).map(st => st.lower_third || '').filter(Boolean)
+      const stationLine = lang === 'ro'
+        ? ['TRANSILVANIA TIMES', 'ȘTIRILE ZILEI', 'TURDA ȘI ÎMPREJURIMI']
+        : ['TRANSILVANIA TIMES', 'TODAY\u2019S NEWS', 'TURDA AND AROUND']
+      const tickerParts = tickerFromPosts.length ? tickerFromPosts
+        : tickerFromScript.length ? tickerFromScript
+        : stationLine
+      const tickerText = tickerParts.join('   •   ')
 
       const [W, H] = orient === '16:9' ? [1280, 720] : [720, 1280]
       const canvas = canvasRef.current!
@@ -1313,14 +1334,21 @@ export default function NewsroomPage() {
           ctx.fillText(clockStr, clockX + 34, H - tick / 2)
         }
 
-        // 6) lower-third — crimson kicker tab over a glass headline bar, wipe-in
+        // 6) lower-third — crimson kicker tab over a glass headline bar, wipe-in.
+        // Skipped entirely when there are no stories (a hand-written script with
+        // no articles selected): an empty crimson bar with no headline in it
+        // looks broken, whereas no bar at all reads as a clean full-frame shot.
         const cur = [...thirds].reverse().find(s => vt >= s.start) || thirds[0]
+        // Geometry stays OUTSIDE the guard — the captions block below anchors to
+        // tabY, so it must exist even when no lower-third is drawn.
         const idx = cur ? thirds.indexOf(cur) + 1 : 1
         const ltH = isWide ? 100 : 116
         const gapT = isWide ? 22 : 26
         const ltY = H - tick - gapT - ltH
         const barX = marginX, barW = W - marginX * 2
         const tabH = isWide ? 32 : 36, tabY = ltY - tabH + 3
+        const hasStory = !!(cur && (cur.title || '').trim())
+        if (hasStory) {
         const ap = Math.max(0, Math.min(1, (vt - (cur?.start || 0)) / 0.5))
         const apE = 1 - Math.pow(1 - ap, 3)
         const tabIn = Math.max(0, Math.min(1, (vt - (cur?.start || 0) - 0.12) / 0.4))
@@ -1415,6 +1443,7 @@ export default function NewsroomPage() {
             ctx.restore()
           }
         }
+        }   // end lower-third (skipped when there is no story headline)
 
         // 7) captions above the lower-third — glass pill, active-word glow
         if (subsOn) {
