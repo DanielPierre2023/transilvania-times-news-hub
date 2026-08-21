@@ -74,7 +74,10 @@ export default function NewsroomPage() {
   // ElevenLabs voice NAME or ID for the fal-hosted multilingual engine. Set this
   // to a Romanian voice (ElevenLabs Voice Library → filter Romanian, or your own
   // clone) — it is the only way to get speech without an English accent.
-  const [elVoice, setElVoice] = useState('')
+  // Ioana — the station's Romanian anchor voice (ElevenLabs, user's account).
+  // A 20-char ID routes through the DIRECT ElevenLabs API, which needs
+  // ELEVENLABS_API_KEY in the newsroom secrets. Overridable in Pas 3.
+  const [elVoice, setElVoice] = useState('znn3xedzq0kO6JXbSRB6')
   // Lipsync cost tier: economic $0.70/min · bun $3 · pro ~$5 · premium $8
   const [quality, setQuality] = useState<'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium'>('economic')
   const [tone, setTone] = useState('stiri')
@@ -353,11 +356,20 @@ export default function NewsroomPage() {
       // ElevenLabs default ("Sarah"/"George") is an English-recorded voice — same
       // result. Romanian only sounds native when the VOICE ITSELF is Romanian,
       // so elVoice is passed explicitly and the multilingual engine is forced.
-      const body: Record<string, unknown> = elConfigured
-        ? { text, voice_id: voiceId, tone, language: lang }
-        : elVoice.trim()
-          ? { text, provider: 'fal_elevenlabs', el_voice: elVoice.trim(), gender: 'f', tone, language: lang }
-          : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
+      // An ElevenLabs voice ID (20 alphanumerics) belongs to YOUR ElevenLabs
+      // account, so it only resolves through the DIRECT ElevenLabs API — fal's
+      // hosted endpoint runs on fal's own account and only knows its premade
+      // NAMED voices. Route accordingly; an explicit override always wins.
+      const ev = elVoice.trim()
+      const isVoiceId = /^[A-Za-z0-9]{20}$/.test(ev)
+      const body: Record<string, unknown> =
+        ev && isVoiceId
+          ? { text, provider: 'elevenlabs', voice_id: ev, tone, language: lang }
+          : ev
+            ? { text, provider: 'fal_elevenlabs', el_voice: ev, gender: 'f', tone, language: lang }
+            : elConfigured
+              ? { text, voice_id: voiceId, tone, language: lang }
+              : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
       const r = await invokeRaw('generate-voiceover', body)
       if (r.error) throw new Error(String(r.error))
       const url = String(r.publicUrl || '')
@@ -2068,6 +2080,17 @@ export default function NewsroomPage() {
         </Step>
 
         <Step n={3} icon={Mic} title="Vocea" done={stepDone[3]}>
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <input value={elVoice} onChange={e => setElVoice(e.target.value)}
+              placeholder="Voce românească — ID ElevenLabs (ex: znn3xed…) sau nume"
+              title="Un ID de voce (20 de caractere) merge prin contul TĂU ElevenLabs și are nevoie de ELEVENLABS_API_KEY. Un nume de voce premade merge prin fal."
+              className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-72" />
+            {elVoice.trim()
+              ? /^[A-Za-z0-9]{20}$/.test(elVoice.trim())
+                ? <span className="text-[10.5px] text-green-400/85">ID de voce · folosește contul tău ElevenLabs {elConfigured ? '✓ cheie detectată' : '⚠ adaugă ELEVENLABS_API_KEY în secrete'}</span>
+                : <span className="text-[10.5px] text-sky-300/80">nume de voce · prin fal (~$0.10 / 1.000 caractere)</span>
+              : <span className="text-[10.5px] text-amber-300/80">⚠ gol = voce englezească cu accent. Pune vocea românească aici.</span>}
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             {elConfigured ? (
               <>
@@ -2080,10 +2103,6 @@ export default function NewsroomPage() {
               </>
             ) : (
               <>
-                <input value={elVoice} onChange={e => setElVoice(e.target.value)}
-                  placeholder="Voce românească (nume sau ID ElevenLabs)"
-                  title="Vocile Gemini și vocile implicite ElevenLabs (Sarah/George) sunt înregistrate în engleză și citesc româna cu accent. Pune aici o voce ROMÂNEASCĂ din ElevenLabs Voice Library (sau clona ta) ca să dispară accentul."
-                  className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-64" />
                 <select value={geminiVoice} onChange={e => setGeminiVoice(e.target.value)} disabled={!!elVoice.trim()}
                   className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 disabled:opacity-40">
                   {[
