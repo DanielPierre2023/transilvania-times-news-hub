@@ -78,6 +78,7 @@ export default function NewsroomPage() {
   // A 20-char ID routes through the DIRECT ElevenLabs API, which needs
   // ELEVENLABS_API_KEY in the newsroom secrets. Overridable in Pas 3.
   const [elVoice, setElVoice] = useState('znn3xedzq0kO6JXbSRB6')
+  const [voiceDiag, setVoiceDiag] = useState('')
   // Lipsync cost tier: economic $0.70/min · bun $3 · pro ~$5 · premium $8
   const [quality, setQuality] = useState<'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium'>('economic')
   const [tone, setTone] = useState('stiri')
@@ -189,13 +190,7 @@ export default function NewsroomPage() {
         .limit(20)
       setPosts((data ?? []) as Post[])
       setSel(new Set(((data ?? []) as Post[]).slice(0, 5).map(p => p.id)))
-      try {
-        const v = await invokeRaw('voice-lab', { action: 'list' })
-        if (v.configured === true && Array.isArray(v.voices)) {
-          setElConfigured(true); setElVoices(v.voices as ElVoice[])
-          if ((v.voices as ElVoice[]).length) setVoiceId((v.voices as ElVoice[])[0].voice_id)
-        }
-      } catch { /* fallback voice note shown in UI */ }
+      await loadElVoices()
       try {
         const eng = await invokeRaw('newsroom-anchor', { action: 'engines' })
         setFalConfigured(eng.fal === true)
@@ -344,6 +339,27 @@ export default function NewsroomPage() {
       setSections((r.sections as Sections | null) || null)
       return text || null
     } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
+  }
+
+  // Loads the ElevenLabs voices from YOUR account. Kept separate so the UI can
+  // re-run it after you add a voice in ElevenLabs, without reloading the page.
+  async function loadElVoices() {
+    setVoiceDiag('se încarcă…')
+    try {
+      const v = await invokeRaw('voice-lab', { action: 'list' })
+      if (v.configured === true && Array.isArray(v.voices)) {
+        const list = v.voices as ElVoice[]
+        setElConfigured(true); setElVoices(list)
+        if (list.length && !voiceId) setVoiceId(list[0].voice_id)
+        setVoiceDiag(`${list.length} voci din contul tău ElevenLabs`)
+      } else {
+        setElConfigured(false); setElVoices([])
+        setVoiceDiag('ELEVENLABS_API_KEY lipsește din secretele Supabase — de aceea vezi doar voci englezești.')
+      }
+    } catch (e) {
+      setElConfigured(false)
+      setVoiceDiag('nu am putut citi vocile: ' + (e as Error).message)
+    }
   }
 
   async function genVoice(scriptParam?: string): Promise<string | null> {
@@ -2114,12 +2130,22 @@ export default function NewsroomPage() {
               placeholder="Voce românească — ID ElevenLabs (ex: znn3xed…) sau nume"
               title="Un ID de voce (20 de caractere) merge prin contul TĂU ElevenLabs și are nevoie de ELEVENLABS_API_KEY. Un nume de voce premade merge prin fal."
               className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-72" />
+            <button onClick={loadElVoices} type="button"
+              className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/60 text-[11.5px] px-2.5 py-1.5 hover:border-white/30">
+              <RefreshCw className="w-3.5 h-3.5" /> reîncarcă vocile
+            </button>
             {elVoice.trim()
               ? /^[A-Za-z0-9]{20}$/.test(elVoice.trim())
-                ? <span className="text-[10.5px] text-green-400/85">ID de voce · folosește contul tău ElevenLabs {elConfigured ? '✓ cheie detectată' : '⚠ adaugă ELEVENLABS_API_KEY în secrete'}</span>
+                ? <span className="text-[10.5px] text-green-400/85">ID de voce · contul tău ElevenLabs {elConfigured ? '✓ cheie detectată' : '⚠ ELEVENLABS_API_KEY lipsește'}</span>
                 : <span className="text-[10.5px] text-sky-300/80">nume de voce · prin fal (~$0.10 / 1.000 caractere)</span>
               : <span className="text-[10.5px] text-amber-300/80">⚠ gol = voce englezească cu accent. Pune vocea românească aici.</span>}
           </div>
+          {voiceDiag && (
+            <p className={'text-[10.5px] mb-2 ' + (elConfigured ? 'text-white/40' : 'text-amber-300/85')}>
+              {elConfigured ? '✓ ' : '⚠ '}{voiceDiag}
+              {!elConfigured && <> · adaug-o în <b>Supabase → Project Settings → Edge Functions → Secrets</b>, apoi apasă „reîncarcă vocile”.</>}
+            </p>
+          )}
           <div className="flex items-center gap-2 flex-wrap">
             {elConfigured ? (
               <>
