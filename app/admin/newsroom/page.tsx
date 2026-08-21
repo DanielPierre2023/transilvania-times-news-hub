@@ -71,6 +71,12 @@ export default function NewsroomPage() {
   const [elConfigured, setElConfigured] = useState(false)
   const [voiceId, setVoiceId] = useState('')
   const [geminiVoice, setGeminiVoice] = useState('Charon')
+  // ElevenLabs voice NAME or ID for the fal-hosted multilingual engine. Set this
+  // to a Romanian voice (ElevenLabs Voice Library → filter Romanian, or your own
+  // clone) — it is the only way to get speech without an English accent.
+  const [elVoice, setElVoice] = useState('')
+  // Lipsync cost tier: economic $0.70/min · bun $3 · pro ~$5 · premium $8
+  const [quality, setQuality] = useState<'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium'>('economic')
   const [tone, setTone] = useState('stiri')
   const [voUrl, setVoUrl] = useState('')
 
@@ -342,9 +348,16 @@ export default function NewsroomPage() {
     if (!text) { setError('Generează sau scrie scriptul mai întâi.'); return null }
     setError(''); setBusy('voice')
     try {
+      // Voice routing. The ACCENT problem: Gemini's voices (Aoede/Zephyr/…) are
+      // English-first and read Romanian with a heavy English accent, and fal's
+      // ElevenLabs default ("Sarah"/"George") is an English-recorded voice — same
+      // result. Romanian only sounds native when the VOICE ITSELF is Romanian,
+      // so elVoice is passed explicitly and the multilingual engine is forced.
       const body: Record<string, unknown> = elConfigured
         ? { text, voice_id: voiceId, tone, language: lang }
-        : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
+        : elVoice.trim()
+          ? { text, provider: 'fal_elevenlabs', el_voice: elVoice.trim(), gender: 'f', tone, language: lang }
+          : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
       const r = await invokeRaw('generate-voiceover', body)
       if (r.error) throw new Error(String(r.error))
       const url = String(r.publicUrl || '')
@@ -355,8 +368,9 @@ export default function NewsroomPage() {
 
   async function uploadPhoto(file?: File) {
     if (!file) return
-    // Real-person faces always need the consent confirmation.
-    if ((hgConfigured || anchorIsReal) && (!photoConsent || !photoPerson.trim())) {
+    // Real-person faces always need the consent confirmation. A fully
+    // AI-generated presenter (anchorIsReal = false) has no person to consent.
+    if (anchorIsReal && (!photoConsent || !photoPerson.trim())) {
       setError('Completează persoana și bifează consimțământul înainte de a încărca fotografia unei persoane reale.'); return
     }
     setError(''); setBusy('photo')
@@ -366,7 +380,12 @@ export default function NewsroomPage() {
       if (upErr) throw new Error(upErr.message)
       const url = supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
       if (hgConfigured) {
-        const r = await invokeRaw('newsroom-anchor', { action: 'upload_photo', image_url: url, consent: { granted: true, person_name: photoPerson.trim() } })
+        // An AI-generated presenter has no real person behind it, so there is
+        // nobody to give consent; a real person's photo still requires it.
+        const isFictional = !photoPerson.trim()
+        const r = await invokeRaw('newsroom-anchor', isFictional
+          ? { action: 'upload_photo', image_url: url, fictional: true }
+          : { action: 'upload_photo', image_url: url, consent: { granted: true, person_name: photoPerson.trim() } })
         if (r.error) throw new Error(String(r.error))
         setPhotoId(String(r.talking_photo_id || ''))
       }
@@ -404,7 +423,7 @@ export default function NewsroomPage() {
         // Video-to-video lipsync (sync.so) is the professional path: the clip keeps
         // its real studio, body language and lighting — only the mouth is resynced.
         const r = await invokeRaw('newsroom-anchor', anchorVideo
-          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voice }
+          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voice, quality }
           : { action: 'generate_fal', engine: 'sadtalker', image_url: anchorImg, audio_url: voice })
         if (r.error) throw new Error(String(r.error))
         const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
@@ -430,7 +449,13 @@ export default function NewsroomPage() {
     const [width, height] = orient === '16:9' ? [1280, 720] : [720, 1280]
     setError(''); setVideoUrl(''); setVideoStatus('se trimite')
     try {
-      const r = await invokeRaw('newsroom-anchor', { action: 'generate', character, audio_url: voice, width, height })
+      // Pass the studio as HeyGen's NATIVE background — the avatar is composited
+      // into it at source, correctly scaled in 16:9, instead of being keyed over
+      // the studio afterwards (no green spill, no decapitated portrait).
+      const r = await invokeRaw('newsroom-anchor', {
+        action: 'generate', character, audio_url: voice, width, height,
+        ...(studioBg ? { background_image_url: studioBg } : {}),
+      })
       if (r.error) throw new Error(String(r.error))
       const videoId = String(r.video_id || '')
       for (let i = 0; i < 150; i++) {
@@ -521,6 +546,8 @@ export default function NewsroomPage() {
         if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
         if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
         if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
+        if (typeof d.elVoice === 'string') setElVoice(d.elVoice)
+        if (typeof d.quality === 'string') setQuality(d.quality as 'economic'|'veed'|'standard'|'bun'|'pro'|'premium')
         if (typeof d.tone === 'string') setTone(d.tone)
         if (typeof d.presScale === 'number') setPresScale(d.presScale)
         if (typeof d.presX === 'number') setPresX(d.presX)
@@ -538,11 +565,11 @@ export default function NewsroomPage() {
     if (!defaultsLoaded.current) return
     try {
       localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
-        anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
+        anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone,
         presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl,
       }))
     } catch { /* ignore */ }
-  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl])
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
   const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement; ar: number } | null>(null)
@@ -645,6 +672,8 @@ export default function NewsroomPage() {
     if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
     if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
     if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
+    if (typeof d.elVoice === 'string') setElVoice(d.elVoice)
+    if (typeof d.quality === 'string') setQuality(d.quality as 'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium')
     if (typeof d.tone === 'string') setTone(d.tone)
     if (typeof d.presScale === 'number') setPresScale(d.presScale)
     if (typeof d.presX === 'number') setPresX(d.presX)
@@ -800,7 +829,26 @@ export default function NewsroomPage() {
     await composeBulletin(vid)
   }
 
-  function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string; category?: string | null; cover?: string | null }[] {
+  // Estimated fal lipsync cost for the CURRENT script, shown before spending.
+  // Romanian news delivery averages ~150 wpm; fal bills per minute of output.
+  const estLipsyncCost = useMemo(() => {
+    const RATES = { economic: 0.30, veed: 0.40, standard: 0.70, bun: 3.00, pro: 5.00, premium: 8.00 } as const
+    const rate = RATES[quality]
+    const words = script.trim() ? script.trim().split(/\s+/).length : 0
+    const min = words > 0 ? words / 150 : (target || 75) / 60
+    return { usd: min * rate, min, rate }
+  }, [script, quality, target])
+
+  // Story timing — when each lower-third / article image / category chip appears.
+  //
+  // The old version searched the WHOLE caption list for the first cue containing
+  // a story's opening words. In a news bulletin the same phrases recur ("în
+  // Turda", "primăria a anunțat"), so story 3 routinely matched a cue belonging
+  // to story 1 and its picture appeared far too early. Two fixes:
+  //   1. Anchor on real WORD timings from the aligner (not whole-cue text).
+  //   2. Search only FORWARD of the previous story, inside a plausible window —
+  //      a match can never jump backwards, and timings stay monotonic.
+  function storyTimes(dur: number, cueList: Cue[], wordList: Word[] = []): { start: number; title: string; category?: string | null; cover?: string | null }[] {
     const selectedPosts = posts.filter(p => sel.has(p.id))
     if (!sections || !sections.stories.length) {
       return selectedPosts.map((p, i) => ({
@@ -812,15 +860,55 @@ export default function NewsroomPage() {
     }
     const parts = [sections.greeting, ...sections.stories.map(s => s.text), sections.signoff].filter(Boolean)
     const wc = parts.map(p => p.split(/\s+/).length); const total = wc.reduce((a, b) => a + b, 0) || 1
+
+    // Spoken-word timeline. Prefer real word timings; otherwise spread each cue's
+    // words evenly across that cue's own span. Either way we get word→time.
+    type TW = { w: string; t: number }
+    const timeline: TW[] = []
+    if (wordList.length) {
+      for (const w of wordList) {
+        const n = norm(w.word)
+        if (n) timeline.push({ w: n, t: w.start })
+      }
+    } else {
+      for (const c of cueList) {
+        const ws = norm(c.text).split(' ').filter(Boolean)
+        const span = Math.max(0.001, (c.end ?? c.start) - c.start)
+        ws.forEach((w, k) => timeline.push({ w, t: c.start + (span * k) / Math.max(1, ws.length) }))
+      }
+    }
+
     const out: { start: number; title: string; category?: string | null; cover?: string | null }[] = []
     let acc = sections.greeting ? wc[0] : 0
+    let prevIdx = 0      // no story may anchor before this word index
+    let prevStart = 0    // …nor before this timestamp
+
     sections.stories.forEach((st, i) => {
-      let start = (acc / total) * dur
-      const probe = norm(st.text).split(' ').slice(0, 4).join(' ')
-      if (probe.length > 8) {
-        const hit = cueList.find(c => norm(c.text).includes(probe))
-        if (hit) start = hit.start
+      const est = (acc / total) * dur                       // proportional estimate
+      let start = est
+      const probe = norm(st.text).split(' ').filter(Boolean).slice(0, 5)
+
+      if (timeline.length && probe.length >= 2) {
+        // Expected position in the word timeline, with a tolerance window so a
+        // slightly-off estimate still finds the true opening.
+        const expected = Math.round((acc / total) * timeline.length)
+        const slack = Math.max(25, Math.round(timeline.length * 0.18))
+        const lo = Math.max(prevIdx, expected - slack)
+        const hi = Math.min(timeline.length - probe.length, expected + slack)
+        let bestIdx = -1, bestScore = 0
+        for (let j = lo; j <= hi; j++) {
+          let score = 0
+          for (let k = 0; k < probe.length; k++) if (timeline[j + k]?.w === probe[k]) score++
+          // require a solid match (most of the probe words, in order)
+          if (score > bestScore && score >= Math.max(2, probe.length - 1)) { bestScore = score; bestIdx = j }
+        }
+        if (bestIdx >= 0) { start = timeline[bestIdx].t; prevIdx = bestIdx + 1 }
+        else prevIdx = Math.max(prevIdx, Math.max(0, expected - slack))
       }
+
+      // Monotonic + in-bounds: a story can never start before the previous one.
+      start = Math.min(Math.max(start, i === 0 ? 0 : prevStart + 0.8), Math.max(0, dur - 0.5))
+      prevStart = start
       out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: selectedPosts[i]?.category, cover: selectedPosts[i]?.cover_image })
       acc += wc[(sections.greeting ? 1 : 0) + i]
     })
@@ -880,7 +968,7 @@ export default function NewsroomPage() {
         }
         flush()
       }
-      const thirds = storyTimes(dur, cueList)
+      const thirds = storyTimes(dur, cueList, wordList)
       // Preload article cover images for the in-studio monitor. Each has its own
       // timeout inside loadImage, so a slow/broken URL can never stall the compose.
       let monitorImgs: (HTMLImageElement | null)[] = []
@@ -1992,7 +2080,12 @@ export default function NewsroomPage() {
               </>
             ) : (
               <>
-                <select value={geminiVoice} onChange={e => setGeminiVoice(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+                <input value={elVoice} onChange={e => setElVoice(e.target.value)}
+                  placeholder="Voce românească (nume sau ID ElevenLabs)"
+                  title="Vocile Gemini și vocile implicite ElevenLabs (Sarah/George) sunt înregistrate în engleză și citesc româna cu accent. Pune aici o voce ROMÂNEASCĂ din ElevenLabs Voice Library (sau clona ta) ca să dispară accentul."
+                  className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-64" />
+                <select value={geminiVoice} onChange={e => setGeminiVoice(e.target.value)} disabled={!!elVoice.trim()}
+                  className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 disabled:opacity-40">
                   {[
                     { v: 'Charon', l: '♂ Charon · grav, autoritar' },
                     { v: 'Orus',   l: '♂ Orus · cald, echilibrat' },
@@ -2007,7 +2100,9 @@ export default function NewsroomPage() {
                 <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
                   {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
                 </select>
-                <span className="text-[10.5px] text-sky-300/70">auto: ElevenLabs prin fal (dacă ai FAL_KEY) › Gemini Pro › Flash — vocea aleasă setează genul</span>
+                {elVoice.trim()
+                  ? <span className="text-[10.5px] text-green-400/80">voce ElevenLabs „{elVoice.trim()}” prin fal · ~$0.10 / 1.000 caractere</span>
+                  : <span className="text-[10.5px] text-amber-300/80">⚠ accent englezesc: vocile Gemini și cele implicite (Sarah/George) sunt înregistrate în engleză. Pune o voce <b>românească</b> în câmpul din stânga.</span>}
               </>
             )}
             <button onClick={() => genVoice()} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
@@ -2250,6 +2345,34 @@ export default function NewsroomPage() {
         </Step>
 
         <Step n={5} icon={Film} title="Videoul" done={!!videoUrl}>
+          {/* COST CONTROL — fal bills lipsync per minute of output and the tiers
+              differ by >10×. The price is shown BEFORE spending, never after. */}
+          <div className="border border-white/[0.07] bg-[#0d0d0f] p-3 mb-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11.5px] text-white/55">motor lipsync:</span>
+              {([
+                ['economic', 'LatentSync', 0.30],
+                ['veed', 'VEED', 0.40],
+                ['standard', 'sync 1.9', 0.70],
+                ['bun', 'sync v2', 3.00],
+                ['premium', 'sync v3', 8.00],
+              ] as const).map(([k, label, usd]) => (
+                <button key={k} onClick={() => setQuality(k)}
+                  className={'px-2.5 py-1.5 text-[11.5px] border ' + (quality === k ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07] hover:border-white/25')}>
+                  {label} · ${usd.toFixed(2)}/min
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-amber-300/80 mt-2">
+              Cost estimat pentru acest buletin: <b>${estLipsyncCost.usd.toFixed(2)}</b>{' '}
+              (~{estLipsyncCost.min.toFixed(1)} min × ${estLipsyncCost.rate.toFixed(2)}/min).
+              {quality !== 'economic' && <> Pe LatentSync ar costa ${(estLipsyncCost.min * 0.30).toFixed(2)}.</>}
+            </p>
+            <p className="text-[10.5px] text-white/35 mt-1">
+              Toate acestea sunt motoare de <b>redub</b>: schimbă doar gura pe clipul tău. Niciunul nu inventează
+              gesturi — naturalețea vine din clipul-sursă. Plătești în plus doar pentru acuratețea fonemelor.
+            </p>
+          </div>
           <div className="flex items-center gap-2 flex-wrap mb-3">
             {(['16:9', '9:16'] as const).map(o => (
               <button key={o} onClick={() => setOrient(o)} className={'px-3 py-1.5 text-[12px] border ' + (orient === o ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>{o === '16:9' ? '16:9 · YouTube/FB' : '9:16 · Reels/TikTok'}</button>
