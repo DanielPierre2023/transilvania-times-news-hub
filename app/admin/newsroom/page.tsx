@@ -157,7 +157,11 @@ export default function NewsroomPage() {
         } catch { /* not JSON — try text below */ }
         if (!detail) { try { const t = await (ctx as Response).text(); if (t) detail = t.slice(0, 300) } catch { /* ignore */ } }
       }
-      throw new Error(`${fn}: ${detail || e.message}`)
+      let msg = detail || e.message
+      if (/TOP_UP|User is locked/i.test(msg)) {
+        msg = 'Creditele fal.ai s-au terminat (cont blocat: TOP_UP). Deschide fal.ai → Billing → Add credits (preplătit, fără abonament; 10–20 $ ajung săptămâni), apoi apasă din nou butonul.'
+      }
+      throw new Error(`${fn}: ${msg}`)
     }
     return (data || {}) as Record<string, unknown>
   }
@@ -784,6 +788,16 @@ export default function NewsroomPage() {
       if (!String((e as Error).message).includes('eșuat')) setError((e as Error).message)
       setAutoStage('')
     }
+  }
+
+  // Manual Step 5 path: render the anchor clip, then ALWAYS brand it. The raw
+  // lipsync clip is an intermediate — it has NO ticker, NO article monitor, NO
+  // TT branding and NO category chip; those live only in the composed bulletin.
+  // Chaining compose here means the manual flow can never hand back a naked clip.
+  async function genVideoAndCompose() {
+    const vid = await genVideo()
+    if (!vid) return
+    await composeBulletin(vid)
   }
 
   function storyTimes(dur: number, cueList: Cue[]): { start: number; title: string; category?: string | null; cover?: string | null }[] {
@@ -1564,13 +1578,16 @@ export default function NewsroomPage() {
         bed.gain.linearRampToValueAtTime(bedLevel * 0.4, bEnd + 0.6)       // dip under the endcard
         bed.gain.setValueAtTime(bedLevel * 0.4, bEnd + Math.max(0, OUTRO - 1.4))
         bed.gain.linearRampToValueAtTime(0, bEnd + OUTRO - 0.15)
-        // pad: two detuned A2 + a fifth (E3) through a lowpass, slow breathing LFO
-        const padLp = ac.createBiquadFilter(); padLp.type = 'lowpass'; padLp.frequency.value = 420
-        const padG = ac.createGain(); padG.gain.value = 0.16
+        // pad: two detuned A2 + a fifth (E3) through a lowpass, slow breathing LFO.
+        // Levels raised ~2× from the first pass — the old bed measured ~-21 dB
+        // under the voice and was inaudible in practice ("no background sound").
+        // This sits it ~-14 dB under speech: a present broadcast underscore.
+        const padLp = ac.createBiquadFilter(); padLp.type = 'lowpass'; padLp.frequency.value = 460
+        const padG = ac.createGain(); padG.gain.value = 0.30
         padLp.connect(padG); padG.connect(bed)
         ;[110, 110.6, 164.8].forEach((f, i) => {
           const o = ac.createOscillator(); o.type = i < 2 ? 'triangle' : 'sine'; o.frequency.value = f
-          const g = ac.createGain(); g.gain.value = i < 2 ? 0.10 : 0.06
+          const g = ac.createGain(); g.gain.value = i < 2 ? 0.13 : 0.08
           o.connect(g); g.connect(padLp); o.start(bT0); o.stop(bEnd + OUTRO)
         })
         const lfo = ac.createOscillator(); lfo.frequency.value = 0.11
@@ -1595,7 +1612,7 @@ export default function NewsroomPage() {
         pluck(1.5, bf[3], 0.10, 0.10)
         pluck(1.75, bf[4], 0.05, 0.07)  // light pickup into the next bar
         const pulse = ac.createBufferSource(); pulse.buffer = pb; pulse.loop = true
-        const pulseG = ac.createGain(); pulseG.gain.value = 0.5
+        const pulseG = ac.createGain(); pulseG.gain.value = 0.8
         const pulseHp = ac.createBiquadFilter(); pulseHp.type = 'highpass'; pulseHp.frequency.value = 300
         pulse.connect(pulseHp); pulseHp.connect(pulseG); pulseG.connect(bed)
         pulse.start(bT0); pulse.stop(bEnd + OUTRO)
@@ -2237,18 +2254,24 @@ export default function NewsroomPage() {
             {(['16:9', '9:16'] as const).map(o => (
               <button key={o} onClick={() => setOrient(o)} className={'px-3 py-1.5 text-[12px] border ' + (orient === o ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>{o === '16:9' ? '16:9 · YouTube/FB' : '9:16 · Reels/TikTok'}</button>
             ))}
-            <button onClick={() => genVideo()} disabled={working || (hgConfigured === false && !falConfigured)} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
-              {working ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {videoStatus}…</> : <><Film className="w-3.5 h-3.5" /> Generează buletinul</>}
+            <button onClick={genVideoAndCompose} disabled={working || compositing || (hgConfigured === false && !falConfigured)} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
+              {working ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {videoStatus}…</> : compositing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> brand-uiesc…</> : <><Film className="w-3.5 h-3.5" /> Generează buletinul finit</>}
+            </button>
+            <button onClick={() => genVideo()} disabled={working || compositing || (hgConfigured === false && !falConfigured)} title="Doar clipul brut, fără branding — pentru verificare" className="flex items-center gap-1.5 bg-[#111] text-white/50 text-[11.5px] px-2.5 py-2 border border-white/[0.07] hover:text-white/80 disabled:opacity-50">
+              doar clip brut
             </button>
             {working && <button onClick={() => setVideoStatus('')} className="text-white/30 hover:text-white"><RefreshCw className="w-3.5 h-3.5" /></button>}
           </div>
           {working && <p className="text-[11px] text-white/40">{hgConfigured ? 'HeyGen' : anchorVideo ? 'Lipsync video (sync.so, fal)' : 'SadTalker (fal)'} randează lipsync-ul — de obicei 1–4 minute. Poți lăsa pagina deschisă.</p>}
           {!hgConfigured && falConfigured && <p className="text-[10.5px] text-white/30 mb-2">Motorul liber livrează formatul portretului (pătrat/portret). 9:16/16:9 exacte sunt disponibile pe motorul premium.</p>}
           {videoUrl && (
-            <div className="border border-white/[0.07] max-w-md">
+            <div className="border border-amber-500/30 max-w-md">
+              <div className="bg-amber-500/10 text-amber-200/90 text-[11px] px-3 py-2 leading-snug">
+                <b>Clip brut (intermediar).</b> Fără ticker, fără monitor cu imaginea știrii, fără branding Transilvania Times, fără categorie. Toate acestea se adaugă la <b>pasul 6 — „Compune buletinul TV”</b>. Nu publica acest clip ca atare.
+              </div>
               <video src={videoUrl} controls preload="metadata" className="w-full" />
-              <a href={videoUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black">
-                <Download className="w-3.5 h-3.5" /> Descarcă clipul brut
+              <a href={videoUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 bg-[#111] text-white/60 text-[11.5px] py-2.5 hover:bg-black">
+                <Download className="w-3.5 h-3.5" /> Descarcă clipul brut (fără branding)
               </a>
             </div>
           )}
