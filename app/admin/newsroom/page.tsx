@@ -603,6 +603,9 @@ export default function NewsroomPage() {
         if (typeof d.deskLine === 'number') setDeskLine(d.deskLine)
         if (typeof d.bedOn === 'boolean') setBedOn(d.bedOn)
         if (typeof d.bedLevel === 'number') setBedLevel(d.bedLevel)
+        if (typeof d.subsOn === 'boolean') setSubsOn(d.subsOn)
+        if (typeof d.tickerOn === 'boolean') setTickerOn(d.tickerOn)
+        if (d.capMode === 'clasic' || d.capMode === 'karaoke') setCapMode(d.capMode)
         if (typeof d.voUrl === 'string' && d.voUrl) setVoUrl(d.voUrl)
         if (typeof d.videoUrl === 'string' && d.videoUrl) { setVideoUrl(d.videoUrl); setVideoStatus('gata ✓ (sesiunea anterioară)') }
       }
@@ -615,9 +618,10 @@ export default function NewsroomPage() {
       localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
         anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone,
         presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl,
+        subsOn, tickerOn, capMode,
       }))
     } catch { /* ignore */ }
-  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl])
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl, subsOn, tickerOn, capMode])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
   const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement; ar: number } | null>(null)
@@ -731,9 +735,12 @@ export default function NewsroomPage() {
     if (typeof d.bedLevel === 'number') setBedLevel(d.bedLevel)
     if (d.lang === 'ro' || d.lang === 'en') setLang(d.lang)
     if (typeof d.target === 'number') setTarget(d.target)
-    if (d.capMode === 'clasic' || d.capMode === 'karaoke') setCapMode(d.capMode)
-    if (typeof d.subsOn === 'boolean') setSubsOn(d.subsOn)
-    if (typeof d.tickerOn === 'boolean') setTickerOn(d.tickerOn)
+    // DELIBERATELY NOT APPLIED: subsOn / tickerOn / capMode.
+    // These are display choices the user makes per bulletin. Presets carry a
+    // hardcoded `subsOn: true`, so applying them here silently switched burnt-in
+    // subtitles back ON after the user had unticked the box — the video then
+    // shipped with subtitles nobody asked for. A preset sets the STUDIO, the
+    // anchor and the voice; it does not get to overrule the toggles.
   }
   async function loadEdition(kind: 'morning' | 'evening') {
     try {
