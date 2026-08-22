@@ -213,8 +213,15 @@ export default function ScraperFinal() {
       })
       if (error) throw error
       const result = data?.results?.[0]
-      if (!result?.post_id) {
-        throw new Error(result?.error ?? `Răspuns neașteptat: ${JSON.stringify(data)}`)
+      // The edge function historically returned `blog_post_id` while this page
+      // only ever read `post_id`. That mismatch made EVERY successful article
+      // throw "Răspuns neașteptat" even though the backend had committed the
+      // draft. Accept either name so the page is correct against both the old
+      // and the new function build.
+      const postId = result?.post_id ?? result?.blog_post_id
+      if (!postId) {
+        // Only a genuine failure reaches here now.
+        throw new Error(result?.reason ?? result?.error ?? `Răspuns neașteptat: ${JSON.stringify(data)}`)
       }
       return true
     } catch (err: unknown) {
@@ -312,19 +319,41 @@ export default function ScraperFinal() {
     if (!confirm(`Ștergi ${selectedArticles.size} articole și ciornele asociate? Articolele publicate nu vor fi afectate. Acțiunea este ireversibilă.`)) return
     setDeletingArticles(true)
     try {
-      // Delete linked blog_posts drafts only — never touch published articles
-      await supabase
+      // ORDER MATTERS. Previously the drafts were deleted FIRST and unguarded:
+      // if the scraped_articles delete then failed, the drafts were already
+      // gone and the parent rows stayed behind — losing finished work with no
+      // way to recover it.
+      //
+      // blog_posts.scraped_article_id is ON DELETE SET NULL, so deleting the
+      // scraped rows first does NOT cascade the drafts away — it only unlinks
+      // them. So: capture the draft ids, delete the parents (the operation that
+      // can fail), and only then delete the drafts by their captured ids.
+      const { data: linkedDrafts } = await supabase
         .from('blog_posts')
-        .delete()
+        .select('id')
         .in('scraped_article_id', [...selectedArticles])
         .neq('status', 'published')
+      const draftIds = (linkedDrafts ?? []).map(d => d.id)
 
-      // Delete the scraped_articles rows
+      // If this fails we abort with NOTHING deleted — drafts are still intact.
       const { error } = await supabase
         .from('scraped_articles')
         .delete()
         .in('id', [...selectedArticles])
       if (error) throw error
+
+      // Parents are gone; now remove their drafts. A failure here leaves
+      // orphaned drafts (visible and recoverable) rather than destroyed work.
+      if (draftIds.length > 0) {
+        const { error: draftErr } = await supabase
+          .from('blog_posts')
+          .delete()
+          .in('id', draftIds)
+          .neq('status', 'published')
+        if (draftErr) {
+          showToast(`Articolele au fost șterse, dar ${draftIds.length} ciorne au rămas: ${draftErr.message}`, 'err')
+        }
+      }
 
       showToast(`${selectedArticles.size} articole și ciornele asociate șterse ✓`, 'ok')
       await fetchArticles()
