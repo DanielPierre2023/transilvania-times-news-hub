@@ -384,11 +384,11 @@ export default function NewsroomPage() {
       const isVoiceId = /^[A-Za-z0-9]{20}$/.test(ev)
       const body: Record<string, unknown> =
         ev && isVoiceId
-          ? { text, provider: 'elevenlabs', voice_id: ev, tone, language: lang }
+          ? { text, provider: 'elevenlabs', voice_id: ev, gender: 'f', tone, language: lang }
           : ev
             ? { text, provider: 'fal_elevenlabs', el_voice: ev, gender: 'f', tone, language: lang }
             : elConfigured
-              ? { text, voice_id: voiceId, tone, language: lang }
+              ? { text, voice_id: voiceId, gender: 'f', tone, language: lang }
               : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
       const r = await invokeRaw('generate-voiceover', body)
       if (r.error) throw new Error(String(r.error))
@@ -398,11 +398,15 @@ export default function NewsroomPage() {
       const prov = String(r.provider || '')
       const LABEL: Record<string, string> = {
         elevenlabs: 'ElevenLabs (contul tău) — voce românească ✓',
+        google_tts: 'Google Cloud TTS — voce NATIV românească (ro-RO) ✓',
         fal_elevenlabs: 'ElevenLabs prin fal — voce premade, accent englezesc ⚠',
         gemini: 'Gemini — voce englezească, accent la română ⚠',
         openai: 'OpenAI — voce englezească, accent la română ⚠',
       }
-      setVoiceUsed(prov ? (LABEL[prov] || prov) + (r.note ? ` · ${String(r.note)}` : '') : '')
+      const gv = String(r.voice_used || '')
+      setVoiceUsed(prov
+        ? (LABEL[prov] || prov) + (gv ? ` · ${gv}` : '') + (r.note ? ` · ${String(r.note)}` : '')
+        : '')
       setVoUrl(url)
       return url || null
     } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
