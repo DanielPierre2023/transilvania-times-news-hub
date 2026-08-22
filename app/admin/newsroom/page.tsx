@@ -79,6 +79,7 @@ export default function NewsroomPage() {
   // ELEVENLABS_API_KEY in the newsroom secrets. Overridable in Pas 3.
   const [elVoice, setElVoice] = useState('znn3xedzq0kO6JXbSRB6')
   const [voiceDiag, setVoiceDiag] = useState('')
+  const [voiceUsed, setVoiceUsed] = useState('')
   // Lipsync cost tier: economic $0.70/min · bun $3 · pro ~$5 · premium $8
   const [quality, setQuality] = useState<'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium'>('economic')
   const [tone, setTone] = useState('stiri')
@@ -354,7 +355,10 @@ export default function NewsroomPage() {
         setVoiceDiag(`${list.length} voci din contul tău ElevenLabs`)
       } else {
         setElConfigured(false); setElVoices([])
-        setVoiceDiag('ELEVENLABS_API_KEY lipsește din secretele Supabase — de aceea vezi doar voci englezești.')
+        // voice-lab returns a precise reason (wrong key format, revoked key,
+        // rate limit). Never overwrite it with a guess.
+        const reason = String(v.error || v.message || '').trim()
+        setVoiceDiag(reason || 'ELEVENLABS_API_KEY lipsește din secretele Supabase — de aceea vezi doar voci englezești.')
       }
     } catch (e) {
       setElConfigured(false)
@@ -389,6 +393,16 @@ export default function NewsroomPage() {
       const r = await invokeRaw('generate-voiceover', body)
       if (r.error) throw new Error(String(r.error))
       const url = String(r.publicUrl || '')
+      // Which engine ACTUALLY spoke matters: the dropdown may say "Aoede" while
+      // the chain quietly used fal's English "Sarah". Show the truth.
+      const prov = String(r.provider || '')
+      const LABEL: Record<string, string> = {
+        elevenlabs: 'ElevenLabs (contul tău) — voce românească ✓',
+        fal_elevenlabs: 'ElevenLabs prin fal — voce premade, accent englezesc ⚠',
+        gemini: 'Gemini — voce englezească, accent la română ⚠',
+        openai: 'OpenAI — voce englezească, accent la română ⚠',
+      }
+      setVoiceUsed(prov ? (LABEL[prov] || prov) + (r.note ? ` · ${String(r.note)}` : '') : '')
       setVoUrl(url)
       return url || null
     } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
@@ -574,7 +588,9 @@ export default function NewsroomPage() {
         if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
         if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
         if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
-        if (typeof d.elVoice === 'string') setElVoice(d.elVoice)
+        // Only restore a NON-EMPTY saved voice: an empty string saved before this
+        // field existed would otherwise wipe the preset Romanian voice on load.
+        if (typeof d.elVoice === 'string' && d.elVoice.trim()) setElVoice(d.elVoice)
         if (typeof d.quality === 'string') setQuality(d.quality as 'economic'|'veed'|'standard'|'bun'|'pro'|'premium')
         if (typeof d.tone === 'string') setTone(d.tone)
         if (typeof d.presScale === 'number') setPresScale(d.presScale)
@@ -700,7 +716,7 @@ export default function NewsroomPage() {
     if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
     if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
     if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
-    if (typeof d.elVoice === 'string') setElVoice(d.elVoice)
+    if (typeof d.elVoice === 'string' && d.elVoice.trim()) setElVoice(d.elVoice)
     if (typeof d.quality === 'string') setQuality(d.quality as 'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium')
     if (typeof d.tone === 'string') setTone(d.tone)
     if (typeof d.presScale === 'number') setPresScale(d.presScale)
@@ -2183,6 +2199,11 @@ export default function NewsroomPage() {
               {busy === 'voice' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />} Generează vocea
             </button>
           </div>
+          {voiceUsed && (
+            <p className={'text-[11px] mt-2 ' + (voiceUsed.includes('✓') ? 'text-green-400/85' : 'text-amber-300/85')}>
+              motor folosit: {voiceUsed}
+            </p>
+          )}
           {voUrl && <audio src={voUrl} controls className="w-full mt-3 h-9" />}
         </Step>
 
