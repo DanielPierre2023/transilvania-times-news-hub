@@ -338,6 +338,11 @@ export default function NewsroomPage() {
       const text = String(r.script || '')
       setScript(text); setScriptModel(String(r.model || ''))
       setSections((r.sections as Sections | null) || null)
+      // The function reports how many of the selected stories actually made it
+      // into the script. A shortfall used to be invisible — you only found out
+      // by reading the finished bulletin.
+      const note = String(r.coverage_note || r.note || '')
+      if (note) setError(note)
       return text || null
     } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
   }
@@ -2126,9 +2131,22 @@ export default function NewsroomPage() {
               <option value="ro">Română</option><option value="en">English</option>
             </select>
             <select value={target} onChange={e => setTarget(Number(e.target.value))} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
-              <option value={45}>~45s</option><option value={75}>~75s</option><option value={110}>~110s</option>
+              <option value={45}>~45s · 2-3 știri</option>
+              <option value={75}>~75s · 4-5 știri</option>
+              <option value={110}>~110s · 6-8 știri</option>
+              <option value={150}>~2:30 · 9-11 știri</option>
+              <option value={210}>~3:30 · 12-16 știri</option>
+              <option value={300}>~5:00 · 17-20 știri</option>
             </select>
             <span className="text-[11px] text-white/40">{sel.size} selectate · ultimele 24h</span>
+            {/* Each story needs ~25 spoken words to be worth airing; Romanian
+                runs ~2.3 words/second. If the chosen duration cannot carry the
+                selection, the model drops stories — so say so up front. */}
+            {sel.size > 0 && Math.round(target * (lang === 'ro' ? 2.3 : 2.5)) < sel.size * 25 + 25 && (
+              <span className="text-[11px] text-amber-300/90">
+                ⚠ {sel.size} știri nu încap în {target}s — alege ~{Math.max(45, Math.ceil((sel.size * 25 + 25) / (lang === 'ro' ? 2.3 : 2.5) / 15) * 15)}s sau mai puține știri
+              </span>
+            )}
           </div>
           {posts.length === 0 && <p className="text-[13px] text-white/30">Nicio știre publicată în ultimele 24h.</p>}
           <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
