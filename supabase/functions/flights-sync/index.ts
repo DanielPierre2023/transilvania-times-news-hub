@@ -264,6 +264,32 @@ function mapRows(src: Source, table: ParsedTable, nowIso: string): FlightRecord[
   return dedupe(out);
 }
 
+// Parser for the "ewf" WordPress flights plugin (Târgu Mureș): spans, not a table.
+const EWF_ROW =
+  /ewf-flight-date[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-time[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-number[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-airline[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-location[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-details[^>]*>([\s\S]*?)<\/span>/gi;
+
+function parseEwfList(src: Source, html: string, nowIso: string): FlightRecord[] {
+  const out: FlightRecord[] = [];
+  EWF_ROW.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = EWF_ROW.exec(html))) {
+    const flight_date = parseDate(cellText(m[1]));
+    const scheduled_time = parseTime(cellText(m[2]));
+    const flight_no = parseFlightNo(cellText(m[3]));
+    if (!flight_date || !scheduled_time || !flight_no) continue;
+    const statusRaw = cellText(m[6]);
+    out.push({
+      airport: src.airport, direction: src.direction, flight_date, flight_no,
+      airline: cleanCell(cellText(m[4])), city: cleanCell(cellText(m[5])), aircraft: null,
+      scheduled_time, estimated_time: parseTime(statusRaw),
+      status: normalizeStatus(statusRaw), status_raw: statusRaw || null,
+      is_charter: /charter/i.test(statusRaw + " " + (cellText(m[4]) || "")),
+      source_url: src.url, updated_at: nowIso,
+    });
+  }
+  return dedupe(out);
+}
+
 /* ═══════════════ Networking + handler ═══════════════ */
 
 const corsHeaders = {
@@ -312,9 +338,16 @@ async function fetchHtml(url: string): Promise<string> {
 async function collectSource(src: Source): Promise<{ records: FlightRecord[]; error?: string }> {
   try {
     const html = await fetchHtml(src.url);
+    const now = new Date().toISOString();
+    // Table sites (Cluj, Sibiu) first; fall back to the ewf list (Târgu Mureș).
     const table = extractFlightTable(html);
-    if (!table) return { records: [], error: "no flight table found" };
-    return { records: mapRows(src, table, new Date().toISOString()) };
+    if (table) {
+      const recs = mapRows(src, table, now);
+      if (recs.length) return { records: recs };
+    }
+    const ewf = parseEwfList(src, html, now);
+    if (ewf.length) return { records: ewf };
+    return { records: [], error: table ? "table parsed 0 rows" : "no flight table/list found" };
   } catch (e) {
     return { records: [], error: String((e as Error)?.message ?? e) };
   }

@@ -1,4 +1,4 @@
-import { extractFlightTable, mapRows, type Source } from "./parse.ts";
+import { extractFlightTable, mapRows, parseEwfList, type Source } from "./parse.ts";
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: unknown) {
@@ -86,6 +86,39 @@ const tgmDep = `<table><tr>
   ok("TGM f0 city Charleroi", r[0].city === "Charleroi", r[0].city);
   ok("TGM f0 status DEPARTED", r[0].status === "DEPARTED", r[0].status);
   ok("TGM f1 status EN_ROUTE", r[1].status === "EN_ROUTE", r[1].status);
+}
+
+// ── Târgu Mureș: "ewf" plugin list (spans, not a table) ──
+const tgmEwf = `<ul class="ewf-flights">
+<li><div class="left-info">
+<span class="ewf-flight-date list-date">25.08.2026</span>
+<span class="ewf-flight-time list-time">15:30</span>
+<span class="ewf-flight-number list-number">NSM3806</span></div>
+<div class="right-info">
+<span class="ewf-flight-airline list-airline">AIR CAIRO</span>
+<span class="ewf-flight-location list-location">HURGADA</span>
+<span class="ewf-flight-details list-details">In curs</span></div></li>
+<li><div class="left-info">
+<span class="ewf-flight-date list-date">23.08.2026</span>
+<span class="ewf-flight-time list-time">06:10</span>
+<span class="ewf-flight-number list-number">W4 3453</span></div>
+<div class="right-info">
+<span class="ewf-flight-airline list-airline">WIZZAIR MALTA</span>
+<span class="ewf-flight-location list-location">Charleroi</span>
+<span class="ewf-flight-details list-details">DECOLAT LA 06:12</span></div></li>
+</ul>`;
+{
+  const src: Source = { airport: "TGM", direction: "departure", url: "tgm" };
+  const r = parseEwfList(src, tgmEwf, "NOW");
+  console.log("TGM ewf list →", r.length, "rows");
+  ok("TGM ewf 2 rows", r.length === 2, r.map(x => x.flight_no));
+  ok("TGM f0 flight NSM3806", r[0].flight_no === "NSM3806", r[0].flight_no);
+  ok("TGM f0 city HURGADA", r[0].city === "HURGADA", r[0].city);
+  ok("TGM f0 airline AIR CAIRO", r[0].airline === "AIR CAIRO", r[0].airline);
+  ok("TGM f0 status EN_ROUTE (In curs)", r[0].status === "EN_ROUTE", r[0].status);
+  ok("TGM f1 status DEPARTED", r[1].status === "DEPARTED", r[1].status);
+  ok("TGM f1 estimated 06:12 (from DECOLAT LA)", r[1].estimated_time === "06:12", r[1].estimated_time);
+  ok("TGM f1 sched 06:10", r[1].scheduled_time === "06:10", r[1].scheduled_time);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -54,10 +54,14 @@ sibiuairport.ro ─┘                (pg_cron every 10 min, upsert)
    supabase secrets set FLIGHTS_SYNC_SECRET='<LONG-RANDOM-STRING>'   # same value
    ```
 
-2. **Edge Function**
+2. **Edge Function** — `index.ts` is a single self-contained file (no sibling
+   imports), so either path works:
    ```bash
    supabase functions deploy flights-sync
    ```
+   …or paste `supabase/functions/flights-sync/index.ts` into the Supabase
+   Dashboard → Edge Functions editor. (`parse.ts` and `parse.samples.test.ts`
+   are dev-only — the local test harness — and are NOT needed to deploy.)
 
 3. **Validate the parsers live (dry run — writes nothing):**
    ```bash

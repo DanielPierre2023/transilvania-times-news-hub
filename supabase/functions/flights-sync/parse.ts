@@ -246,3 +246,39 @@ export function mapRows(src: Source, table: ParsedTable, nowIso = new Date().toI
   }
   return dedupe(out);
 }
+
+// Parser for the "ewf" WordPress flights plugin (Târgu Mureș): rows made of
+// <span class="ewf-flight-{date,time,number,airline,location,details}">. Each
+// row is captured as one sequential unit so fields never misalign.
+const EWF_ROW =
+  /ewf-flight-date[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-time[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-number[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-airline[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-location[^>]*>([\s\S]*?)<\/span>[\s\S]*?ewf-flight-details[^>]*>([\s\S]*?)<\/span>/gi;
+
+export function parseEwfList(src: Source, html: string, nowIso: string): FlightRecord[] {
+  const out: FlightRecord[] = [];
+  EWF_ROW.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = EWF_ROW.exec(html))) {
+    const flight_date = parseDate(cellText(m[1]));
+    const scheduled_time = parseTime(cellText(m[2]));
+    const flight_no = parseFlightNo(cellText(m[3]));
+    if (!flight_date || !scheduled_time || !flight_no) continue;
+    const statusRaw = cellText(m[6]);
+    out.push({
+      airport: src.airport,
+      direction: src.direction,
+      flight_date,
+      flight_no,
+      airline: clean(cellText(m[4])),
+      city: clean(cellText(m[5])),
+      aircraft: null,
+      scheduled_time,
+      estimated_time: parseTime(statusRaw), // e.g. "DECOLAT LA 12:14" → 12:14
+      status: normalizeStatus(statusRaw),
+      status_raw: statusRaw || null,
+      is_charter: /charter/i.test(statusRaw + " " + (cellText(m[4]) || "")),
+      source_url: src.url,
+      updated_at: nowIso,
+    });
+  }
+  return dedupe(out);
+}
