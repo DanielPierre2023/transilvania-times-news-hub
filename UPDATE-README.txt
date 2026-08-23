@@ -1,7 +1,5 @@
-UPDATE — clean HH:MM times (no seconds in pills/columns)
-Extract in the REPO ROOT so files land at:
-  lib/flights.ts
+UPDATE — share buttons + professional share text
+Extract in the REPO ROOT so the file lands at:
   app/components/FlightBoard.tsx
-  app/components/NextDeparturesWidget.tsx
-Then: git add -A && git commit -m "Flights: display times as HH:MM" && git push
-(No function redeploy needed — frontend only.)
+Then: git add -A && git commit -m "Flights: WhatsApp/Messenger/Facebook/Telegram share + detailed share text" && git push
+(Frontend only — no function redeploy.)

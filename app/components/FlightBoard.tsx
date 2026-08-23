@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  PlaneTakeoff, PlaneLanding, Search, RefreshCw, Plane,
+  PlaneTakeoff, PlaneLanding, Search, RefreshCw, Plane, Share2, Check,
 } from 'lucide-react'
 import AirportsLogo from './AirportsLogo'
 import AirlineLogo from './AirlineLogo'
@@ -257,8 +257,7 @@ function FlightRowView({ f, lang, t, direction, airport }: {
   f: FlightRow; lang: Lang; t: L; direction: Direction; airport: AirportCode
 }) {
   const sm = STATUS_META[f.status] ?? STATUS_META.UNKNOWN
-  const arrow = direction === 'departure' ? '→' : '←'
-  const shareText = `${f.flight_no} ${arrow} ${f.city ?? ''} ${f.scheduled_time ?? ''} — ${statusLabel(f, lang)} · ${AIRPORTS[airport].short}`.trim()
+  const shareText = buildShareText(f, lang, direction, airport)
 
   return (
     <tr className="border-b border-foreground/[0.06] hover:bg-foreground/[0.02]">
@@ -279,25 +278,29 @@ function FlightRowView({ f, lang, t, direction, airport }: {
       {/* City */}
       <td className="px-4 py-3 font-sans text-[13px] font-medium text-foreground">{f.city ?? '—'}</td>
       {/* Time */}
-      <td className="px-4 py-3 font-mono text-[14px] font-semibold text-foreground tabular-nums whitespace-nowrap">{f.scheduled_time ?? '—'}</td>
+      <td className="px-4 py-3 font-mono text-[14px] font-semibold text-foreground tabular-nums whitespace-nowrap">{f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : '—'}</td>
       {/* Status (Hermes-style, with inline actual/estimated time) */}
       <td className="px-4 py-3 whitespace-nowrap">
         <span className={`inline-block font-sans text-[11px] font-bold uppercase tracking-wider px-2 py-1 ring-1 ${STATUS_CLASSES[sm.color]}`}>
           {statusLabel(f, lang)}
         </span>
       </td>
-      {/* Share */}
+      {/* Share — WhatsApp / Messenger / Facebook / Telegram / native sheet */}
       <td className="px-4 py-3 text-right pr-4 hidden sm:table-cell whitespace-nowrap">
         <div className="inline-flex items-center gap-3">
           <a aria-label="WhatsApp" title="WhatsApp" target="_blank" rel="noopener noreferrer"
-            href={`https://wa.me/?text=${encodeURIComponent(shareText + ' ' + SITE)}`}
+            href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
             className="text-[#25D366] hover:opacity-75 hover:scale-110 transition-all"><IconWhatsApp /></a>
+          <a aria-label="Messenger" title="Messenger" target="_blank" rel="noopener noreferrer"
+            href={`fb-messenger://share?link=${encodeURIComponent(SITE)}`}
+            className="text-[#0084FF] hover:opacity-75 hover:scale-110 transition-all"><IconMessenger /></a>
           <a aria-label="Facebook" title="Facebook" target="_blank" rel="noopener noreferrer"
             href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE)}&quote=${encodeURIComponent(shareText)}`}
             className="text-[#1877F2] hover:opacity-75 hover:scale-110 transition-all"><IconFacebook /></a>
-          <a aria-label="X" title="X" target="_blank" rel="noopener noreferrer"
-            href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(SITE)}`}
-            className="text-foreground hover:opacity-60 hover:scale-110 transition-all"><IconX /></a>
+          <a aria-label="Telegram" title="Telegram" target="_blank" rel="noopener noreferrer"
+            href={`https://t.me/share/url?url=${encodeURIComponent(SITE)}&text=${encodeURIComponent(shareText)}`}
+            className="text-[#26A5E4] hover:opacity-75 hover:scale-110 transition-all"><IconTelegram /></a>
+          <ShareMore text={shareText} lang={lang} />
         </div>
       </td>
     </tr>
@@ -319,12 +322,72 @@ function IconFacebook() {
     </svg>
   )
 }
-function IconX() {
+function IconMessenger() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+    <svg viewBox="0 0 24 24" fill="currentColor" className="h-[18px] w-[18px]" aria-hidden="true">
+      <path d="M12 0C5.24 0 0 4.95 0 11.64c0 3.5 1.43 6.52 3.77 8.61.2.17.31.43.32.7l.07 2.14c.02.68.72 1.12 1.34.85l2.39-1.05c.2-.09.43-.11.64-.05 1.1.3 2.26.46 3.47.46 6.76 0 12-4.95 12-11.64S18.76 0 12 0zm7.2 8.96l-3.52 5.59c-.56.89-1.76 1.11-2.6.48l-2.8-2.1a.72.72 0 0 0-.87 0l-3.78 2.87c-.51.38-1.17-.22-.83-.76l3.52-5.59c.56-.89 1.76-1.11 2.6-.48l2.8 2.1c.26.2.61.2.87 0l3.78-2.87c.51-.38 1.17.22.83.76z"/>
     </svg>
   )
+}
+function IconTelegram() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="h-[18px] w-[18px]" aria-hidden="true">
+      <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.9 8.15l-1.98 9.36c-.15.66-.54.82-1.09.51l-3.02-2.23-1.46 1.4c-.16.16-.3.3-.61.3l.22-3.05 5.56-5.02c.24-.22-.05-.34-.37-.13l-6.87 4.33-2.96-.93c-.64-.2-.66-.64.14-.95l11.57-4.46c.54-.2 1.01.13.87.87z"/>
+    </svg>
+  )
+}
+
+/** Native share sheet (Viber, Signal, SMS, email — whatever is installed);
+ *  desktop fallback copies the full text to the clipboard. */
+function ShareMore({ text, lang }: { text: string; lang: Lang }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      aria-label={lang === 'ro' ? 'Alte aplicații' : 'More apps'}
+      title={copied ? (lang === 'ro' ? 'Copiat!' : 'Copied!') : (lang === 'ro' ? 'Alte aplicații / copiază' : 'More apps / copy')}
+      onClick={() => {
+        const nav = navigator as Navigator & { share?: (d: { text: string; url: string }) => Promise<void> }
+        if (nav.share) {
+          nav.share({ text, url: SITE }).catch(() => {})
+        } else {
+          navigator.clipboard?.writeText(text).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+          }).catch(() => {})
+        }
+      }}
+      className={`${copied ? 'text-emerald-600' : 'text-muted-foreground'} hover:text-brand-red hover:scale-110 transition-all`}
+    >
+      {copied ? <Check className="h-[18px] w-[18px]" /> : <Share2 className="h-[18px] w-[18px]" />}
+    </button>
+  )
+}
+
+/** Professional multi-line share text with full flight details. */
+function buildShareText(f: FlightRow, lang: Lang, direction: Direction, airport: AirportCode): string {
+  const a = AIRPORTS[airport]
+  const hm = (t: string | null) => (t ? String(t).slice(0, 5) : null)
+  const sched = hm(f.scheduled_time)
+  const est = hm(f.estimated_time)
+  const ro = lang === 'ro'
+  const routeLabel = direction === 'departure'
+    ? (ro ? 'Plecare' : 'Departure')
+    : (ro ? 'Sosire' : 'Arrival')
+  const route = direction === 'departure'
+    ? `${a.short} (${a.iata}) → ${f.city ?? '—'}`
+    : `${f.city ?? '—'} → ${a.short} (${a.iata})`
+  const lines = [
+    `✈️ ${f.flight_no}${f.airline ? ' — ' + f.airline : ''}${f.is_charter ? (ro ? ' (charter)' : ' (charter)') : ''}`,
+    `${routeLabel}: ${route}`,
+    `${ro ? 'Data' : 'Date'}: ${dateHeading(f.flight_date, lang)}`,
+    `${ro ? 'Ora programată' : 'Scheduled time'}: ${sched ?? '—'}`,
+  ]
+  if (est && est !== sched) lines.push(`${ro ? 'Ora estimată/reală' : 'Estimated/actual time'}: ${est}`)
+  lines.push(`Status: ${statusLabel(f, lang)}`)
+  lines.push('')
+  lines.push(`${ro ? 'Urmărește live' : 'Track live'}: ${SITE}`)
+  lines.push(ro ? 'via Transilvania Times' : 'via Transilvania Times')
+  return lines.join('\n')
 }
 
 function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {

@@ -93,6 +93,23 @@ async function requireAdmin(req: Request): Promise<Response | null> {
   if (!token) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' } });
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (serviceKey && token === serviceKey) return null;
+  // FIX (23 Aug 2026): the exact-match above is not sufficient. pg_cron jobs send a
+  // service-role JWT hard-coded into the job command. When the project's service-role
+  // key is rotated or migrated to the new key format, that hard-coded token stops
+  // matching SUPABASE_SERVICE_ROLE_KEY, execution falls through to the user-JWT branch
+  // below, and every scheduled run returns 401. weather-alert failed exactly this way
+  // on 12 consecutive cron runs (22-23 Aug 2026) while still booting normally.
+  // So also accept a token that PROVES it is service-role by performing an operation
+  // only service-role may perform. GoTrue verifies the signature, so a forged or anon
+  // token cannot pass this.
+  try {
+    const { createClient: _cc } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const _probe = _cc(Deno.env.get('SUPABASE_URL')!, token, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error: _svcErr } = await _probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+    if (!_svcErr) return null;
+  } catch (_e) { /* not a service-role token - fall through to the admin-user check */ }
   try {
     const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY') ?? serviceKey!, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } });
