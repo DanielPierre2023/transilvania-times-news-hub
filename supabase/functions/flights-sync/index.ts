@@ -548,70 +548,87 @@ async function fetchFidsBoard(direction: Direction): Promise<FidsItem[]> {
   return out;
 }
 
-/** Anchor the board's relative day offsets to real dates: pick the start date
- *  (today-1 / today) under which no past-tense row (AIRBORNE/LANDED) lands in
- *  the future — the chronologically consistent reading. */
-function fidsStartDelta(items: FidsItem[], nowMinOfToday: number): number {
-  const score = (startDelta: number) => {
-    let violations = 0;
-    for (const it of items) {
-      const idx = (startDelta + it.dayOffset) * 1440 + minutesOf(it.timeHHMM);
-      if ((it.status === "DEPARTED" || it.status === "LANDED") && idx > nowMinOfToday + 45) violations++;
-      if (idx < nowMinOfToday - 30 * 60) violations++; // implausibly old
-    }
-    return violations;
-  };
-  const a = score(-1), b = score(0);
-  return a <= b ? -1 : 0;
+/** How far a FIDS row may sit from "now" for a given status to be credible.
+ *  The board carries no dates, so the STATUS is what tells us which day a row
+ *  belongs to: an AIRBORNE row cannot describe a flight that has not left yet,
+ *  and a CHECK-IN row cannot describe one twelve hours out. Returns the
+ *  admissible window in minutes relative to now: [earliest, latest]. */
+function fidsWindow(status: string): [number, number] {
+  switch (status) {
+    // Already happened → the flight's scheduled time must be in the past.
+    // +30 tolerates the rare early departure and clock skew.
+    case "DEPARTED":
+    case "LANDED":
+      return [-1440, 30];
+    // Happening at the airport right now → within a few hours either way.
+    case "CHECKIN":
+    case "GATE_OPEN":
+    case "BOARDING":
+    case "GATE_CLOSED":
+      return [-300, 300];
+    // Delays, revised times, gate assignments and blank rows: the board only
+    // ever shows roughly a day in each direction.
+    default:
+      return [-1440, 1440];
+  }
 }
 
-/** Stamp FIDS statuses/gates onto CLJ records. Airport-official → wins over
- *  AeroDataBox where the board actually shows something. */
+/** Stamp FIDS statuses/gates onto CLJ records.
+ *
+ *  The board publishes no dates — only HH:MM — and it lingers on the previous
+ *  day's flights for a while after midnight, so a row's day CANNOT be inferred
+ *  from its position alone. Instead every row is matched against the scraped
+ *  timetable, which does carry real dates: among the timetable entries with the
+ *  same flight number and scheduled time, we take the one nearest to now that
+ *  the row's status actually permits (see fidsWindow). A row whose status fits
+ *  no candidate is dropped rather than guessed at.
+ *
+ *  Airport-official → wins over AeroDataBox wherever the board shows something. */
 function applyFids(records: FlightRecord[], items: FidsItem[], todayIso: string, nowMinOfToday: number): number {
   if (!items.length) return 0;
-  const addDaysIso = (iso: string, days: number) => {
-    const [y, mo, d] = iso.split("-").map(Number);
-    const dt = new Date(Date.UTC(y, mo - 1, d + days));
-    return dt.toISOString().slice(0, 10);
+  const dayUtc = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
   };
-  // Index CLJ records by direction|date|flight|schedtime, plus a loose index
-  // without the date for single-candidate fallback.
-  const byExact = new Map<string, FlightRecord>();
-  const byLoose = new Map<string, FlightRecord[]>();
+  const todayUtc = dayUtc(todayIso);
+  // Minutes of a record relative to the start of today (negative = earlier day).
+  const recIdx = (rec: FlightRecord) =>
+    Math.round((dayUtc(rec.flight_date) - todayUtc) / 86_400_000) * 1440 + minutesOf(rec.scheduled_time);
+
+  const byFlight = new Map<string, FlightRecord[]>();
   for (const rec of records) {
     if (rec.airport !== "CLJ") continue;
-    const k = `${rec.direction}|${rec.flight_date}|${flightKey(rec.flight_no)}|${rec.scheduled_time}`;
-    byExact.set(k, rec);
-    const lk = `${rec.direction}|${flightKey(rec.flight_no)}|${rec.scheduled_time}`;
-    const arr = byLoose.get(lk) ?? [];
+    const k = `${rec.direction}|${flightKey(rec.flight_no)}|${rec.scheduled_time}`;
+    const arr = byFlight.get(k) ?? [];
     arr.push(rec);
-    byLoose.set(lk, arr);
+    byFlight.set(k, arr);
   }
+
   let stamped = 0;
-  const perDir: Record<string, number> = {};
   for (const it of items) {
-    // day offsets are per-direction boards; compute start anchor per direction once
-    if (!(it.direction in perDir)) {
-      perDir[it.direction] = fidsStartDelta(items.filter((x) => x.direction === it.direction), nowMinOfToday);
+    const cands = byFlight.get(`${it.direction}|${it.flight_no_key}|${it.timeHHMM}`);
+    if (!cands || !cands.length) continue;
+
+    const [minRel, maxRel] = fidsWindow(it.status);
+    let best: FlightRecord | null = null;
+    let bestDist = Infinity;
+    for (const rec of cands) {
+      const rel = recIdx(rec) - nowMinOfToday;
+      if (rel < minRel || rel > maxRel) continue;   // status makes this day impossible
+      const dist = Math.abs(rel);
+      if (dist < bestDist) { bestDist = dist; best = rec; }
     }
-    const date = addDaysIso(todayIso, perDir[it.direction] + it.dayOffset);
-    let rec = byExact.get(`${it.direction}|${date}|${it.flight_no_key}|${it.timeHHMM}`);
-    if (!rec) {
-      const cands = byLoose.get(`${it.direction}|${it.flight_no_key}|${it.timeHHMM}`) ?? [];
-      if (cands.length === 1) rec = cands[0]; // unambiguous → date inference was off by one
-    }
-    if (!rec) continue;
-    if (it.gate) rec.gate = it.gate;
-    if (it.checkinDesk) rec.checkin_desk = it.checkinDesk;
-    if (it.estHHMM) rec.estimated_time = it.estHHMM;
+    if (!best) continue;   // no plausible day for this row — never guess
+
+    if (it.gate) best.gate = it.gate;
+    if (it.checkinDesk) best.checkin_desk = it.checkinDesk;
+    if (it.estHHMM) best.estimated_time = it.estHHMM;
     if (it.status) {
-      rec.status = it.status;
-      rec.status_raw = it.statusRaw || rec.status_raw;
-      // DELAYED with a revised time ≥15 min late is already DELAYED; a plain
-      // "EST. hh:mm" only revises the estimate — derive lateness if large.
-    } else if (it.estHHMM && rec.status === "SCHEDULED") {
+      best.status = it.status;
+      best.status_raw = it.statusRaw || best.status_raw;
+    } else if (it.estHHMM && best.status === "SCHEDULED") {
       const slip = minutesOf(it.estHHMM) - minutesOf(it.timeHHMM);
-      if (slip >= 15) { rec.status = "DELAYED"; rec.status_raw = it.statusRaw || rec.status_raw; }
+      if (slip >= 15) { best.status = "DELAYED"; best.status_raw = it.statusRaw || best.status_raw; }
     }
     if (it.status || it.estHHMM || it.gate || it.checkinDesk) stamped++;
   }
@@ -734,7 +751,6 @@ serve(async (req) => {
         });
         report[dir] = {
           rows: items.length,
-          startDelta: fidsStartDelta(items, nowMin),
           statuses,
           withGate: items.filter((i) => i.gate).length,
           withCheckinDesk: items.filter((i) => i.checkinDesk).length,
@@ -830,6 +846,38 @@ serve(async (req) => {
       }
     }
   } catch { /* best-effort — worst case a stamp is redone next run */ }
+
+  // INVARIANT: a flight scheduled in the FUTURE cannot already have departed
+  // or landed. Any such stamp is a date-matching error somewhere upstream
+  // (the FIDS board carries no dates and lingers on the previous day after
+  // midnight), and publishing it would tell readers their flight has gone.
+  // Reset those rows to SCHEDULED and drop the borrowed time. Runs after the
+  // sticky restore, so it also scrubs bad stamps already sitting in the DB.
+  // CANCELLED/DIVERTED are deliberately exempt: a future flight can be either.
+  {
+    const todayIso = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Bucharest", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date());
+    const nowMin = Number(parts.find((x) => x.type === "hour")?.value ?? 0) * 60 +
+      Number(parts.find((x) => x.type === "minute")?.value ?? 0);
+    const dayUtc = (iso: string) => {
+      const [y, m, d] = iso.split("-").map(Number);
+      return Date.UTC(y, m - 1, d);
+    };
+    for (const rec of all) {
+      if (rec.status !== "DEPARTED" && rec.status !== "LANDED") continue;
+      const idx = Math.round((dayUtc(rec.flight_date) - dayUtc(todayIso)) / 86_400_000) * 1440 +
+        minutesOf(rec.scheduled_time);
+      if (idx > nowMin + 30) {
+        rec.status = "SCHEDULED";
+        rec.status_raw = null;
+        rec.estimated_time = null;
+      }
+    }
+  }
 
   // Flights well past their scheduled time (90+ min) that still carry no live
   // information get an explicit NO_INFO status instead of a misleading
