@@ -361,15 +361,18 @@ function splitAdxLocal(s: string | undefined): { date: string | null; hhmm: stri
   return m ? { date: m[1], hhmm: m[2] } : { date: null, hhmm: null };
 }
 
-// One call covers a 12h window; we use now-1h → now+11h per airport.
-async function fetchAdxBoard(icao: string, key: string): Promise<AdxItem[]> {
+// One call covers a 12h window; we use now-6h → now+6h so flights that
+// already departed earlier in the day get their real status too (the board's
+// "Live + 12h" view lists them), not only upcoming ones.
+async function fetchAdxBoard(icao: string, key: string, pastOnly = false): Promise<AdxItem[]> {
   const fmt = (d: Date) =>
     new Intl.DateTimeFormat("sv-SE", {
       timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(d).replace(" ", "T");
-  const from = fmt(new Date(Date.now() - 3600_000));
-  const to = fmt(new Date(Date.now() + 11 * 3600_000));
+  // pastOnly: one-off backfill of the previous 12h (e.g. after a gap).
+  const from = fmt(new Date(Date.now() - (pastOnly ? 12 : 6) * 3600_000));
+  const to = fmt(new Date(Date.now() + (pastOnly ? 0 : 6) * 3600_000));
   const url = `https://aerodatabox.p.rapidapi.com/flights/airports/icao/${icao}/${from}/${to}` +
     `?withLeg=false&direction=Both&withCancelled=true&withCodeshared=false&withCargo=false&withPrivate=false&withLocation=false`;
   const controller = new AbortController();
@@ -530,7 +533,8 @@ serve(async (req) => {
   let adxStamped = 0;
   if (adxKey) {
     try {
-      const items = await fetchAdxBoard("LRCL", adxKey);
+      const pastOnly = url.searchParams.get("window") === "past";
+      const items = await fetchAdxBoard("LRCL", adxKey, pastOnly);
       adxStamped = applyAdx(all, items, "CLJ");
     } catch { /* best-effort */ }
   }
@@ -541,6 +545,39 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+
+  // Terminal statuses are STICKY: the CLJ scrape is schedule-only, so a fresh
+  // upsert would revert flights already stamped DEPARTED/LANDED/CANCELLED once
+  // they fall outside the AeroDataBox window. Preserve them from the DB.
+  try {
+    const TERMINAL = ["DEPARTED", "LANDED", "CANCELLED", "DIVERTED"];
+    const cljDates = [...new Set(all.filter((r) => r.airport === "CLJ").map((r) => r.flight_date))];
+    if (cljDates.length) {
+      const { data: prev } = await supabase
+        .from("airport_flights")
+        .select("direction,flight_date,flight_no,scheduled_time,status,estimated_time,status_raw")
+        .eq("airport", "CLJ")
+        .in("status", TERMINAL)
+        .in("flight_date", cljDates);
+      const prevMap = new Map(
+        (prev ?? []).map((p) => [
+          `${p.direction}|${p.flight_date}|${flightKey(p.flight_no)}|${String(p.scheduled_time).slice(0, 5)}`,
+          p,
+        ]),
+      );
+      for (const rec of all) {
+        if (rec.airport !== "CLJ" || rec.status !== "SCHEDULED") continue;
+        const p = prevMap.get(
+          `${rec.direction}|${rec.flight_date}|${flightKey(rec.flight_no)}|${rec.scheduled_time}`,
+        );
+        if (p) {
+          rec.status = p.status;
+          rec.estimated_time = p.estimated_time ? String(p.estimated_time).slice(0, 5) : rec.estimated_time;
+          rec.status_raw = p.status_raw ?? rec.status_raw;
+        }
+      }
+    }
+  } catch { /* best-effort — worst case a stamp is redone next run */ }
 
   let upserted = 0;
   const errors: string[] = [];
