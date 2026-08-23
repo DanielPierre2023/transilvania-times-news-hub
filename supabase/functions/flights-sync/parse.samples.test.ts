@@ -121,5 +121,28 @@ const tgmEwf = `<ul class="ewf-flights">
   ok("TGM f1 sched 06:10", r[1].scheduled_time === "06:10", r[1].scheduled_time);
 }
 
+// ── Sibiu obfuscated status: scrambled visible cell + hidden <input value> ──
+const sbzObf = `<table><tr>
+<th></th><th>Data</th><th>Spre</th><th>Indicativ</th><th>Companie</th><th>Oră programată plecare</th><th>Oră estimată plecare</th><th>Status</th><th></th>
+</tr>
+<tr>
+<td></td><td>23.08.2026</td><td><span>LCA</span>Larnaca</td><td>W4 9105</td><td><img alt="Wizz Air"></td><td>Azi 06:00</td><td>Azi 06:01</td>
+<td class="col_status"><span>D</span><span>X</span><span>Q</span></td>
+<td class="col_info">zzz<input id="fl_id1" value="DECOLAT" /></td>
+</tr>
+</table>`;
+{
+  const src: Source = { airport: "SBZ", direction: "departure", url: "sbz" };
+  const t = extractFlightTable(sbzObf)!;
+  const r = mapRows(src, t, "NOW");
+  console.log("SBZ obfuscated →", r.length, "rows");
+  ok("SBZ obf 1 row", r.length === 1, r.length);
+  ok("SBZ obf status DEPARTED (from input)", r[0].status === "DEPARTED", r[0].status);
+  ok("SBZ obf city 'Larnaca' (code stripped)", r[0].city === "Larnaca", r[0].city);
+  ok("SBZ obf sched 06:00 (Azi prefix)", r[0].scheduled_time === "06:00", r[0].scheduled_time);
+  ok("SBZ obf est 06:01", r[0].estimated_time === "06:01", r[0].estimated_time);
+  ok("SBZ obf flight W4 9105", r[0].flight_no === "W4 9105", r[0].flight_no);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

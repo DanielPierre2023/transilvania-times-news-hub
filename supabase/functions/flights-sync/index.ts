@@ -121,6 +121,7 @@ function parseFlightNo(s: string): string | null {
 interface ParsedTable {
   headers: string[];
   rows: string[][];
+  rowsRaw: string[];
 }
 
 function extractFlightTable(html: string): ParsedTable | null {
@@ -153,8 +154,13 @@ function extractFlightTable(html: string): ParsedTable | null {
       /(companie|status|ora|data)/.test(headers.join(" "));
     if (!isFlightTable) continue;
 
-    const rows = rowsCells.slice(headerIdx + 1).filter((r) => r.length >= 2);
-    const candidate: ParsedTable = { headers, rows };
+    const rows: string[][] = [];
+    const rowsRaw: string[] = [];
+    trs.slice(headerIdx + 1).forEach((tr) => {
+      const cells = (tr.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) ?? []).map(cellText);
+      if (cells.length >= 2) { rows.push(cells); rowsRaw.push(tr); }
+    });
+    const candidate: ParsedTable = { headers, rows, rowsRaw };
     if (!best || candidate.rows.length > best.rows.length) best = candidate;
   }
   return best;
@@ -174,6 +180,25 @@ function col(headers: string[], ...keywords: string[]): number {
 function cleanCell(s: string): string | null {
   const t = (s || "").replace(/\s+/g, " ").trim();
   return t && t !== "-" && t !== "—" ? t : null;
+}
+
+function cleanCity(s: string): string | null {
+  const t = (s || "").replace(/\s+/g, " ").trim().replace(/^[A-Z]{3}\s*(?=[A-Z][a-z])/, "");
+  return t && t !== "-" && t !== "—" ? t : null;
+}
+
+// Sibiu scrambles the visible Status column but keeps the real value in a
+// hidden <input value="…">; recover it from the raw row HTML.
+const STATUS_WORD_RE =
+  /(DECOLAT|ATERIZAT|ANULAT|INTARZIAT|INTIRZIAT|IMBARCARE|CHECK.?IN|PROGRAMAT|IN\s*CURS|IN\s*TIMP|IN\s*ZBOR|POARTA\s*INCHISA|MODIFICARE\s*ORA|CONFIRMAT|SOSIT|BOARDING|DEPARTED|LANDED|CANCEL|DELAY|GATE\s*CLOSED|ESTIMAT)/;
+
+function statusFromRaw(rowHtml: string): string | null {
+  const re = /<input[^>]*\bvalue=["']([^"']+)["'][^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(rowHtml))) {
+    if (STATUS_WORD_RE.test(stripDiacritics(m[1]).toUpperCase())) return m[1];
+  }
+  return null;
 }
 
 function scanDate(cells: string[]): string | null {
@@ -226,7 +251,9 @@ function mapRows(src: Source, table: ParsedTable, nowIso: string): FlightRecord[
 
   const out: FlightRecord[] = [];
 
-  for (const r of table.rows) {
+  for (let ri = 0; ri < table.rows.length; ri++) {
+    const r = table.rows[ri];
+    const rowRaw = table.rowsRaw[ri] ?? "";
     const get = (i: number) => (i >= 0 && i < r.length ? r[i] : "");
 
     const flight_no = parseFlightNo(get(iFlight));
@@ -240,7 +267,11 @@ function mapRows(src: Source, table: ParsedTable, nowIso: string): FlightRecord[
     if (!scheduled_time) continue;
 
     const estimated_time = iEst >= 0 ? parseTime(get(iEst)) : null;
-    const statusRaw = iStatus >= 0 ? get(iStatus) : "";
+    let statusRaw = iStatus >= 0 ? get(iStatus) : "";
+    if (src.airport !== "CLJ") {
+      const fromInput = statusFromRaw(rowRaw);
+      if (fromInput) statusRaw = fromInput;
+    }
     const is_charter = /charter/.test(normKey(r.join(" ")));
     const status = src.airport === "CLJ" ? "SCHEDULED" : normalizeStatus(statusRaw);
 
@@ -250,7 +281,7 @@ function mapRows(src: Source, table: ParsedTable, nowIso: string): FlightRecord[
       flight_date,
       flight_no,
       airline: cleanCell(get(iAirline)),
-      city: cleanCell(get(iCity)),
+      city: cleanCity(get(iCity)),
       aircraft: cleanCell(get(iAircraft)),
       scheduled_time,
       estimated_time,
