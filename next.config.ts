@@ -37,7 +37,11 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co https://pagead2.googlesyndication.com https://adservice.google.com",
+      // api.open-meteo.com — WeatherWidget (the header temperature) fetches this
+      // from the browser. Without it listed here CSP blocks the request, the
+      // component's .catch() leaves temp === null, and `if (temp === null) return
+      // null` hides the widget silently: no error banner, it simply never appears.
+      "connect-src 'self' https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co https://api.open-meteo.com https://pagead2.googlesyndication.com https://adservice.google.com",
       "frame-src https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com",
     ].join('; ')
 
