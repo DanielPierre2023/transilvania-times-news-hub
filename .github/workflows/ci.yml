@@ -34,6 +34,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Flight-board date logic. The Cluj FIDS board publishes no dates, so a
+      # date-matching regression silently tells readers their flight already
+      # departed (this happened live on 2026-08-24). Pure Node, no network.
+      - name: Flight status regression tests
+        run: node supabase/functions/flights-sync/fids.regression.mjs
+
       - name: Build
         run: npm run build
         env:
