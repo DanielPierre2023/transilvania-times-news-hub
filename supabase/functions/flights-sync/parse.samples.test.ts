@@ -14,13 +14,15 @@ const sbzDep = `<table class="flights"><thead><tr>
 <tr><td>23.08.2026</td><td>Larnaca</td><td>W4 9105</td><td>Wizz Air</td><td>06:00</td><td>06:01</td><td>DECOLAT</td></tr>
 <tr><td>23.08.2026</td><td>Viena</td><td>OS 710</td><td>Austrian Airlines</td><td>13:40</td><td>13:40</td><td>CHECK-IN</td></tr>
 <tr><td>23.08.2026</td><td>Creta Heraklion</td><td>A2 4154</td><td>Animawings</td><td>21:50</td><td>17:45</td><td>MODIFICARE ORA</td></tr>
+<tr><td>23.08.2026</td><td>Viena</td><td>OS 712</td><td>Austrian Airlines</td><td>20:00</td><td>20:35</td><td>PROGRAMAT</td></tr>
 </tbody></table>`;
 {
   const src: Source = { airport: "SBZ", direction: "departure", url: "sbz" };
   const t = extractFlightTable(sbzDep)!;
   const r = mapRows(src, t, "NOW");
   console.log("SBZ departures →", r.length, "rows");
-  ok("SBZ 3 rows", r.length === 3, r.map(x => x.flight_no));
+  ok("SBZ 4 rows", r.length === 4, r.map(x => x.flight_no));
+  ok("SBZ f3 derived DELAYED (est +35min, status PROGRAMAT)", r[3].status === "DELAYED" && r[3].estimated_time === "20:35", { s: r[3].status, e: r[3].estimated_time });
   const f0 = r[0];
   ok("SBZ f0 flight W4 9105", f0.flight_no === "W4 9105", f0.flight_no);
   ok("SBZ f0 city Larnaca", f0.city === "Larnaca", f0.city);

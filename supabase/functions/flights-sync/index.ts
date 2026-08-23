@@ -591,6 +591,32 @@ serve(async (req) => {
     }
   } catch { /* best-effort — worst case a stamp is redone next run */ }
 
+  // Flights well past their scheduled time (90+ min) that still carry no live
+  // information get an explicit NO_INFO status instead of a misleading
+  // "Scheduled" — covers carriers absent from AeroDataBox, windows the
+  // enrichment missed, and any future residue. Runs AFTER the sticky restore,
+  // so a known real status always wins; re-derived idempotently every run.
+  {
+    const todayIso = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Bucharest", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date());
+    const nowMin = Number(parts.find((x) => x.type === "hour")?.value ?? 0) * 60 +
+      Number(parts.find((x) => x.type === "minute")?.value ?? 0);
+    const dayUtc = (iso: string) => {
+      const [y, m, d] = iso.split("-").map(Number);
+      return Date.UTC(y, m - 1, d);
+    };
+    for (const rec of all) {
+      if (rec.status !== "SCHEDULED") continue;
+      const idx = Math.round((dayUtc(rec.flight_date) - dayUtc(todayIso)) / 86_400_000) * 1440 +
+        minutesOf(rec.scheduled_time);
+      if (idx < nowMin - 90) rec.status = "NO_INFO";
+    }
+  }
+
   let upserted = 0;
   const errors: string[] = [];
   const BATCH = 200;

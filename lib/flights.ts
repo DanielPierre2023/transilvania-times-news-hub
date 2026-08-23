@@ -66,6 +66,7 @@ export type StatusCode =
   | 'DELAYED'
   | 'CANCELLED'
   | 'DIVERTED'
+  | 'NO_INFO'
   | 'UNKNOWN'
 
 export type StatusColor = 'green' | 'blue' | 'amber' | 'red' | 'gray'
@@ -87,6 +88,7 @@ export const STATUS_META: Record<StatusCode, StatusMeta> = {
   DELAYED:     { ro: 'Întârziat',    en: 'Delayed',     color: 'red'   },
   CANCELLED:   { ro: 'Anulat',       en: 'Cancelled',   color: 'red'   },
   DIVERTED:    { ro: 'Deviat',       en: 'Diverted',    color: 'red'   },
+  NO_INFO:     { ro: 'Fără informații', en: 'No info',  color: 'gray'  },
   UNKNOWN:     { ro: 'Programat',    en: 'Scheduled',   color: 'gray'  },
 }
 
@@ -191,6 +193,7 @@ export const LABELS = {
     colAircraft: 'Avion',
     colStatus: 'Status',
     noFlights: 'Niciun zbor pentru criteriile selectate.',
+    noInfo: 'Fără informații',
     updated: 'Actualizat',
     refresh: 'Reîmprospătează',
     charter: 'Charter',
@@ -223,6 +226,7 @@ export const LABELS = {
     colAircraft: 'Aircraft',
     colStatus: 'Status',
     noFlights: 'No flights match the current filters.',
+    noInfo: 'No info',
     updated: 'Updated',
     refresh: 'Refresh',
     charter: 'Charter',

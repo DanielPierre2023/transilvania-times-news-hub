@@ -260,7 +260,12 @@ export function mapRows(src: Source, table: ParsedTable, nowIso = new Date().toI
       if (fromInput) statusRaw = fromInput;
     }
     const is_charter = /charter/.test(normKey(r.join(" ")));
-    const status = src.airport === "CLJ" ? "SCHEDULED" : normalizeStatus(statusRaw);
+    let status = src.airport === "CLJ" ? "SCHEDULED" : normalizeStatus(statusRaw);
+    // Derive lateness shown only via the estimated column (≥15 min slip).
+    if (status === "SCHEDULED" && estimated_time && scheduled_time) {
+      const slip = hhmmToMin(estimated_time) - hhmmToMin(scheduled_time);
+      if (slip >= 15) status = "DELAYED";
+    }
 
     out.push({
       airport: src.airport,
