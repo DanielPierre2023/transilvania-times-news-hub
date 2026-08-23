@@ -1,25 +1,24 @@
-TRANSILVANIA TIMES — Zboruri: REDESIGN frontend (mobil + desktop)
-=================================================================
+TRANSILVANIA TIMES — Zboruri: date LIVE de la aeroportul Cluj (FIDS)
+====================================================================
 
-Extrageți acest zip în RĂDĂCINA repo-ului (unde e package.json), suprascrieți
-tot, apoi commit + push. Netlify face build automat. Nimic de făcut în Supabase.
+Extrageți acest zip în RĂDĂCINA repo-ului, suprascrieți tot, commit + push.
+Partea de server e DEJA făcută de Claude (funcția v19 + coloanele noi în DB).
 
-CE SE SCHIMBĂ:
+CE E NOU — datele oficiale ale aeroportului Cluj (panourile din terminal,
+folosite cu permisiunea aeroportului):
 
-  MOBIL (sub 768px) — layout complet nou, tip card:
-   • fiecare zbor e un card: ora mare + „est HH:MM" dedesubt (gri = la timp,
-     roșu = revizuit), destinația, compania (colorată), nr. zbor, ora la
-     celălalt capăt, status cu punct pulsant
-   • butonul DISTRIBUIE e mereu vizibil (cerc 40px); la atingere se deschide
-     rândul WhatsApp / Messenger / Facebook / Telegram / restul (nativ iOS+Android)
-   • fără scroll orizontal; filtrele stau într-un sertar (buton cu badge);
-     titluri de dată în serif italic
-   • identic pe iOS și Android: selecturi cu săgeată proprie (appearance-none),
-     font 16px în câmpuri (fără zoom automat pe iPhone), ținte de atingere 40px+
+  • statusuri oficiale: AIRBORNE (decolat, cu ora reală), GATE OPEN /
+    GATE CLOSED, CHECK-IN (cu numărul ghișeului), DELAYED cu ora estimată
+  • POARTA de îmbarcare (ex. „Poarta A7") — afișată sub status pe desktop
+    și în cardul de zbor pe mobil
+  • GHIȘEUL de check-in (ex. „Check-in 13")
+  • toate incluse și în textul de share (WhatsApp etc.)
 
-  DESKTOP — tabelul rămâne, rafinat editorial:
-   • benzi de dată în serif italic, accent roșu pe rândul activ (hover),
-     statusuri tip pastilă cu punct colorat, numerale tabulare
+  Prioritate surse: panoul aeroportului (FIDS) > AeroDataBox > orar static.
+  Status nou „Poartă deschisă" (albastru, cu punct pulsant).
 
-  Fișiere modificate: app/components/FlightBoard.tsx, lib/flights.ts
-  (+ restul, neschimbate, incluse ca superset ca să nu rămână nimic desincronizat)
+  Fișiere modificate: lib/flights.ts, lib/database.types.ts,
+  app/components/FlightBoard.tsx, toate paginile /zboruri (select + gate),
+  app/api/flights/route.ts, NextDeparturesWidget.tsx
+  + migrarea supabase/migrations/20260823220000_airport_flights_gate_checkin.sql
+    (DEJA aplicată în producție de Claude — doar pentru istoricul repo-ului)

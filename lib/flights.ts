@@ -59,6 +59,7 @@ export type StatusCode =
   | 'SCHEDULED'
   | 'CHECKIN'
   | 'BOARDING'
+  | 'GATE_OPEN'
   | 'GATE_CLOSED'
   | 'DEPARTED'
   | 'EN_ROUTE'
@@ -81,6 +82,7 @@ export const STATUS_META: Record<StatusCode, StatusMeta> = {
   SCHEDULED:   { ro: 'Programat',    en: 'Scheduled',   color: 'amber' },
   CHECKIN:     { ro: 'Check-in',     en: 'Check-in',    color: 'blue'  },
   BOARDING:    { ro: 'Îmbarcare',    en: 'Boarding',    color: 'blue'  },
+  GATE_OPEN:   { ro: 'Poartă deschisă', en: 'Gate open', color: 'blue' },
   GATE_CLOSED: { ro: 'Poartă închisă', en: 'Gate closed', color: 'red' },
   DEPARTED:    { ro: 'Decolat',      en: 'Departed',    color: 'green' },
   EN_ROUTE:    { ro: 'În zbor',      en: 'En route',    color: 'blue'  },
@@ -117,6 +119,7 @@ export function normalizeStatus(raw: string | null | undefined): StatusCode {
   if (/\bDECOLAT|DEPARTED|PLECAT/.test(s)) return 'DEPARTED'
   if (/\bIMBARCARE|BOARDING/.test(s)) return 'BOARDING'
   if (/POARTA\s*INCHISA|GATE\s*CLOSED/.test(s)) return 'GATE_CLOSED'
+  if (/POARTA\s*DESCHISA|GATE\s*OPEN/.test(s)) return 'GATE_OPEN'
   if (/CHECK.?IN/.test(s)) return 'CHECKIN'
   if (/\bIN\s*ZBOR|IN\s*TIMP|IN\s*CURS|EN.?ROUTE|IN\s*AER/.test(s)) return 'EN_ROUTE'
   if (/INTARZIAT|INTIRZIAT|DELAY|MODIFICARE\s*ORA|REPROGRAMAT|ESTIMAT/.test(s)) return 'DELAYED'
@@ -140,6 +143,8 @@ export interface FlightRow {
   scheduled_time: string | null // HH:MM (local)
   estimated_time: string | null // HH:MM (local), when the source publishes it
   other_time: string | null     // time at the other end of the leg, when published
+  gate: string | null           // from the airport's FIDS board (Cluj, with permission)
+  checkin_desk: string | null   // idem — desk number(s), departures only
   status: StatusCode
   status_raw: string | null
   is_charter: boolean
@@ -206,6 +211,8 @@ export const LABELS = {
     filters: 'Filtre',
     clearFilters: 'Șterge filtrele',
     live: 'Live',
+    gateLbl: 'Poarta',
+    checkinLbl: 'Check-in',
     disclaimer:
       'Date preluate din sursele oficiale ale aeroporturilor, cu titlu informativ. Verificați întotdeauna cu compania aeriană.',
     loadError: 'Nu am putut încărca zborurile. Reîncercați în câteva momente.',
@@ -242,6 +249,8 @@ export const LABELS = {
     filters: 'Filters',
     clearFilters: 'Clear filters',
     live: 'Live',
+    gateLbl: 'Gate',
+    checkinLbl: 'Check-in',
     disclaimer:
       'Data sourced from the airports’ official pages, for information only. Always confirm with your airline.',
     loadError: 'Could not load flights. Please try again shortly.',

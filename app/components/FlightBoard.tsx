@@ -43,7 +43,7 @@ const DOT: Record<StatusColor, string> = {
   red:   'bg-brand-red',
   gray:  'bg-foreground/40',
 }
-const LIVE_STATUSES = new Set(['CHECKIN', 'BOARDING', 'EN_ROUTE'])
+const LIVE_STATUSES = new Set(['CHECKIN', 'BOARDING', 'GATE_OPEN', 'EN_ROUTE'])
 
 export default function FlightBoard({ initialFlights, initialToday, initialLang, initialAirport = 'CLJ' }: Props) {
   const [lang, setLang] = useState<Lang>(initialLang)
@@ -487,9 +487,16 @@ function FlightRowView({ f, lang, t, direction, airport }: { f: FlightRow } & Ct
           ? <span className={est.revised ? 'text-brand-red font-semibold' : 'text-muted-foreground'}>{est.shown}</span>
           : <span className="text-muted-foreground">—</span>}
       </td>
-      {/* Status */}
+      {/* Status + gate / check-in desk from the airport's own board */}
       <td className="px-4 py-3 whitespace-nowrap">
         <StatusPill f={f} lang={lang} />
+        {(f.gate || f.checkin_desk) && (
+          <span className="block mt-1 font-sans text-[10.5px] text-muted-foreground">
+            {f.gate ? `${t.gateLbl} ${f.gate}` : ''}
+            {f.gate && f.checkin_desk ? ' · ' : ''}
+            {f.checkin_desk ? `${t.checkinLbl} ${f.checkin_desk}` : ''}
+          </span>
+        )}
       </td>
       {/* Share */}
       <td className="px-4 py-3 text-right pr-4 whitespace-nowrap">
@@ -578,9 +585,16 @@ function FlightCard({ f, lang, t, direction, airport, open, onToggleShare }: {
           </div>
         </div>
 
-        {/* Status + share (always visible, 40px touch target) */}
+        {/* Status + gate + share (always visible, 40px touch target) */}
         <div className="flex flex-col items-end gap-1.5">
           <StatusPill f={f} lang={lang} compact />
+          {(f.gate || f.checkin_desk) && (
+            <span className="font-sans text-[10px] font-semibold text-muted-foreground">
+              {f.gate ? `${t.gateLbl} ${f.gate}` : ''}
+              {f.gate && f.checkin_desk ? ' · ' : ''}
+              {f.checkin_desk ? `${t.checkinLbl} ${f.checkin_desk}` : ''}
+            </span>
+          )}
           <button
             onClick={onToggleShare}
             aria-expanded={open}
@@ -716,6 +730,8 @@ function buildShareText(f: FlightRow, lang: Lang, direction: Direction, airport:
       ? `${ro ? 'Sosire la destinație' : 'Arrival at destination'}: ${shown}`
       : `${ro ? 'Plecare din origine' : 'Departure from origin'}: ${shown}`)
   }
+  if (f.gate) lines.push(`${ro ? 'Poarta' : 'Gate'}: ${f.gate}`)
+  if (f.checkin_desk) lines.push(`Check-in: ${ro ? 'ghișeu' : 'desk'} ${f.checkin_desk}`)
   lines.push(`Status: ${statusLabel(f, lang)}`)
   lines.push('')
   lines.push(`${ro ? 'Urmărește live' : 'Track live'}: ${SITE}`)

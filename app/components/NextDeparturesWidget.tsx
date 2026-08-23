@@ -17,7 +17,7 @@ export default async function NextDeparturesWidget({ lang = 'ro' as 'ro' | 'en' 
   const supabase = await createSupabaseServerClient()
   const { data } = await supabase
     .from('airport_flights')
-    .select('airport, direction, flight_date, flight_no, airline, city, scheduled_time, estimated_time, status, status_raw, is_charter, source_url, updated_at')
+    .select('airport, direction, flight_date, flight_no, airline, city, scheduled_time, estimated_time, gate, checkin_desk, status, status_raw, is_charter, source_url, updated_at')
     .eq('direction', 'departure')
     .gte('flight_date', today)
     .lte('flight_date', addDays(today, 1))

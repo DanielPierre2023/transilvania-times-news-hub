@@ -15,7 +15,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('airport_flights')
     .select(
-      'airport, direction, flight_date, flight_no, airline, city, aircraft, scheduled_time, estimated_time, other_time, status, status_raw, is_charter, source_url, updated_at',
+      'airport, direction, flight_date, flight_no, airline, city, aircraft, scheduled_time, estimated_time, other_time, gate, checkin_desk, status, status_raw, is_charter, source_url, updated_at',
     )
     .gte('flight_date', from)
     .lte('flight_date', to)
