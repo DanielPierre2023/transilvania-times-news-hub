@@ -310,8 +310,15 @@ function FlightRowView({ f, lang, t, direction, airport }: {
         {(() => {
           const est = f.estimated_time ? String(f.estimated_time).slice(0, 5) : null
           const sched = f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : null
-          if (!est) return <span className="text-muted-foreground">—</span>
-          return <span className={est !== sched ? 'text-brand-red font-semibold' : 'text-muted-foreground'}>{est}</span>
+          // No revision known → the schedule IS the current estimate (gray =
+          // expected on time). Red only when a real revision differs.
+          // No sensible estimate for cancelled / no-info rows.
+          if (f.status === 'CANCELLED' || f.status === 'NO_INFO' || f.status === 'DIVERTED') {
+            return <span className="text-muted-foreground">—</span>
+          }
+          const shown = est ?? sched
+          if (!shown) return <span className="text-muted-foreground">—</span>
+          return <span className={est && est !== sched ? 'text-brand-red font-semibold' : 'text-muted-foreground'}>{shown}</span>
         })()}
       </td>
       {/* Status (Hermes-style, with inline actual/estimated time) */}
