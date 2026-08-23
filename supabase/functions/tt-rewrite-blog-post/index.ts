@@ -2041,8 +2041,85 @@ function inferArticleType(category: string, content: string): string {
   return 'news'
 }
 
+// ---------------------------------------------------------------------------
+// Inlined admin-authorization gate (self-contained; no _shared import needed).
+// Allows only: (1) a trusted internal caller presenting this project's
+// SUPABASE_SERVICE_ROLE_KEY as bearer, or (2) a logged-in admin (user JWT whose
+// auth.uid() has an 'admin' row in public.user_roles). Everyone else -> 401/403.
+// Fails closed. Dynamic import of createClient avoids clashing with existing imports.
+// ---------------------------------------------------------------------------
+async function requireAdmin(req: Request): Promise<Response | null> {
+  const AUTH_CORS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+  const authHeader = req.headers.get('authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+    });
+  }
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (serviceKey && token === serviceKey) {
+    return null;
+  }
+  // FIX (23 Aug 2026): the exact-match above is not sufficient. pg_cron jobs and
+  // internal service-to-service calls send a service-role JWT that was hard-coded
+  // into the caller (a cron job command, an env var, a config row). When the
+  // project's service-role key is rotated or migrated to the new key format, that
+  // hard-coded token stops matching SUPABASE_SERVICE_ROLE_KEY, execution falls
+  // through to the user-JWT branch below, and every internal call returns 401.
+  // weather-alert failed exactly this way on 12 consecutive cron runs (22-23 Aug
+  // 2026) while still booting normally - the cron job itself reported "succeeded".
+  // So also accept a token that PROVES it is service-role by performing an
+  // operation only service-role may perform. GoTrue verifies the signature, so a
+  // forged token or the public anon key still cannot pass this.
+  try {
+    const { createClient: _cc } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const _probe = _cc(Deno.env.get('SUPABASE_URL')!, token, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error: _svcErr } = await _probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+    if (!_svcErr) return null;
+  } catch (_e) { /* not a service-role token - fall through to the admin-user check */ }
+  try {
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const supabase = createClient(supabaseUrl, anonKey ?? serviceKey!, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    if (userErr || !userData.user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+      });
+    }
+    const { data: roleRow, error: roleErr } = await supabase
+      .from('user_roles').select('role').eq('user_id', userData.user.id)
+      .eq('role', 'admin').maybeSingle();
+    if (roleErr || !roleRow) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+      });
+    }
+    return null;
+  } catch (e) {
+    console.error('[requireAdmin] check failed, denying by default:', (e as Error).message);
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
+  // Admin-only. Service-role bearer (pg_cron) passes; a logged-in admin passes;
+  // everything else gets 401/403. Fails closed.
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
   const t0 = Date.now()
   // Soft time budget for the whole request (rewrite has a generous 240s edge runtime).

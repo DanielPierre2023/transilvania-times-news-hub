@@ -245,9 +245,22 @@ function parseEntry(entry: string): ParsedWarning | null {
 }
 
 async function fetchAndParseFeed(): Promise<ParsedWarning[]> {
+  // FIX (23 Aug 2026): MeteoAlarm sits behind a CDN that answered this exact
+  // request with HTTP 406 (Not Acceptable) — the restrictive Accept list plus
+  // Deno's default User-Agent did not satisfy its content-negotiation/bot rules.
+  // This bug was invisible until today: for 24h+ the admin-gate returned 401
+  // before execution ever reached this fetch, so the very first successful
+  // cron run (after the gate fix) is what surfaced the 406.
+  // Verified the feed loads with a browser-style Accept (*/* included) and a
+  // descriptive User-Agent — which is also what MeteoAlarm asks OPEN-feed
+  // consumers to send. A `*/*` fallback means a working feed can never again be
+  // rejected purely on content negotiation.
   const res = await fetch(FEED_URL, {
     method: 'GET',
-    headers: { 'Accept': 'application/atom+xml, application/xml, text/xml' },
+    headers: {
+      'Accept': 'application/atom+xml, application/xml, text/xml, */*',
+      'User-Agent': 'TransilvaniaTimes-WeatherAlert/1.0 (+https://transilvaniatimes.com)',
+    },
     signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
   })
   if (!res.ok) throw new Error(`MeteoAlarm feed HTTP ${res.status}`)
