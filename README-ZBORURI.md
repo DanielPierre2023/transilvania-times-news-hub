@@ -165,7 +165,30 @@ supabase secrets set FLIGHTS_NEWS_EMAIL='newsroom@transilvaniatimes.com'
 
 Apply the new migration alongside the others; the disruption email reuses your existing Resend key.
 
-## Cluj live status via ADS-B (OpenSky) — free
+## Cluj live status via AeroDataBox (RapidAPI) — current approach
+
+OpenSky turned out to be a dead end for live boards (its airport endpoints refuse
+recent windows: "You cannot access historical flights"), so Cluj live status now
+comes from **AeroDataBox via RapidAPI**:
+
+1. On rapidapi.com: search **AeroDataBox** → Pricing → subscribe (Basic = free,
+   600 units — enough to validate; Pro $5 or Pro 2 $15 for production).
+2. Copy your key: any AeroDataBox endpoint page → code snippet shows
+   `X-RapidAPI-Key` — that string is your key.
+3. `supabase secrets set AERODATABOX_KEY='<your X-RapidAPI-Key>'`
+4. Redeploy: `supabase functions deploy flights-sync --no-verify-jwt`
+5. Validate before paying: open
+   `https://<PROJECT>.supabase.co/functions/v1/flights-sync?adxtest=1` with the
+   `x-sync-secret` header → per-airport live-status report, writes nothing,
+   costs 3 units.
+
+The sync then makes ONE AeroDataBox call per run (rolling 12h window, Cluj only):
+~4,300 units/month → the $5 Pro tier (6,000) covers it. Statuses stamped include
+Check-in, Boarding, Gate closed, Departed, Arrived, Delayed, Cancelled — matched
+onto the scraped schedule by flight number + date, so the board and UI are
+unchanged. If no `AERODATABOX_KEY` is set, Cluj simply stays schedule-only.
+
+## (superseded) Cluj live status via ADS-B (OpenSky) — free
 
 Cluj's own site publishes only the timetable (no live status anywhere). To still
 show real movement, `flights-sync` now queries OpenSky Network for actual
