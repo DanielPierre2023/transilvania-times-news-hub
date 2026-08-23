@@ -273,7 +273,13 @@ function mapRows(src: Source, table: ParsedTable, nowIso: string): FlightRecord[
       if (fromInput) statusRaw = fromInput;
     }
     const is_charter = /charter/.test(normKey(r.join(" ")));
-    const status = src.airport === "CLJ" ? "SCHEDULED" : normalizeStatus(statusRaw);
+    let status = src.airport === "CLJ" ? "SCHEDULED" : normalizeStatus(statusRaw);
+    // Derive lateness the source shows only via the estimated column
+    // (e.g. Sibiu: status still PROGRAMAT but est ≥15 min after schedule).
+    if (status === "SCHEDULED" && estimated_time && scheduled_time) {
+      const slip = minutesOf(estimated_time) - minutesOf(scheduled_time);
+      if (slip >= 15) status = "DELAYED";
+    }
 
     out.push({
       airport: src.airport,
@@ -420,6 +426,12 @@ function applyAdx(records: FlightRecord[], items: AdxItem[], airport: AirportCod
     if (!it || it.status === "UNKNOWN") continue;
     rec.status = it.status;
     if (it.revisedHHMM) rec.estimated_time = it.revisedHHMM;
+    // ADX often reports a late flight as "Expected" + a revised time rather
+    // than "Delayed" — derive it: ≥15 min slip ⇒ DELAYED.
+    if (rec.status === "SCHEDULED" && it.revisedHHMM && it.scheduledHHMM) {
+      const slip = minutesOf(it.revisedHHMM) - minutesOf(it.scheduledHHMM);
+      if (slip >= 15) rec.status = "DELAYED";
+    }
     rec.status_raw = it.statusRaw || rec.status_raw;
     stamped++;
   }
