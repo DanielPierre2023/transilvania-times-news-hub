@@ -1,28 +1,27 @@
-TRANSILVANIA TIMES — Zboruri: BUGFIX „zboruri viitoare apar ca decolate"
-========================================================================
+TRANSILVANIA TIMES — Zboruri: bugfix + test automat în CI
+==========================================================
 
-DOAR pentru istoricul repo-ului: funcția e DEJA reparată și rulează în
-producție (v22, pusă de Claude), iar datele greșite au fost curățate.
-Extrageți în rădăcină, commit + push, ca repo-ul să fie identic cu producția.
+Extrageți în rădăcina repo-ului, commit + push. Funcția din Supabase e DEJA
+reparată și rulează în producție (v22) — nu trebuie să deployați nimic acolo.
 
-CE S-A ÎNTÂMPLAT:
-  Panoul live al aeroportului Cluj afișează DOAR ora (HH:MM), fără dată, și
-  după miezul nopții mai arată o vreme zborurile zilei precedente. Vechea
-  logică ghicea ziua din ordinea rândurilor — iar la 00:40 a atribuit
-  „AIRBORNE 06:02" (zborul de IERI dimineață) zborului de AZI de la 06:00.
-  Rezultat: zboruri care pleacă peste câteva ore apăreau ca decolate.
+DESPRE fids.regression.mjs — NU SE DEPLOIAZĂ NICĂIERI:
+  • NU e o funcție Supabase. Funcția care rulează pe server e DOAR index.ts.
+  • NU intră în build-ul site-ului: Next.js compilează doar app/, lib/, i18n/
+    (vezi tsconfig.json), nu folderul supabase/.
+  • E un test pentru dezvoltatori, care stă lângă cod ca documentație vie —
+    exact ca parse.samples.test.ts, care e acolo de la început.
 
-CE S-A REPARAT:
-  1. Ziua nu se mai ghicește. Fiecare rând de pe panou e potrivit cu orarul
-     oficial (care ARE date reale), alegând ziua cea mai apropiată de „acum".
-  2. Statusul decide ce zile sunt posibile: „AIRBORNE/LANDED" doar pentru un
-     zbor din trecut, „CHECK-IN/BOARDING" doar în ±5 ore. Un rând care nu se
-     potrivește cu nicio zi plauzibilă e IGNORAT, nu ghicit.
-  3. Regulă de siguranță finală: un zbor programat în VIITOR nu poate fi
-     „decolat"/„aterizat" — orice astfel de marcaj e șters automat la fiecare
-     sincronizare, indiferent de la ce sursă vine.
-  4. Test de regresie rulabil: supabase/functions/flights-sync/fids.regression.mjs
-     (rulează: node supabase/functions/flights-sync/fids.regression.mjs)
+  Îl puteți rula manual oricând, din rădăcina repo-ului:
+      node supabase/functions/flights-sync/fids.regression.mjs
+  Nu are nevoie de internet, de chei sau de baza de date. Afișează 7 verificări
+  și „all passed".
 
-  Fișiere: supabase/functions/flights-sync/index.ts (+ testul nou).
-  Frontend-ul e neschimbat față de zip-ul anterior, inclus ca superset.
+NOU: rulează AUTOMAT în GitHub Actions (.github/workflows/ci.yml), la fiecare
+push și pull request, imediat după lint. Dacă cineva strică logica de dată a
+zborurilor, CI-ul devine roșu ÎNAINTE ca Netlify să publice — nu după ce
+cititorii văd zboruri „decolate" care încă n-au plecat.
+
+Fișiere: .github/workflows/ci.yml (pas nou),
+         supabase/functions/flights-sync/index.ts (fix-ul),
+         supabase/functions/flights-sync/fids.regression.mjs (testul).
+Restul, neschimbat, inclus ca superset.
