@@ -203,6 +203,9 @@ export const LABELS = {
     liveWindow: 'Live + 12h',
     allDay: 'Toată ziua',
     share: 'Distribuie zborul',
+    filters: 'Filtre',
+    clearFilters: 'Șterge filtrele',
+    live: 'Live',
     disclaimer:
       'Date preluate din sursele oficiale ale aeroporturilor, cu titlu informativ. Verificați întotdeauna cu compania aeriană.',
     loadError: 'Nu am putut încărca zborurile. Reîncercați în câteva momente.',
@@ -236,6 +239,9 @@ export const LABELS = {
     liveWindow: 'Live + 12h',
     allDay: 'All day',
     share: 'Share flight',
+    filters: 'Filters',
+    clearFilters: 'Clear filters',
+    live: 'Live',
     disclaimer:
       'Data sourced from the airports’ official pages, for information only. Always confirm with your airline.',
     loadError: 'Could not load flights. Please try again shortly.',

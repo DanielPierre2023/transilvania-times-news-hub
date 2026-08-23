@@ -3,14 +3,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   PlaneTakeoff, PlaneLanding, Search, RefreshCw, Plane, Share2, Check,
+  SlidersHorizontal, ChevronDown, X,
 } from 'lucide-react'
 import AirportsLogo from './AirportsLogo'
 import AirlineLogo from './AirlineLogo'
 import {
-  AIRPORTS, AIRPORT_ORDER, LABELS, STATUS_META, STATUS_CLASSES,
-  dateForDay, statusLabel, dateHeading, airlineName,
+  AIRPORTS, AIRPORT_ORDER, LABELS, STATUS_META,
+  dateForDay, statusLabel, dateHeading, airlineName, airlineColor,
   bucharestNowMinutes, flightMinuteIndex,
   type AirportCode, type Direction, type DayKey, type FlightRow, type Lang,
+  type StatusColor,
 } from '@/lib/flights'
 
 interface Props {
@@ -25,6 +27,24 @@ type Mode = 'live' | 'today' | 'tomorrow' | 'yesterday'
 type L = { [K in keyof (typeof LABELS)['ro']]: string }
 const SITE = 'https://transilvaniatimes.com/zboruri/'
 
+/* Editorial status pills: tinted ground + coloured dot; the dot pulses while
+   the status is "in motion" (check-in, boarding, en-route). */
+const PILL: Record<StatusColor, string> = {
+  green: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  blue:  'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  amber: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  red:   'bg-brand-red/10 text-brand-red',
+  gray:  'bg-foreground/[0.06] text-muted-foreground',
+}
+const DOT: Record<StatusColor, string> = {
+  green: 'bg-emerald-600',
+  blue:  'bg-sky-600',
+  amber: 'bg-amber-500',
+  red:   'bg-brand-red',
+  gray:  'bg-foreground/40',
+}
+const LIVE_STATUSES = new Set(['CHECKIN', 'BOARDING', 'EN_ROUTE'])
+
 export default function FlightBoard({ initialFlights, initialToday, initialLang, initialAirport = 'CLJ' }: Props) {
   const [lang, setLang] = useState<Lang>(initialLang)
   const [airport, setAirport] = useState<AirportCode>(initialAirport)
@@ -33,6 +53,8 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
   const [search, setSearch] = useState('')
   const [airline, setAirline] = useState('')
   const [city, setCity] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState<string | null>(null)
 
   const [flights, setFlights] = useState<FlightRow[]>(initialFlights)
   const [today, setToday] = useState(initialToday)
@@ -62,7 +84,7 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
   }, [refresh])
 
-  useEffect(() => { setAirline(''); setCity('') }, [airport, direction, mode])
+  useEffect(() => { setAirline(''); setCity(''); setShareOpen(null) }, [airport, direction, mode])
 
   // Base slice for the current airport + direction.
   const base = useMemo(
@@ -107,34 +129,46 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
   const cityHdr = direction === 'departure' ? t.colTo : t.colFrom
   const modes: Mode[] = ['live', 'today', 'tomorrow', 'yesterday']
   const modeLabel: Record<Mode, string> = { live: t.liveWindow, today: t.today, tomorrow: t.tomorrow, yesterday: t.yesterday }
+  const modeLabelShort: Record<Mode, string> = { live: t.live, today: t.today, tomorrow: t.tomorrow, yesterday: t.yesterday }
+  const activeFilterCount = (search.trim() ? 1 : 0) + (airline ? 1 : 0) + (city ? 1 : 0)
+  const ctx = { lang, t, direction, airport }
 
   return (
-    <div className="max-w-7xl mx-auto border-x border-foreground/10">
-      <div className="px-4 sm:px-6 pt-8 pb-14">
+    <div className="max-w-7xl mx-auto border-x border-foreground/10 [-webkit-tap-highlight-color:transparent]">
+      <div className="px-0 sm:px-6 pt-6 sm:pt-8 pb-14">
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-6">
-          <div className="flex items-center gap-4">
-            <AirportsLogo className="h-12 w-12 shrink-0" />
+        <div className="flex items-start justify-between gap-4 mb-5 px-4 sm:px-0">
+          <div className="flex items-center gap-3.5">
+            <AirportsLogo className="h-11 w-11 sm:h-12 sm:w-12 shrink-0" />
             <div>
-              <h1 className="font-serif text-2xl md:text-3xl font-bold text-foreground leading-tight">{t.title}</h1>
-              <p className="font-sans text-[13px] text-muted-foreground mt-1">{t.subtitle}</p>
+              <h1 className="font-serif text-[22px] sm:text-2xl md:text-3xl font-bold text-foreground leading-tight">{t.title}</h1>
+              <p className="hidden sm:block font-sans text-[13px] text-muted-foreground mt-1">{t.subtitle}</p>
             </div>
           </div>
-          <button
-            onClick={() => setLang(l => (l === 'ro' ? 'en' : 'ro'))}
-            className="shrink-0 font-sans text-[11px] font-bold uppercase tracking-widest text-muted-foreground hover:text-brand-red border border-foreground/15 px-2.5 py-1.5 transition-colors"
-            aria-label="Language"
-          >{lang === 'ro' ? 'EN' : 'RO'}</button>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="inline-flex items-center gap-1.5 font-sans text-[10px] font-bold uppercase tracking-[0.14em] text-brand-red" aria-live="polite">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-red/50" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-red" />
+              </span>
+              {t.live}
+            </span>
+            <button
+              onClick={() => setLang(l => (l === 'ro' ? 'en' : 'ro'))}
+              className="font-sans text-[11px] font-bold uppercase tracking-widest text-muted-foreground hover:text-brand-red border border-foreground/15 px-2.5 py-1.5 transition-colors"
+              aria-label="Language"
+            >{lang === 'ro' ? 'EN' : 'RO'}</button>
+          </div>
         </div>
 
-        {/* Airport tabs */}
-        <div className="flex flex-wrap gap-1 mb-4" role="tablist" aria-label="Airport">
+        {/* Airport tabs — scrollable strip on narrow screens */}
+        <div className="flex gap-0 sm:gap-1 mb-0 sm:mb-4 border-b border-foreground/10 sm:border-0 overflow-x-auto px-2 sm:px-0" role="tablist" aria-label="Airport">
           {AIRPORT_ORDER.map(code => {
             const a = AIRPORTS[code]; const active = code === airport
             return (
               <button key={code} role="tab" aria-selected={active} onClick={() => setAirport(code)}
-                className={`flex items-center gap-2 font-sans text-[12px] font-bold uppercase tracking-wider px-4 py-2.5 transition-colors border-b-2 ${
+                className={`shrink-0 flex items-center gap-1.5 font-sans text-[12px] font-bold uppercase tracking-wider px-3.5 sm:px-4 py-3 sm:py-2.5 transition-colors border-b-2 ${
                   active ? 'border-brand-red text-brand-red' : 'border-transparent text-foreground/60 hover:text-foreground'}`}>
                 <span>{a.short}</span><span className="font-mono text-[10px] opacity-70">{a.iata}</span>
               </button>
@@ -142,8 +176,80 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
           })}
         </div>
 
-        {/* Controls */}
-        <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+        {/* ── Mobile controls: segmented rows + filter drawer ─────────────── */}
+        <div className="md:hidden border-b border-foreground/10">
+          <div className="flex items-center gap-2 px-4 py-2.5">
+            <div className="flex flex-1 rounded-full border border-foreground/15 bg-foreground/[0.03] p-0.5" role="tablist" aria-label="Direction">
+              <button role="tab" aria-selected={direction === 'departure'} onClick={() => setDirection('departure')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-full font-sans text-[11px] font-bold uppercase tracking-wider py-2 transition-colors ${
+                  direction === 'departure' ? 'bg-brand-red text-white' : 'text-foreground/60'}`}>
+                <PlaneTakeoff className="w-3.5 h-3.5" /> {t.departures}
+              </button>
+              <button role="tab" aria-selected={direction === 'arrival'} onClick={() => setDirection('arrival')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-full font-sans text-[11px] font-bold uppercase tracking-wider py-2 transition-colors ${
+                  direction === 'arrival' ? 'bg-brand-red text-white' : 'text-foreground/60'}`}>
+                <PlaneLanding className="w-3.5 h-3.5" /> {t.arrivals}
+              </button>
+            </div>
+            <button
+              onClick={() => setFiltersOpen(o => !o)}
+              aria-expanded={filtersOpen}
+              aria-label={t.filters}
+              className={`relative flex h-[38px] w-[42px] shrink-0 items-center justify-center rounded-full border transition-colors ${
+                filtersOpen ? 'border-brand-red text-brand-red bg-brand-red/[0.06]' : 'border-foreground/15 text-foreground/70'}`}>
+              <SlidersHorizontal className="w-4 h-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-[15px] w-[15px] items-center justify-center rounded-full bg-brand-red font-sans text-[9px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div className="flex gap-1.5 overflow-x-auto px-4 pb-2.5">
+            {modes.map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`shrink-0 rounded-full font-sans text-[11px] font-bold uppercase tracking-wider px-3.5 py-1.5 border transition-colors ${
+                  mode === m
+                    ? 'bg-foreground text-background border-foreground'
+                    : 'border-foreground/15 text-foreground/60'}`}>
+                {m === 'live' ? modeLabel.live : modeLabelShort[m]}
+              </button>
+            ))}
+          </div>
+
+          {filtersOpen && (
+            <div className="border-t border-foreground/[0.08] px-4 py-3 space-y-2.5 bg-foreground/[0.02]">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                {/* 16px font: prevents iOS Safari from zooming into the field */}
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t.search}
+                  className="w-full rounded-full bg-background border border-foreground/15 text-foreground text-[16px] font-sans pl-10 pr-4 py-2.5 outline-none focus:border-brand-red/50 placeholder:text-muted-foreground" />
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <SelectBox value={airline} onChange={setAirline} allLabel={t.allAirlines} options={airlines} mobile />
+                <SelectBox value={city} onChange={setCity} allLabel={t.allCities} options={cities} mobile />
+              </div>
+              {activeFilterCount > 0 && (
+                <button onClick={() => { setSearch(''); setAirline(''); setCity('') }}
+                  className="flex items-center gap-1.5 font-sans text-[11px] font-bold uppercase tracking-wider text-brand-red">
+                  <X className="w-3.5 h-3.5" /> {t.clearFilters}
+                </button>
+              )}
+            </div>
+          )}
+
+          {!filtersOpen && activeFilterCount > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto px-4 pb-2.5 -mt-0.5">
+              {search.trim() && <FilterChip label={`„${search.trim()}”`} onClear={() => setSearch('')} />}
+              {airline && <FilterChip label={airline} onClear={() => setAirline('')} />}
+              {city && <FilterChip label={city} onClear={() => setCity('')} />}
+            </div>
+          )}
+        </div>
+
+        {/* ── Desktop controls ────────────────────────────────────────────── */}
+        <div className="hidden md:flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
           <div className="flex border border-foreground/15 shrink-0">
             <button onClick={() => setDirection('departure')}
               className={`flex items-center gap-1.5 font-sans text-[12px] font-bold uppercase tracking-wider px-4 py-2 transition-colors ${
@@ -157,7 +263,6 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
             </button>
           </div>
 
-          {/* Mode: Live+12h / Azi / Mâine / Ieri */}
           <div className="flex border border-foreground/15 shrink-0 overflow-hidden">
             {modes.map(m => (
               <button key={m} onClick={() => setMode(m)}
@@ -174,19 +279,11 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
               className="w-full bg-background border border-foreground/15 text-foreground text-[13px] font-sans pl-9 pr-3 py-2 outline-none focus:border-brand-red/50 placeholder:text-muted-foreground" />
           </div>
 
-          <select value={airline} onChange={e => setAirline(e.target.value)}
-            className="bg-background border border-foreground/15 text-foreground text-[13px] font-sans px-2.5 py-2 outline-none focus:border-brand-red/50 max-w-[160px]">
-            <option value="">{t.allAirlines}</option>
-            {airlines.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-          <select value={city} onChange={e => setCity(e.target.value)}
-            className="bg-background border border-foreground/15 text-foreground text-[13px] font-sans px-2.5 py-2 outline-none focus:border-brand-red/50 max-w-[160px]">
-            <option value="">{t.allCities}</option>
-            {cities.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <SelectBox value={airline} onChange={setAirline} allLabel={t.allAirlines} options={airlines} />
+          <SelectBox value={city} onChange={setCity} allLabel={t.allCities} options={cities} />
         </div>
 
-        <div className="flex items-center justify-between gap-3 mb-2 text-[11px] font-sans text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 mb-0 md:mb-2 px-4 sm:px-0 py-2 md:py-0 text-[11px] font-sans text-muted-foreground">
           <span className="flex items-center gap-1.5"><Plane className="w-3 h-3" />{meta.hasLiveStatus ? t.liveNote : t.scheduleOnly}</span>
           <button onClick={refresh} className="flex items-center gap-1.5 hover:text-brand-red transition-colors">
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -194,8 +291,17 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
           </button>
         </div>
 
-        {/* Board */}
-        <div className="border border-foreground/10 overflow-x-auto">
+        {/* ── Mobile board: card list ─────────────────────────────────────── */}
+        <div className="md:hidden border-t border-foreground/10">
+          {error && <p className="px-4 py-10 text-center font-sans text-[13px] text-brand-red">{t.loadError}</p>}
+          {!error && rows.length === 0 && (
+            <p className="px-4 py-12 text-center font-sans text-[13px] text-muted-foreground">{t.noFlights}</p>
+          )}
+          {!error && renderGroupedCards(rows, ctx, shareOpen, setShareOpen)}
+        </div>
+
+        {/* ── Desktop board: table ────────────────────────────────────────── */}
+        <div className="hidden md:block border border-foreground/10 overflow-x-auto">
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-foreground/[0.03] border-b border-foreground/10">
@@ -203,9 +309,9 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
                 <Th>{t.colFlight}</Th>
                 <Th>{cityHdr}</Th>
                 <Th>{t.colScheduled}</Th>
-                <Th className="hidden md:table-cell">{t.colEstimated}</Th>
+                <Th>{t.colEstimated}</Th>
                 <Th>{t.colStatus}</Th>
-                <Th className="text-right pr-4 hidden sm:table-cell">{t.share}</Th>
+                <Th className="text-right pr-4">{t.share}</Th>
               </tr>
             </thead>
             <tbody>
@@ -215,12 +321,12 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
               {!error && rows.length === 0 && (
                 <tr><td colSpan={7} className="px-4 py-12 text-center font-sans text-[13px] text-muted-foreground">{t.noFlights}</td></tr>
               )}
-              {!error && renderGrouped(rows, { lang, t, direction, airport })}
+              {!error && renderGrouped(rows, ctx)}
             </tbody>
           </table>
         </div>
 
-        <p className="mt-4 font-sans text-[11px] text-muted-foreground leading-relaxed">
+        <p className="mt-4 font-sans text-[11px] text-muted-foreground leading-relaxed px-4 sm:px-0">
           {t.disclaimer}{' '}
           <a href={meta.code === 'CLJ' ? 'https://www.airportcluj.ro/' : meta.code === 'TGM' ? 'https://aeroportultransilvania.ro/' : 'https://www.sibiuairport.ro/'}
             target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-brand-red">{meta.name}</a>
@@ -230,44 +336,123 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
   )
 }
 
-/* ── Rendering helpers ────────────────────────────────────────────────────── */
+/* ── Shared bits ─────────────────────────────────────────────────────────── */
 
-function renderGrouped(
-  rows: FlightRow[],
-  ctx: { lang: Lang; t: L; direction: Direction; airport: AirportCode },
-) {
+/** Styled <select>: appearance-none + our own chevron, so the CLOSED control
+ *  renders identically on iOS, Android and desktop; the OPENED picker stays
+ *  native, which is the right UX on each platform. 16px font on mobile stops
+ *  iOS Safari's focus zoom. */
+function SelectBox({ value, onChange, allLabel, options, mobile = false }: {
+  value: string; onChange: (v: string) => void; allLabel: string; options: string[]; mobile?: boolean
+}) {
+  return (
+    <span className={`relative ${mobile ? 'block' : 'inline-block max-w-[160px]'}`}>
+      <select value={value} onChange={e => onChange(e.target.value)}
+        className={`w-full appearance-none bg-background border border-foreground/15 text-foreground font-sans outline-none focus:border-brand-red/50 ${
+          mobile ? 'rounded-full text-[16px] pl-4 pr-8 py-2' : 'text-[13px] pl-2.5 pr-7 py-2'}`}>
+        <option value="">{allLabel}</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+    </span>
+  )
+}
+
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <button onClick={onClear}
+      className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-foreground text-background font-sans text-[11px] font-semibold px-3 py-1.5 max-w-[180px]">
+      <span className="truncate">{label}</span>
+      <X className="w-3 h-3 shrink-0" />
+    </button>
+  )
+}
+
+function StatusPill({ f, lang, compact = false }: { f: FlightRow; lang: Lang; compact?: boolean }) {
+  const sm = STATUS_META[f.status] ?? STATUS_META.UNKNOWN
+  // Mobile pills stay short: the estimate already sits under the time, so
+  // DELAYED shows just the word; DEPARTED/LANDED keep the actual time inline.
+  const label = compact && f.status === 'DELAYED'
+    ? (lang === 'ro' ? sm.ro : sm.en)
+    : statusLabel(f, lang)
+  const pulse = LIVE_STATUSES.has(f.status)
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full font-sans font-bold uppercase tracking-wide ${
+      compact ? 'text-[10px] px-2.5 py-1' : 'text-[10.5px] tracking-wider px-2.5 py-1'} ${PILL[sm.color]}`}>
+      <span className="relative flex h-1.5 w-1.5 shrink-0">
+        {pulse && <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${DOT[sm.color]}`} />}
+        <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${DOT[sm.color]}`} />
+      </span>
+      {label}
+    </span>
+  )
+}
+
+/** Estimate for THIS airport: the published revision, else the schedule
+ *  (= expected on time). Null for cancelled / diverted / no-info rows. */
+function estInfo(f: FlightRow): { shown: string | null; revised: boolean } {
+  const est = f.estimated_time ? String(f.estimated_time).slice(0, 5) : null
+  const sched = f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : null
+  if (f.status === 'CANCELLED' || f.status === 'NO_INFO' || f.status === 'DIVERTED') {
+    return { shown: null, revised: false }
+  }
+  const shown = est ?? sched
+  return { shown, revised: Boolean(est && sched && est !== sched) }
+}
+
+/** The other end of the leg, with the known delay propagated (~ = derived). */
+function otherInfo(f: FlightRow): { text: string; derived: boolean; slip: number } | null {
+  if (!f.other_time) return null
+  const other = String(f.other_time).slice(0, 5)
+  const est = f.estimated_time ? String(f.estimated_time).slice(0, 5) : null
+  const sched = f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : null
+  const slip = est && sched ? toMin(est) - toMin(sched) : 0
+  if (slip >= 10) return { text: `~${addMin(other, slip)}`, derived: true, slip }
+  return { text: other, derived: false, slip: 0 }
+}
+
+type Ctx = { lang: Lang; t: L; direction: Direction; airport: AirportCode }
+
+function rowKey(f: FlightRow): string {
+  return `${f.flight_date}|${f.flight_no}|${f.scheduled_time}`
+}
+
+/* ── Desktop table rendering ─────────────────────────────────────────────── */
+
+function renderGrouped(rows: FlightRow[], ctx: Ctx) {
   const out: React.ReactNode[] = []
   let lastDate = ''
   rows.forEach((f, i) => {
     if (f.flight_date !== lastDate) {
       lastDate = f.flight_date
       out.push(
-        <tr key={`d-${f.flight_date}`} className="bg-brand-red/[0.06]">
-          <td colSpan={7} className="px-4 py-1.5 font-sans text-[11px] font-bold uppercase tracking-widest text-brand-red">
+        <tr key={`d-${f.flight_date}`} className="bg-brand-red/[0.05] border-b border-foreground/10">
+          <td colSpan={7} className="px-4 py-1.5 font-serif italic text-[14px] text-foreground/90">
             {dateHeading(f.flight_date, ctx.lang)}
           </td>
         </tr>,
       )
     }
-    out.push(<FlightRowView key={`${f.flight_no}-${f.scheduled_time}-${i}`} f={f} {...ctx} />)
+    out.push(<FlightRowView key={`${rowKey(f)}-${i}`} f={f} {...ctx} />)
   })
   return out
 }
 
-function FlightRowView({ f, lang, t, direction, airport }: {
-  f: FlightRow; lang: Lang; t: L; direction: Direction; airport: AirportCode
-}) {
-  const sm = STATUS_META[f.status] ?? STATUS_META.UNKNOWN
+function FlightRowView({ f, lang, t, direction, airport }: { f: FlightRow } & Ctx) {
   const shareText = buildShareText(f, lang, direction, airport)
+  const est = estInfo(f)
+  const other = otherInfo(f)
+  const word = direction === 'departure'
+    ? (lang === 'ro' ? 'sosire' : 'arrives')
+    : (lang === 'ro' ? 'plecare' : 'departs')
 
   return (
-    <tr className="border-b border-foreground/[0.06] hover:bg-foreground/[0.02]">
-      {/* Airline: wordmark logo + name (derived from the code when the
-          airport publishes none, e.g. Sibiu) */}
-      <td className="px-4 py-3 whitespace-nowrap">
+    <tr className="group border-b border-foreground/[0.06] hover:bg-brand-red/[0.025] transition-colors">
+      {/* Airline: wordmark logo + name (derived when the airport publishes none) */}
+      <td className="px-4 py-3 whitespace-nowrap border-l-2 border-l-transparent group-hover:border-l-brand-red transition-colors">
         <div className="flex items-center gap-2.5">
           <AirlineLogo flightNo={f.flight_no} wide />
-          <span className="hidden md:inline font-sans text-[13px] text-foreground/80">{airlineName(f) ?? '—'}</span>
+          <span className="hidden lg:inline font-sans text-[13px] text-foreground/80">{airlineName(f) ?? '—'}</span>
         </div>
       </td>
       {/* Flight */}
@@ -277,72 +462,39 @@ function FlightRowView({ f, lang, t, direction, airport }: {
           <span className="ml-2 font-sans text-[9px] font-bold uppercase tracking-wider text-amber-600 border border-amber-500/30 px-1 py-0.5 align-middle">{t.charter}</span>
         )}
       </td>
-      {/* City + scheduled time at the other end of the leg (when published) */}
+      {/* City + time at the other end of the leg (when published) */}
       <td className="px-4 py-3 font-sans text-[13px] font-medium text-foreground">
         {f.city ?? '—'}
-        {f.other_time && (() => {
-          const other = String(f.other_time).slice(0, 5)
-          const est = f.estimated_time ? String(f.estimated_time).slice(0, 5) : null
-          const sched = f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : null
-          // Known delay at this airport propagates to the other end → derived
-          // estimate, marked "~" so readers see it is an estimate.
-          const slip = est && sched ? toMin(est) - toMin(sched) : 0
-          const derived = slip >= 10 ? addMin(other, slip) : null
-          const word = direction === 'departure'
-            ? (lang === 'ro' ? 'sosire' : 'arrives')
-            : (lang === 'ro' ? 'plecare' : 'departs')
-          return (
-            <span
-              className="block font-sans text-[11px] font-normal text-muted-foreground"
-              title={derived ? (lang === 'ro' ? `Estimat pe baza întârzierii de ${slip} min (programat ${other})` : `Estimated from the ${slip}-min delay (scheduled ${other})`) : undefined}
-            >
-              {word}{' '}
-              {derived
-                ? <span className="font-mono tabular-nums text-brand-red">~{derived}</span>
-                : <span className="font-mono tabular-nums">{other}</span>}
-            </span>
-          )
-        })()}
+        {other && (
+          <span
+            className="block font-sans text-[11px] font-normal text-muted-foreground"
+            title={other.derived
+              ? (lang === 'ro' ? `Estimat pe baza întârzierii de ${other.slip} min` : `Estimated from the ${other.slip}-min delay`)
+              : undefined}
+          >
+            {word}{' '}
+            <span className={`font-mono tabular-nums ${other.derived ? 'text-brand-red' : ''}`}>{other.text}</span>
+          </span>
+        )}
       </td>
-      {/* Time */}
-      <td className="px-4 py-3 font-mono text-[14px] font-semibold text-foreground tabular-nums whitespace-nowrap">{f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : '—'}</td>
-      {/* Estimated (this airport): departure estimate for departures, arrival estimate for arrivals */}
-      <td className="hidden md:table-cell px-4 py-3 font-mono text-[13px] tabular-nums whitespace-nowrap">
-        {(() => {
-          const est = f.estimated_time ? String(f.estimated_time).slice(0, 5) : null
-          const sched = f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : null
-          // No revision known → the schedule IS the current estimate (gray =
-          // expected on time). Red only when a real revision differs.
-          // No sensible estimate for cancelled / no-info rows.
-          if (f.status === 'CANCELLED' || f.status === 'NO_INFO' || f.status === 'DIVERTED') {
-            return <span className="text-muted-foreground">—</span>
-          }
-          const shown = est ?? sched
-          if (!shown) return <span className="text-muted-foreground">—</span>
-          return <span className={est && est !== sched ? 'text-brand-red font-semibold' : 'text-muted-foreground'}>{shown}</span>
-        })()}
+      {/* Scheduled */}
+      <td className="px-4 py-3 font-mono text-[14px] font-semibold text-foreground tabular-nums whitespace-nowrap">
+        {f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : '—'}
       </td>
-      {/* Status (Hermes-style, with inline actual/estimated time) */}
+      {/* Estimated: gray = expected on time, red = a real revision differs */}
+      <td className="px-4 py-3 font-mono text-[13px] tabular-nums whitespace-nowrap">
+        {est.shown
+          ? <span className={est.revised ? 'text-brand-red font-semibold' : 'text-muted-foreground'}>{est.shown}</span>
+          : <span className="text-muted-foreground">—</span>}
+      </td>
+      {/* Status */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className={`inline-block font-sans text-[11px] font-bold uppercase tracking-wider px-2 py-1 ring-1 ${STATUS_CLASSES[sm.color]}`}>
-          {statusLabel(f, lang)}
-        </span>
+        <StatusPill f={f} lang={lang} />
       </td>
-      {/* Share — WhatsApp / Messenger / Facebook / Telegram / native sheet */}
-      <td className="px-4 py-3 text-right pr-4 hidden sm:table-cell whitespace-nowrap">
+      {/* Share */}
+      <td className="px-4 py-3 text-right pr-4 whitespace-nowrap">
         <div className="inline-flex items-center gap-3">
-          <a aria-label="WhatsApp" title="WhatsApp" target="_blank" rel="noopener noreferrer"
-            href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
-            className="text-[#25D366] hover:opacity-75 hover:scale-110 transition-all"><IconWhatsApp /></a>
-          <a aria-label="Messenger" title="Messenger" target="_blank" rel="noopener noreferrer"
-            href={`fb-messenger://share?link=${encodeURIComponent(SITE)}`}
-            className="text-[#0084FF] hover:opacity-75 hover:scale-110 transition-all"><IconMessenger /></a>
-          <a aria-label="Facebook" title="Facebook" target="_blank" rel="noopener noreferrer"
-            href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE)}&quote=${encodeURIComponent(shareText)}`}
-            className="text-[#1877F2] hover:opacity-75 hover:scale-110 transition-all"><IconFacebook /></a>
-          <a aria-label="Telegram" title="Telegram" target="_blank" rel="noopener noreferrer"
-            href={`https://t.me/share/url?url=${encodeURIComponent(SITE)}&text=${encodeURIComponent(shareText)}`}
-            className="text-[#26A5E4] hover:opacity-75 hover:scale-110 transition-all"><IconTelegram /></a>
+          <ShareLinks shareText={shareText} />
           <ShareMore text={shareText} lang={lang} />
         </div>
       </td>
@@ -350,7 +502,134 @@ function FlightRowView({ f, lang, t, direction, airport }: {
   )
 }
 
-/* Brand share icons — larger and colour-coded for recognition. */
+/* ── Mobile card rendering ───────────────────────────────────────────────── */
+
+function renderGroupedCards(
+  rows: FlightRow[],
+  ctx: Ctx,
+  shareOpen: string | null,
+  setShareOpen: (k: string | null) => void,
+) {
+  const out: React.ReactNode[] = []
+  let lastDate = ''
+  rows.forEach((f, i) => {
+    if (f.flight_date !== lastDate) {
+      lastDate = f.flight_date
+      out.push(
+        <div key={`d-${f.flight_date}`} className="flex items-baseline gap-3 px-4 pt-4 pb-1.5">
+          <span className="font-serif italic text-[15px] text-foreground/90">{dateHeading(f.flight_date, ctx.lang)}</span>
+          <span className="flex-1 h-px bg-foreground/10" />
+        </div>,
+      )
+    }
+    const k = rowKey(f)
+    out.push(
+      <FlightCard key={`${k}-${i}`} f={f} {...ctx}
+        open={shareOpen === k}
+        onToggleShare={() => setShareOpen(shareOpen === k ? null : k)} />,
+    )
+  })
+  return out
+}
+
+function FlightCard({ f, lang, t, direction, airport, open, onToggleShare }: {
+  f: FlightRow; open: boolean; onToggleShare: () => void
+} & Ctx) {
+  const est = estInfo(f)
+  const other = otherInfo(f)
+  const name = airlineName(f)
+  const shareText = buildShareText(f, lang, direction, airport)
+  const word = direction === 'departure'
+    ? (lang === 'ro' ? 'sosire' : 'arr.')
+    : (lang === 'ro' ? 'plecare' : 'dep.')
+
+  return (
+    <div className={`border-b border-foreground/[0.06] px-4 py-3 transition-colors ${open ? 'bg-brand-red/[0.025]' : ''}`}>
+      <div className="grid grid-cols-[62px_minmax(0,1fr)_auto] items-center gap-x-3">
+        {/* Time block: schedule big, estimate underneath */}
+        <div className="self-start pt-0.5">
+          <div className="font-mono text-[20px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+            {f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : '—'}
+          </div>
+          <div className={`mt-1 font-mono text-[11px] tabular-nums ${est.revised ? 'text-brand-red font-bold' : 'text-muted-foreground'}`}>
+            {est.shown ? `est ${est.shown}` : '—'}
+          </div>
+        </div>
+
+        {/* City + airline + other-end time */}
+        <div className="min-w-0">
+          <div className="font-sans text-[15px] font-semibold text-foreground leading-tight truncate">
+            {f.city ?? '—'}
+            {f.is_charter && (
+              <span className="ml-2 font-sans text-[9px] font-bold uppercase tracking-wider text-amber-600 border border-amber-500/30 px-1 py-0.5 align-middle">{t.charter}</span>
+            )}
+          </div>
+          <div className="mt-1 flex items-center gap-1.5 font-sans text-[11.5px] text-muted-foreground min-w-0">
+            {name && (
+              <span className="font-bold truncate max-w-[104px]" style={{ color: airlineColor(f.flight_no) }}>{name}</span>
+            )}
+            <span className="font-mono shrink-0">{f.flight_no}</span>
+            {other && (
+              <span className="shrink-0">
+                · {word}{' '}
+                <span className={`font-mono tabular-nums ${other.derived ? 'text-brand-red' : ''}`}>{other.text}</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Status + share (always visible, 40px touch target) */}
+        <div className="flex flex-col items-end gap-1.5">
+          <StatusPill f={f} lang={lang} compact />
+          <button
+            onClick={onToggleShare}
+            aria-expanded={open}
+            aria-label={t.share}
+            className={`flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
+              open ? 'border-brand-red/40 text-brand-red bg-brand-red/[0.06]' : 'border-foreground/15 text-foreground/60'}`}>
+            <Share2 className="h-[17px] w-[17px]" />
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="mt-3 flex items-center gap-2.5 border-t border-dashed border-foreground/15 pt-3">
+          <span className="mr-auto font-sans text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t.share}</span>
+          <ShareLinks shareText={shareText} big />
+          <ShareMore text={shareText} lang={lang} big />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Share widgets ───────────────────────────────────────────────────────── */
+
+/** WhatsApp / Messenger / Facebook / Telegram, colour-coded. `big` renders
+ *  40px round chips (mobile touch targets); default is inline desktop icons. */
+function ShareLinks({ shareText, big = false }: { shareText: string; big?: boolean }) {
+  const links: { label: string; href: string; color: string; icon: React.ReactNode }[] = [
+    { label: 'WhatsApp', href: `https://wa.me/?text=${encodeURIComponent(shareText)}`, color: '#25D366', icon: <IconWhatsApp /> },
+    { label: 'Messenger', href: `fb-messenger://share?link=${encodeURIComponent(SITE)}`, color: '#0084FF', icon: <IconMessenger /> },
+    { label: 'Facebook', href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE)}&quote=${encodeURIComponent(shareText)}`, color: '#1877F2', icon: <IconFacebook /> },
+    { label: 'Telegram', href: `https://t.me/share/url?url=${encodeURIComponent(SITE)}&text=${encodeURIComponent(shareText)}`, color: '#26A5E4', icon: <IconTelegram /> },
+  ]
+  return (
+    <>
+      {links.map(l => (
+        <a key={l.label} aria-label={l.label} title={l.label} target="_blank" rel="noopener noreferrer" href={l.href}
+          className={big
+            ? 'flex h-10 w-10 items-center justify-center rounded-full text-white active:scale-95 transition-transform'
+            : 'hover:opacity-75 hover:scale-110 transition-all'}
+          style={big ? { backgroundColor: l.color } : { color: l.color }}>
+          {l.icon}
+        </a>
+      ))}
+    </>
+  )
+}
+
+/* Brand share icons. */
 function IconWhatsApp() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="h-[18px] w-[18px]" aria-hidden="true">
@@ -382,8 +661,9 @@ function IconTelegram() {
 
 /** Native share sheet (Viber, Signal, SMS, email — whatever is installed);
  *  desktop fallback copies the full text to the clipboard. */
-function ShareMore({ text, lang }: { text: string; lang: Lang }) {
+function ShareMore({ text, lang, big = false }: { text: string; lang: Lang; big?: boolean }) {
   const [copied, setCopied] = useState(false)
+  const icon = copied ? <Check className="h-[18px] w-[18px]" /> : <Share2 className="h-[18px] w-[18px]" />
   return (
     <button
       aria-label={lang === 'ro' ? 'Alte aplicații' : 'More apps'}
@@ -399,9 +679,11 @@ function ShareMore({ text, lang }: { text: string; lang: Lang }) {
           }).catch(() => {})
         }
       }}
-      className={`${copied ? 'text-emerald-600' : 'text-muted-foreground'} hover:text-brand-red hover:scale-110 transition-all`}
+      className={big
+        ? `flex h-10 w-10 items-center justify-center rounded-full text-white active:scale-95 transition-transform ${copied ? 'bg-emerald-600' : 'bg-espresso'}`
+        : `${copied ? 'text-emerald-600' : 'text-muted-foreground'} hover:text-brand-red hover:scale-110 transition-all`}
     >
-      {copied ? <Check className="h-[18px] w-[18px]" /> : <Share2 className="h-[18px] w-[18px]" />}
+      {icon}
     </button>
   )
 }

@@ -1,25 +1,25 @@
-TRANSILVANIA TIMES — Zboruri: actualizare logo-uri + nume companii + estimări
-=============================================================================
+TRANSILVANIA TIMES — Zboruri: REDESIGN frontend (mobil + desktop)
+=================================================================
 
-CE CONȚINE (extrageți acest zip în RĂDĂCINA repo-ului, suprascrieți tot):
+Extrageți acest zip în RĂDĂCINA repo-ului (unde e package.json), suprascrieți
+tot, apoi commit + push. Netlify face build automat. Nimic de făcut în Supabase.
 
-  lib/flights.ts                       — coduri ICAO→IATA (ROT/NSM/TWI de la
-                                         Târgu Mureș), nume companii derivate
-                                         din cod (Sibiu nu publică numele)
-  app/components/AirlineLogo.tsx       — logo-uri wordmark uniforme (Daisycon,
-                                         normalizate) cu fallback Kiwi + monogramă
-  app/components/FlightBoard.tsx       — numele companiei apare și la Sibiu;
-                                         filtrul/căutarea/share folosesc numele
-                                         derivat; coloana Estimat arată ora
-                                         așteptată pentru TOATE zborurile viitoare
-  + restul fișierelor (neschimbate față de ultima versiune, incluse ca superset
-    ca să nu rămână nimic desincronizat)
+CE SE SCHIMBĂ:
 
-PAȘI:
-  1. Extrageți zip-ul în rădăcina repo-ului (unde e package.json).
-     Windows: click dreapta → Extract All → alegeți DIRECT folderul repo-ului
-     (verificați să nu se creeze un subfolder în plus!).
-  2. Commit + push. Netlify face build automat.
+  MOBIL (sub 768px) — layout complet nou, tip card:
+   • fiecare zbor e un card: ora mare + „est HH:MM" dedesubt (gri = la timp,
+     roșu = revizuit), destinația, compania (colorată), nr. zbor, ora la
+     celălalt capăt, status cu punct pulsant
+   • butonul DISTRIBUIE e mereu vizibil (cerc 40px); la atingere se deschide
+     rândul WhatsApp / Messenger / Facebook / Telegram / restul (nativ iOS+Android)
+   • fără scroll orizontal; filtrele stau într-un sertar (buton cu badge);
+     titluri de dată în serif italic
+   • identic pe iOS și Android: selecturi cu săgeată proprie (appearance-none),
+     font 16px în câmpuri (fără zoom automat pe iPhone), ținte de atingere 40px+
 
-Funcția flights-sync este deja la v18 (deploy făcut de Claude) — nu trebuie
-nimic în Supabase.
+  DESKTOP — tabelul rămâne, rafinat editorial:
+   • benzi de dată în serif italic, accent roșu pe rândul activ (hover),
+     statusuri tip pastilă cu punct colorat, numerale tabulare
+
+  Fișiere modificate: app/components/FlightBoard.tsx, lib/flights.ts
+  (+ restul, neschimbate, incluse ca superset ca să nu rămână nimic desincronizat)
