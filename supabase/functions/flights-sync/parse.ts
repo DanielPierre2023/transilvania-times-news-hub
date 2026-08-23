@@ -317,3 +317,64 @@ export function parseEwfList(src: Source, html: string, nowIso: string): FlightR
   }
   return dedupe(out);
 }
+
+/* ── ADS-B enrichment (OpenSky) — derive live status where a source has none
+ *    (Cluj). Detections come from real transponder data; we match them to the
+ *    schedule by airline + closest time. Pure + testable. ── */
+
+export interface AdsbDetection {
+  direction: Direction;
+  icao: string;      // ICAO airline prefix of the callsign, e.g. "WMT"
+  localHHMM: string; // actual local time (Europe/Bucharest)
+  localMin: number;  // minutes since local midnight
+}
+
+// ICAO → IATA for the carriers that actually serve these airports.
+export const ICAO_TO_IATA: Record<string, string> = {
+  WMT: "W4", WZZ: "W6", RYR: "FR", THY: "TK", DLH: "LH", ROT: "RO",
+  AUA: "OS", PGT: "PC", SXS: "XQ", HYM: "H4", MSC: "SM", ANE: "A2",
+  SEH: "GQ", CAI: "NE", CXI: "XC",
+};
+
+function hhmmToMin(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Mutates `records`: for CLJ flights on `todayLocal`, if a detection matches
+ * (same direction, same airline, scheduled time within `windowMin`), stamp
+ * DEPARTED/LANDED + the actual time. Each detection is used at most once.
+ */
+export function applyAdsb(
+  records: FlightRecord[],
+  detections: AdsbDetection[],
+  todayLocal: string,
+  windowMin = 90,
+): number {
+  const used = new Set<number>();
+  let stamped = 0;
+  for (const rec of records) {
+    if (rec.airport !== "CLJ" || rec.flight_date !== todayLocal) continue;
+    const iata = (rec.flight_no.match(/^[A-Z0-9]{2}/) ?? [""])[0];
+    const sched = hhmmToMin(rec.scheduled_time);
+    let best = -1, bestDiff = Infinity;
+    for (let i = 0; i < detections.length; i++) {
+      if (used.has(i)) continue;
+      const d = detections[i];
+      if (d.direction !== rec.direction) continue;
+      if (ICAO_TO_IATA[d.icao] !== iata) continue;
+      const diff = Math.abs(d.localMin - sched);
+      if (diff <= windowMin && diff < bestDiff) { best = i; bestDiff = diff; }
+    }
+    if (best >= 0) {
+      const d = detections[best];
+      used.add(best);
+      rec.status = rec.direction === "departure" ? "DEPARTED" : "LANDED";
+      rec.estimated_time = d.localHHMM;
+      rec.status_raw = "ADS-B";
+      stamped++;
+    }
+  }
+  return stamped;
+}

@@ -165,6 +165,27 @@ supabase secrets set FLIGHTS_NEWS_EMAIL='newsroom@transilvaniatimes.com'
 
 Apply the new migration alongside the others; the disruption email reuses your existing Resend key.
 
+## Cluj live status via ADS-B (OpenSky) — free
+
+Cluj's own site publishes only the timetable (no live status anywhere). To still
+show real movement, `flights-sync` now queries OpenSky Network for actual
+departures/landings at Cluj (LRCL) and matches them to the schedule by airline +
+time, stamping **Decolat/Aterizat + the real time** onto matching flights.
+
+- Free. Works anonymously (low rate limit); for the full limit use an OpenSky
+  API client (OAuth2) and set two function secrets — the code exchanges them for
+  a 30-min Bearer token automatically:
+  ```bash
+  supabase secrets set OPENSKY_CLIENT_ID='<your client id>'
+  supabase secrets set OPENSKY_CLIENT_SECRET='<your client secret>'
+  ```
+  (Legacy `OPENSKY_USER`/`OPENSKY_PASS` are still accepted as a fallback.)
+- Honest limits: **partial coverage** — only flights an ADS-B receiver catches get
+  a status; and it can only ever show departed/landed/delay, never
+  Check-in/Boarding/Gate (those aren't broadcast — no free source has them for Cluj).
+- Sibiu and Târgu Mureș keep their own richer live status from their sites; ADS-B
+  only fills Cluj.
+
 ## If a parser ever breaks
 
 Each source is isolated — if one airport redesigns its page, that airport

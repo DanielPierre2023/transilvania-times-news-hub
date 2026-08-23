@@ -321,6 +321,49 @@ function parseEwfList(src: Source, html: string, nowIso: string): FlightRecord[]
   return dedupe(out);
 }
 
+/* ── ADS-B enrichment (OpenSky): derive live status for Cluj (schedule-only). ── */
+
+interface AdsbDetection { direction: Direction; icao: string; localHHMM: string; localMin: number }
+
+const ICAO_TO_IATA: Record<string, string> = {
+  WMT: "W4", WZZ: "W6", RYR: "FR", THY: "TK", DLH: "LH", ROT: "RO",
+  AUA: "OS", PGT: "PC", SXS: "XQ", HYM: "H4", MSC: "SM", ANE: "A2",
+  SEH: "GQ", CAI: "NE", CXI: "XC",
+};
+
+function hhmmToMin(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function applyAdsb(records: FlightRecord[], detections: AdsbDetection[], todayLocal: string, windowMin = 90): number {
+  const used = new Set<number>();
+  let stamped = 0;
+  for (const rec of records) {
+    if (rec.airport !== "CLJ" || rec.flight_date !== todayLocal) continue;
+    const iata = (rec.flight_no.match(/^[A-Z0-9]{2}/) ?? [""])[0];
+    const sched = hhmmToMin(rec.scheduled_time);
+    let best = -1, bestDiff = Infinity;
+    for (let i = 0; i < detections.length; i++) {
+      if (used.has(i)) continue;
+      const d = detections[i];
+      if (d.direction !== rec.direction) continue;
+      if (ICAO_TO_IATA[d.icao] !== iata) continue;
+      const diff = Math.abs(d.localMin - sched);
+      if (diff <= windowMin && diff < bestDiff) { best = i; bestDiff = diff; }
+    }
+    if (best >= 0) {
+      const d = detections[best];
+      used.add(best);
+      rec.status = rec.direction === "departure" ? "DEPARTED" : "LANDED";
+      rec.estimated_time = d.localHHMM;
+      rec.status_raw = "ADS-B";
+      stamped++;
+    }
+  }
+  return stamped;
+}
+
 /* ═══════════════ Networking + handler ═══════════════ */
 
 const corsHeaders = {
@@ -384,6 +427,68 @@ async function collectSource(src: Source): Promise<{ records: FlightRecord[]; er
   }
 }
 
+// OpenSky OAuth2: exchange client credentials for a 30-min Bearer token.
+// Credentials come from function secrets, never from code.
+async function openskyToken(): Promise<string | null> {
+  const id = Deno.env.get("OPENSKY_CLIENT_ID");
+  const secret = Deno.env.get("OPENSKY_CLIENT_SECRET");
+  if (!id || !secret) return null;
+  try {
+    const r = await fetch(
+      "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "client_credentials", client_id: id, client_secret: secret }),
+      },
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    return typeof j.access_token === "string" ? j.access_token : null;
+  } catch {
+    return null;
+  }
+}
+
+// Detected departures/arrivals at Cluj (LRCL). Uses the OAuth2 Bearer token
+// when available, else the legacy user/pass, else anonymous (low limit).
+async function fetchOpenSky(kind: "departure" | "arrival", begin: number, end: number, token: string | null): Promise<AdsbDetection[]> {
+  const url = `https://opensky-network.org/api/flights/${kind}?airport=LRCL&begin=${begin}&end=${end}`;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) {
+    headers["Authorization"] = "Bearer " + token;
+  } else {
+    const u = Deno.env.get("OPENSKY_USER"), p = Deno.env.get("OPENSKY_PASS");
+    if (u && p) headers["Authorization"] = "Basic " + btoa(`${u}:${p}`);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const r = await fetch(url, { headers, signal: controller.signal });
+    if (!r.ok) return [];
+    const data = await r.json();
+    if (!Array.isArray(data)) return [];
+    const dir: Direction = kind === "departure" ? "departure" : "arrival";
+    const out: AdsbDetection[] = [];
+    for (const f of data) {
+      const t = kind === "departure" ? f.firstSeen : f.lastSeen;
+      const icao = (String(f.callsign ?? "").trim().match(/^[A-Z]{3}/) ?? [""])[0];
+      if (!t || !icao) continue;
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Bucharest", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(new Date(t * 1000));
+      const hh = parts.find((x) => x.type === "hour")?.value ?? "00";
+      const mm = parts.find((x) => x.type === "minute")?.value ?? "00";
+      out.push({ direction: dir, icao, localHHMM: `${hh}:${mm}`, localMin: (+hh) * 60 + (+mm) });
+    }
+    return out;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -406,7 +511,23 @@ serve(async (req) => {
     all.push(...records);
   }
 
-  if (dryRun) return json({ dryRun: true, total: all.length, sources: perSource });
+  // Enrich Cluj (schedule-only) with real departed/landed status from ADS-B.
+  const todayLocal = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  let adsbStamped = 0;
+  try {
+    const nowU = Math.floor(Date.now() / 1000);
+    const beginU = nowU - 8 * 3600;
+    const token = await openskyToken();
+    const [deps, arrs] = await Promise.all([
+      fetchOpenSky("departure", beginU, nowU, token),
+      fetchOpenSky("arrival", beginU, nowU, token),
+    ]);
+    adsbStamped = applyAdsb(all, [...deps, ...arrs], todayLocal);
+  } catch { /* best-effort */ }
+
+  if (dryRun) return json({ dryRun: true, total: all.length, adsbStamped, sources: perSource });
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -462,6 +583,7 @@ serve(async (req) => {
     ok: errors.length === 0 && dead.length === 0,
     parsed: all.length,
     upserted,
+    adsbStamped,
     disruptionsNew,
     sources: Object.fromEntries(Object.entries(perSource).map(([k, v]) => [k, { count: v.count, error: v.error }])),
     deadSources: dead.length ? dead.map(([k]) => k) : undefined,

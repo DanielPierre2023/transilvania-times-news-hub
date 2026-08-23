@@ -1,4 +1,4 @@
-import { extractFlightTable, mapRows, parseEwfList, type Source } from "./parse.ts";
+import { extractFlightTable, mapRows, parseEwfList, applyAdsb, type Source, type FlightRecord, type AdsbDetection } from "./parse.ts";
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: unknown) {
@@ -142,6 +142,29 @@ const sbzObf = `<table><tr>
   ok("SBZ obf sched 06:00 (Azi prefix)", r[0].scheduled_time === "06:00", r[0].scheduled_time);
   ok("SBZ obf est 06:01", r[0].estimated_time === "06:01", r[0].estimated_time);
   ok("SBZ obf flight W4 9105", r[0].flight_no === "W4 9105", r[0].flight_no);
+}
+
+// ── ADS-B enrichment for Cluj (schedule-only source) ──
+{
+  const mk = (dir: "departure" | "arrival", no: string, t: string): FlightRecord => ({
+    airport: "CLJ", direction: dir, flight_date: "2026-08-23", flight_no: no,
+    airline: null, city: null, aircraft: null, scheduled_time: t, estimated_time: null,
+    status: "SCHEDULED", status_raw: null, is_charter: false, source_url: "", updated_at: "NOW",
+  });
+  const recs = [mk("departure", "W4 3331", "06:00"), mk("departure", "FR 9588", "12:10"), mk("arrival", "RO 641", "14:20"), mk("departure", "TK 1048", "09:55")];
+  const dets: AdsbDetection[] = [
+    { direction: "departure", icao: "WMT", localHHMM: "06:12", localMin: 372 }, // W4 3331
+    { direction: "departure", icao: "RYR", localHHMM: "12:25", localMin: 745 }, // FR 9588
+    { direction: "arrival", icao: "ROT", localHHMM: "14:30", localMin: 870 },   // RO 641
+    { direction: "departure", icao: "DLH", localHHMM: "09:00", localMin: 540 }, // no schedule match
+  ];
+  const n = applyAdsb(recs, dets, "2026-08-23");
+  console.log("ADS-B enrichment →", n, "stamped");
+  ok("ADS-B stamped 3", n === 3, n);
+  ok("W4 3331 DEPARTED 06:12", recs[0].status === "DEPARTED" && recs[0].estimated_time === "06:12", { s: recs[0].status, e: recs[0].estimated_time });
+  ok("FR 9588 DEPARTED 12:25", recs[1].status === "DEPARTED" && recs[1].estimated_time === "12:25", recs[1].status);
+  ok("RO 641 LANDED 14:30", recs[2].status === "LANDED" && recs[2].estimated_time === "14:30", recs[2].status);
+  ok("TK 1048 unmatched stays SCHEDULED", recs[3].status === "SCHEDULED", recs[3].status);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
