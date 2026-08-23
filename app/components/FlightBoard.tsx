@@ -309,17 +309,16 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
                 <Th>{t.colFlight}</Th>
                 <Th>{cityHdr}</Th>
                 <Th>{t.colScheduled}</Th>
-                <Th>{t.colEstimated}</Th>
                 <Th>{t.colStatus}</Th>
                 <Th className="text-right pr-4">{t.share}</Th>
               </tr>
             </thead>
             <tbody>
               {error && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center font-sans text-[13px] text-brand-red">{t.loadError}</td></tr>
+                <tr><td colSpan={6} className="px-4 py-10 text-center font-sans text-[13px] text-brand-red">{t.loadError}</td></tr>
               )}
               {!error && rows.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-12 text-center font-sans text-[13px] text-muted-foreground">{t.noFlights}</td></tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center font-sans text-[13px] text-muted-foreground">{t.noFlights}</td></tr>
               )}
               {!error && renderGrouped(rows, ctx)}
             </tbody>
@@ -427,7 +426,7 @@ function renderGrouped(rows: FlightRow[], ctx: Ctx) {
       lastDate = f.flight_date
       out.push(
         <tr key={`d-${f.flight_date}`} className="bg-brand-red/[0.05] border-b border-foreground/10">
-          <td colSpan={7} className="px-4 py-1.5 font-serif italic text-[14px] text-foreground/90">
+          <td colSpan={6} className="px-4 py-1.5 font-serif italic text-[14px] text-foreground/90">
             {dateHeading(f.flight_date, ctx.lang)}
           </td>
         </tr>,
@@ -477,15 +476,22 @@ function FlightRowView({ f, lang, t, direction, airport }: { f: FlightRow } & Ct
           </span>
         )}
       </td>
-      {/* Scheduled */}
-      <td className="px-4 py-3 font-mono text-[14px] font-semibold text-foreground tabular-nums whitespace-nowrap">
-        {f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : '—'}
-      </td>
-      {/* Estimated: gray = expected on time, red = a real revision differs */}
-      <td className="px-4 py-3 font-mono text-[13px] tabular-nums whitespace-nowrap">
-        {est.shown
-          ? <span className={est.revised ? 'text-brand-red font-semibold' : 'text-muted-foreground'}>{est.shown}</span>
-          : <span className="text-muted-foreground">—</span>}
+      {/* Scheduled — with the revision folded in, airport-board style:
+          a revised time strikes the schedule and shows in red beside it. */}
+      <td className="px-4 py-3 font-mono text-[14px] tabular-nums whitespace-nowrap">
+        {(() => {
+          const sched = f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : null
+          if (!sched) return <span className="font-semibold text-foreground">—</span>
+          if (est.revised && est.shown) {
+            return (
+              <span className="inline-flex items-baseline gap-1.5">
+                <span className="text-[12px] text-muted-foreground/80 line-through decoration-brand-red/50">{sched}</span>
+                <span className="font-semibold text-brand-red">{est.shown}</span>
+              </span>
+            )
+          }
+          return <span className="font-semibold text-foreground">{sched}</span>
+        })()}
       </td>
       {/* Status + gate / check-in desk from the airport's own board */}
       <td className="px-4 py-3 whitespace-nowrap">
@@ -553,14 +559,18 @@ function FlightCard({ f, lang, t, direction, airport, open, onToggleShare }: {
   return (
     <div className={`border-b border-foreground/[0.06] px-4 py-3 transition-colors ${open ? 'bg-brand-red/[0.025]' : ''}`}>
       <div className="grid grid-cols-[62px_minmax(0,1fr)_auto] items-center gap-x-3">
-        {/* Time block: schedule big, estimate underneath */}
+        {/* Time block: schedule big; a known revision appears beneath in red
+            (on-time flights need no second line — the schedule stands). */}
         <div className="self-start pt-0.5">
-          <div className="font-mono text-[20px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+          <div className={`font-mono text-[20px] font-semibold leading-none tracking-tight tabular-nums ${
+            est.revised ? 'text-muted-foreground/80 line-through decoration-brand-red/50 text-[16px]' : 'text-foreground'}`}>
             {f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : '—'}
           </div>
-          <div className={`mt-1 font-mono text-[11px] tabular-nums ${est.revised ? 'text-brand-red font-bold' : 'text-muted-foreground'}`}>
-            {est.shown ? `est ${est.shown}` : '—'}
-          </div>
+          {est.revised && est.shown && (
+            <div className="mt-1 font-mono text-[17px] font-bold leading-none tabular-nums text-brand-red">
+              {est.shown}
+            </div>
+          )}
         </div>
 
         {/* City + airline + other-end time */}
