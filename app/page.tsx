@@ -6,6 +6,7 @@ import Image from 'next/image'
 import ArticleCard from './components/ArticleCard'
 import SponsorBanner from './components/SponsorBanner'
 import CountyStrip from './components/CountyStrip'
+import NextDeparturesWidget from './components/NextDeparturesWidget'
 import { getCountyShortLabel } from '@/lib/counties'
 
 export const revalidate = 0
@@ -337,6 +338,9 @@ export default async function HomePage() {
 
       {/* ═══ COUNTY STRIP — Phase 2.4: "Astăzi în județul tău" ═══ */}
       <CountyStrip />
+
+      {/* ═══ FLIGHTS — next departures teaser → /zboruri ═══ */}
+      <NextDeparturesWidget />
 
       {/* ═══ 4-COLUMN ARTICLE GRID ═══ */}
       {gridArticles.length > 0 && (

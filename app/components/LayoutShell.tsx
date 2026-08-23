@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, Search, Mail, Phone, ChevronDown } from 'lucide-react'
+import { Menu, X, Search, Mail, Phone, ChevronDown, PlaneTakeoff } from 'lucide-react'
 import TrafficStats from './TrafficStats'
 import { COUNTIES } from '@/lib/counties'
 
@@ -351,6 +351,20 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
               ))}
               {/* Județe — Phase 2 county dropdown */}
               <CountyNavDropdown pathname={pathname} />
+
+              {/* Zboruri — distinct live-data call-to-action */}
+              <Link
+                href={isEnglish ? '/en/zboruri/' : '/zboruri/'}
+                aria-label={isEnglish ? 'Flights — live arrivals and departures' : 'Zboruri — sosiri și plecări în timp real'}
+                className="group ml-3 inline-flex items-center gap-2 font-sans text-[12px] font-bold uppercase tracking-wider px-3.5 py-1.5 bg-brand-red text-white hover:bg-red-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-red/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                <PlaneTakeoff className="w-3.5 h-3.5" />
+                <span>{isEnglish ? 'Flights' : 'Zboruri'}</span>
+                <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white/70 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
+                </span>
+              </Link>
             </nav>
 
             {/* Mobile menu button */}
@@ -367,6 +381,20 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
         {/* Mobile nav */}
         {mobileOpen && (
           <div className="md:hidden border-t border-foreground/10 bg-background px-6 py-4 space-y-1">
+            {/* Zboruri — distinct live-data call-to-action */}
+            <Link
+              href={isEnglish ? '/en/zboruri/' : '/zboruri/'}
+              onClick={() => setMobileOpen(false)}
+              aria-label={isEnglish ? 'Flights — live arrivals and departures' : 'Zboruri — sosiri și plecări în timp real'}
+              className="flex items-center justify-center gap-2 bg-brand-red text-white font-sans text-[13px] font-bold uppercase tracking-wider py-3 mb-3"
+            >
+              <PlaneTakeoff className="w-4 h-4" />
+              <span>{isEnglish ? 'Flights' : 'Zboruri'}</span>
+              <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white/70 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
+              </span>
+            </Link>
             {NAV_LINKS.map(link => (
               <Link
                 key={link.href}

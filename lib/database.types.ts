@@ -14,6 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
+      airport_flights: {
+        Row: {
+          id: number
+          airport: string
+          direction: string
+          flight_date: string
+          flight_no: string
+          airline: string | null
+          city: string | null
+          aircraft: string | null
+          scheduled_time: string
+          estimated_time: string | null
+          status: string
+          status_raw: string | null
+          is_charter: boolean
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          airport: string
+          direction: string
+          flight_date: string
+          flight_no: string
+          airline?: string | null
+          city?: string | null
+          aircraft?: string | null
+          scheduled_time: string
+          estimated_time?: string | null
+          status?: string
+          status_raw?: string | null
+          is_charter?: boolean
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          airport?: string
+          direction?: string
+          flight_date?: string
+          flight_no?: string
+          airline?: string | null
+          city?: string | null
+          aircraft?: string | null
+          scheduled_time?: string
+          estimated_time?: string | null
+          status?: string
+          status_raw?: string | null
+          is_charter?: boolean
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ad_inquiries: {
         Row: {
           id: string
