@@ -274,8 +274,20 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 </Link>
               </div>
               <span className="text-foreground/20">|</span>
-              <span className="hidden sm:inline capitalize">
-                {new Date().toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              {/* HYDRATION: this is an SSR-ed client component, so this line runs
+                  TWICE — once on the server (Netlify, UTC) and again in the
+                  visitor's browser (Romania is UTC+3 in summer). Without an explicit
+                  timeZone the two disagree for every visitor between 21:00 and
+                  24:00 UTC, and React throws #418 ("Hydration failed because the
+                  server rendered HTML didn't match the client") and re-renders the
+                  whole tree on the client.
+                  Pinning Europe/Bucharest also fixes an editorial bug: a reader
+                  abroad was shown THEIR local date on a Romanian newspaper.
+                  suppressHydrationWarning covers the remaining sliver — the page
+                  HTML is CDN-cached (s-maxage=60, stale-while-revalidate=300), so
+                  a cached render and its hydration can still straddle midnight. */}
+              <span className="hidden sm:inline capitalize" suppressHydrationWarning>
+                {new Date().toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Bucharest' })}
               </span>
               <WeatherWidget />
             </div>

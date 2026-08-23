@@ -39,10 +39,14 @@ const COUNTY_LABELS: Record<string, string> = {
 
 function formatDate(iso: string | null, locale: string) {
   if (!iso) return ''
+  // timeZone pinned: without it the server (UTC) and the reader's browser can
+  // format the same timestamp as two different days — a hydration mismatch for
+  // anything published near midnight UTC, and the wrong date for readers abroad.
   return new Date(iso).toLocaleDateString(locale === 'ro' ? 'ro-RO' : 'en-GB', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: 'Europe/Bucharest',
   })
 }
 

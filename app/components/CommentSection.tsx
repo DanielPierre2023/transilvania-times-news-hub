@@ -76,8 +76,10 @@ export default function CommentSection({ articleId, lang = 'ro' }: CommentSectio
 
   function formatDate(dateStr: string): string {
     try {
+      // timeZone pinned so the server (UTC) and the reader's browser agree — see
+      // the note in LayoutShell. Also keeps dates Romanian for readers abroad.
       return new Date(dateStr).toLocaleDateString(lang === 'ro' ? 'ro-RO' : 'en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
+        year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Bucharest',
       })
     } catch { return '' }
   }
