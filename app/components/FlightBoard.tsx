@@ -8,7 +8,7 @@ import AirportsLogo from './AirportsLogo'
 import AirlineLogo from './AirlineLogo'
 import {
   AIRPORTS, AIRPORT_ORDER, LABELS, STATUS_META, STATUS_CLASSES,
-  dateForDay, statusLabel, dateHeading,
+  dateForDay, statusLabel, dateHeading, airlineName,
   bucharestNowMinutes, flightMinuteIndex,
   type AirportCode, type Direction, type DayKey, type FlightRow, type Lang,
 } from '@/lib/flights'
@@ -87,7 +87,7 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
   }, [base, mode, today])
 
   const airlines = useMemo(
-    () => Array.from(new Set(scoped.map(f => f.airline).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, 'ro')),
+    () => Array.from(new Set(scoped.map(f => airlineName(f)).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, 'ro')),
     [scoped],
   )
   const cities = useMemo(
@@ -98,9 +98,9 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
     return scoped
-      .filter(f => (airline ? f.airline === airline : true))
+      .filter(f => (airline ? airlineName(f) === airline : true))
       .filter(f => (city ? f.city === city : true))
-      .filter(f => !q || [f.flight_no, f.airline, f.city].some(v => (v ?? '').toLowerCase().includes(q)))
+      .filter(f => !q || [f.flight_no, airlineName(f), f.city].some(v => (v ?? '').toLowerCase().includes(q)))
   }, [scoped, airline, city, search])
 
   const meta = AIRPORTS[airport]
@@ -262,11 +262,12 @@ function FlightRowView({ f, lang, t, direction, airport }: {
 
   return (
     <tr className="border-b border-foreground/[0.06] hover:bg-foreground/[0.02]">
-      {/* Airline: monogram logo + name */}
+      {/* Airline: wordmark logo + name (derived from the code when the
+          airport publishes none, e.g. Sibiu) */}
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex items-center gap-2.5">
-          <AirlineLogo flightNo={f.flight_no} />
-          <span className="hidden md:inline font-sans text-[13px] text-foreground/80">{f.airline ?? '—'}</span>
+          <AirlineLogo flightNo={f.flight_no} wide />
+          <span className="hidden md:inline font-sans text-[13px] text-foreground/80">{airlineName(f) ?? '—'}</span>
         </div>
       </td>
       {/* Flight */}
@@ -419,7 +420,7 @@ function buildShareText(f: FlightRow, lang: Lang, direction: Direction, airport:
     ? `${a.short} (${a.iata}) → ${f.city ?? '—'}`
     : `${f.city ?? '—'} → ${a.short} (${a.iata})`
   const lines = [
-    `✈️ ${f.flight_no}${f.airline ? ' — ' + f.airline : ''}${f.is_charter ? (ro ? ' (charter)' : ' (charter)') : ''}`,
+    `✈️ ${f.flight_no}${airlineName(f) ? ' — ' + airlineName(f) : ''}${f.is_charter ? (ro ? ' (charter)' : ' (charter)') : ''}`,
     `${routeLabel}: ${route}`,
     `${ro ? 'Data' : 'Date'}: ${dateHeading(f.flight_date, lang)}`,
     `${ro ? 'Ora programată' : 'Scheduled time'}: ${sched ?? '—'}`,

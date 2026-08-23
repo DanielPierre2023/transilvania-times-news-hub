@@ -49,6 +49,25 @@ export async function requireAdmin(req: Request): Promise<Response | null> {
   if (serviceKey && token === serviceKey) {
     return null; // trusted internal caller
   }
+  // FIX (23 Aug 2026): the exact-match above is not sufficient. pg_cron jobs and
+  // internal service-to-service calls send a service-role JWT that was hard-coded
+  // into the caller (a cron job command, an env var, a config row). When the
+  // project's service-role key is rotated or migrated to the new key format, that
+  // hard-coded token stops matching SUPABASE_SERVICE_ROLE_KEY, execution falls
+  // through to the user-JWT branch below, and every internal call returns 401.
+  // weather-alert failed exactly this way on 12 consecutive cron runs (22-23 Aug
+  // 2026) while still booting normally - the cron job itself reported "succeeded".
+  // So also accept a token that PROVES it is service-role by performing an
+  // operation only service-role may perform. GoTrue verifies the signature, so a
+  // forged token or the public anon key still cannot pass this.
+  try {
+    const { createClient: _cc } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const _probe = _cc(Deno.env.get('SUPABASE_URL')!, token, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error: _svcErr } = await _probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+    if (!_svcErr) return null;
+  } catch (_e) { /* not a service-role token - fall through to the admin-user check */ }
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;

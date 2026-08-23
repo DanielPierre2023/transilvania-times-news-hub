@@ -4,28 +4,63 @@ import { useState } from 'react'
 import { airlineCode, airlineColor } from '@/lib/flights'
 
 /**
- * Real airline logo with a guaranteed fallback.
+ * Airline logo with uniform visual weight and a guaranteed fallback chain:
  *
- * Loads the carrier logo from a logo CDN by IATA code; if the code isn't a
- * 2-letter IATA designator or the image fails to load, it falls back to a
- * coloured monogram chip so a row is never blank.
+ *   1. Daisycon wordmark (normalized: every logo fills the requested canvas,
+ *      transparent background, CORS-friendly) — for carriers verified to have
+ *      a real logo there (the service returns a placeholder for the rest).
+ *   2. Kiwi 64px square by IATA code — full coverage, but files vary in
+ *      internal padding, so padded ones get a per-code zoom for parity.
+ *   3. Coloured monogram chip — never a blank cell.
  *
- * To self-host instead of hotlinking, drop files at public/airlines/{CODE}.png
- * and set LOGO_CDN = '/airlines'.
+ * `wide` renders a 76×28 wordmark box (the flight board); default is the
+ * compact 36×28 box (homepage widget).
  */
-const LOGO_CDN = 'https://images.kiwi.com/airlines/64'
+const DAISY = new Set(['W6', 'OS', 'FR', 'TK', 'RO', 'GQ', 'LH', 'LO', 'LX', 'PC', 'DY', 'A3'])
+// Same brand, different AOC: Wizz Air Malta (W4) flies the WIZZ livery (W6).
+const DAISY_ALIAS: Record<string, string> = { W4: 'W6' }
+// Kiwi files with big internal padding → scale up to match full-bleed ones.
+const KIWI_ZOOM: Record<string, number> = {
+  W4: 1.4, W6: 1.15, OS: 1.4, RO: 1.2, H4: 1.3, NE: 1.35, XC: 1.4, SM: 1.2, U5: 1.2, TI: 1.15,
+}
 
-export default function AirlineLogo({ flightNo, className = '' }: { flightNo: string; className?: string }) {
+function sources(code: string, wide: boolean): string[] {
+  const d = DAISY_ALIAS[code] ?? code
+  const out: string[] = []
+  if (DAISY.has(d)) {
+    out.push(
+      wide
+        ? `https://images.daisycon.io/airline/?width=152&height=56&color=transparent&iata=${d}`
+        : `https://images.daisycon.io/airline/?width=72&height=56&color=transparent&iata=${d}`,
+    )
+  }
+  out.push(`https://images.kiwi.com/airlines/64/${code}.png`)
+  return out
+}
+
+export default function AirlineLogo({
+  flightNo,
+  wide = false,
+  className = '',
+}: {
+  flightNo: string
+  wide?: boolean
+  className?: string
+}) {
   const code = airlineCode(flightNo)
   const isIata = /^[A-Z0-9]{2}$/.test(code)
-  const [err, setErr] = useState(false)
+  const [idx, setIdx] = useState(0)
 
-  // Fixed 28px box for every carrier: the CDN's 64×64 files vary in internal
-  // padding (some glyphs fill the square, some don't), so a uniform, larger
-  // canvas keeps all logos legible and visually consistent across airports.
-  if (err || !isIata) {
+  const box = wide
+    ? 'inline-flex h-7 w-[76px] items-center justify-start shrink-0'
+    : 'inline-flex h-7 w-9 items-center justify-center shrink-0'
+
+  const srcs = isIata ? sources(code, wide) : []
+  const src = srcs[idx]
+
+  if (!src) {
     return (
-      <span className={`inline-flex h-7 w-9 items-center justify-center shrink-0 ${className}`} aria-hidden="true">
+      <span className={`${box} ${className}`} aria-hidden="true">
         <span
           className="inline-flex items-center justify-center h-6 min-w-[34px] px-1.5 rounded-sm font-mono text-[12px] font-bold text-white"
           style={{ backgroundColor: airlineColor(flightNo) }}
@@ -36,17 +71,22 @@ export default function AirlineLogo({ flightNo, className = '' }: { flightNo: st
     )
   }
 
+  const isKiwi = src.includes('images.kiwi.com')
+  const zoom = isKiwi ? (KIWI_ZOOM[code] ?? 1) : 1
+
   return (
-    <span className={`inline-flex h-7 w-9 items-center justify-center shrink-0 ${className}`}>
+    <span className={`${box} ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={`${LOGO_CDN}/${code}.png`}
+        key={src}
+        src={src}
         alt=""
-        width={28}
+        width={wide && !isKiwi ? 76 : 28}
         height={28}
         loading="lazy"
-        onError={() => setErr(true)}
-        className="h-7 w-7 object-contain"
+        onError={() => setIdx((i) => i + 1)}
+        className={wide && !isKiwi ? 'h-7 w-[76px] object-contain object-left' : 'h-7 w-7 object-contain'}
+        style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: wide ? 'left center' : 'center' } : undefined}
       />
     </span>
   )

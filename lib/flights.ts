@@ -246,10 +246,37 @@ export type Lang = keyof typeof LABELS
 
 /* ── Hermes-style helpers ─────────────────────────────────────────────────── */
 
-/** 2–3 letter airline designator from a flight number (e.g. "W4 3453" → "W4"). */
+/** Some sources (Târgu Mureș) publish ICAO callsigns without a space
+ *  ("ROT6445", "NSM3805"); map the 3-letter ICAO prefix to the IATA code so
+ *  logos, colours and names resolve. NSM is labelled AIR CAIRO by the airport. */
+export const ICAO_TO_IATA: Record<string, string> = {
+  ROT: 'RO', WZZ: 'W6', WMT: 'W4', THY: 'TK', DLH: 'LH', RYR: 'FR', AUA: 'OS',
+  LOT: 'LO', SWR: 'LX', PGT: 'PC', NOZ: 'DY', AEE: 'A3', MSC: 'SM', NSM: 'SM',
+  SEH: 'GQ', HYS: 'H4', CAI: 'XC', CXI: 'XC', SQP: 'U5', TWI: 'TI', AWG: 'A2',
+}
+
+/** 2–3 letter airline designator from a flight number (e.g. "W4 3453" → "W4");
+ *  ICAO callsign prefixes are translated to their IATA equivalent. */
 export function airlineCode(flightNo: string): string {
   const m = String(flightNo).trim().match(/^[A-Z0-9]{2,3}/i)
-  return m ? m[0].toUpperCase() : '?'
+  if (!m) return '?'
+  const c = m[0].toUpperCase()
+  return ICAO_TO_IATA[c] ?? c
+}
+
+/** Display names for the carriers serving these airports — used when the
+ *  airport itself publishes no airline column (e.g. Sibiu). */
+export const AIRLINE_NAMES: Record<string, string> = {
+  W4: 'Wizz Air Malta', W6: 'Wizz Air', RO: 'Tarom', OS: 'Austrian Airlines',
+  FR: 'Ryanair', TK: 'Turkish Airlines', A2: 'Animawings', GQ: 'Sky Express',
+  H4: 'HiSky', NE: 'Nesma Airlines', XC: 'Corendon Airlines', SM: 'Air Cairo',
+  LH: 'Lufthansa', LO: 'LOT Polish Airlines', LX: 'Swiss', PC: 'Pegasus Airlines',
+  U5: 'SkyUp Airlines', DY: 'Norwegian', A3: 'Aegean Airlines', TI: 'Tailwind Airlines',
+}
+
+/** Airline label for a row: the source's own name, else derived from the code. */
+export function airlineName(f: { flight_no: string; airline: string | null }): string | null {
+  return f.airline ?? AIRLINE_NAMES[airlineCode(f.flight_no)] ?? null
 }
 
 /** Curated brand colours for the carriers that actually fly these airports;
