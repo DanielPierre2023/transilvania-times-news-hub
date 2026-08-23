@@ -59,7 +59,7 @@ export default async function NextDeparturesWidget({ lang = 'ro' as 'ro' | 'en' 
             className="flex items-center gap-3 px-6 py-3 border-b border-r border-foreground/[0.06] hover:bg-foreground/[0.02] transition-colors"
           >
             <AirlineLogo flightNo={f.flight_no} />
-            <span className="font-mono text-[15px] font-semibold text-foreground tabular-nums shrink-0">{f.scheduled_time}</span>
+            <span className="font-mono text-[15px] font-semibold text-foreground tabular-nums shrink-0">{f.scheduled_time ? String(f.scheduled_time).slice(0, 5) : '—'}</span>
             <span className="flex-1 min-w-0">
               <span className="block font-sans text-[13px] font-medium text-foreground truncate">{f.city ?? '—'}</span>
               <span className="block font-mono text-[11px] text-muted-foreground">{f.flight_no}</span>

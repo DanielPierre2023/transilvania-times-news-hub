@@ -20,28 +20,34 @@ export default function AirlineLogo({ flightNo, className = '' }: { flightNo: st
   const isIata = /^[A-Z0-9]{2}$/.test(code)
   const [err, setErr] = useState(false)
 
+  // Fixed 28px box for every carrier: the CDN's 64×64 files vary in internal
+  // padding (some glyphs fill the square, some don't), so a uniform, larger
+  // canvas keeps all logos legible and visually consistent across airports.
   if (err || !isIata) {
     return (
-      <span
-        className={`inline-flex items-center justify-center h-5 min-w-[30px] px-1.5 rounded-sm font-mono text-[11px] font-bold text-white ${className}`}
-        style={{ backgroundColor: airlineColor(flightNo) }}
-        aria-hidden="true"
-      >
-        {code}
+      <span className={`inline-flex h-7 w-9 items-center justify-center shrink-0 ${className}`} aria-hidden="true">
+        <span
+          className="inline-flex items-center justify-center h-6 min-w-[34px] px-1.5 rounded-sm font-mono text-[12px] font-bold text-white"
+          style={{ backgroundColor: airlineColor(flightNo) }}
+        >
+          {code}
+        </span>
       </span>
     )
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={`${LOGO_CDN}/${code}.png`}
-      alt=""
-      width={46}
-      height={20}
-      loading="lazy"
-      onError={() => setErr(true)}
-      className={`h-5 w-auto max-w-[46px] object-contain ${className}`}
-    />
+    <span className={`inline-flex h-7 w-9 items-center justify-center shrink-0 ${className}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`${LOGO_CDN}/${code}.png`}
+        alt=""
+        width={28}
+        height={28}
+        loading="lazy"
+        onError={() => setErr(true)}
+        className="h-7 w-7 object-contain"
+      />
+    </span>
   )
 }

@@ -1,84 +1,127 @@
-# The weather widget — two different things with the same name
+# 1) The widget is still not showing — your CSP fix has not deployed yet
 
-## First, the thing that will not fix it
+I checked the live site just now. The header it serves is still the old one:
 
-`weather-alert`, the edge function we just repaired, **has no frontend output at
-all**. Read its own header:
+    connect-src 'self' https://zimpimoierpsocnmnizm.supabase.co
+                wss://zimpimoierpsocnmnizm.supabase.co
+                https://pagead2.googlesyndication.com
+                https://adservice.google.com
 
-    Polls MeteoAlarm's Romania OPEN Atom feed, finds orange (level 3) / red
-    (level 4) warnings for the 14 Transylvania counties, and emails opted-in
-    subscribers once per warning per county.
+No `api.open-meteo.com`. The fetch from inside the page still throws
+`Failed to fetch`, and the widget still renders nothing.
 
-It reads MeteoAlarm, sends emails through Resend, and writes dedup rows to
-`weather_alerts_sent`. It writes nothing any page reads. Fixing its 401 was worth
-doing — your subscribers were getting no storm warnings for at least a day — but it
-was never going to make a widget appear.
+**But the fix IS committed.** `origin/main` (head `6f29123`) has
+`api.open-meteo.com` in both `next.config.ts` and `netlify.toml`. And the response
+came back with `age=1`, so this is a fresh response, not a stale CDN copy.
 
-## The widget is a separate component, and CSP is blocking it
+So the code is right and the site has not picked it up. That means the Netlify build
+either has not run yet, is still running, or **failed**. Check
+Netlify -> Deploys for the build of commit `6f29123`. (I could not check it for you —
+the Netlify API has been returning 502 through my connection all afternoon.)
 
-`app/components/WeatherWidget.tsx` is the header temperature for Cluj-Napoca. It is
-rendered in `LayoutShell.tsx` in two places (lines 280 and 407), so it is wired up
-correctly. It fetches its data straight from the browser:
+Nothing more to change for the widget. Once that deploy goes green, hard-reload the
+homepage and the temperature will appear next to the date.
 
-    fetch('https://api.open-meteo.com/v1/forecast?latitude=46.7712&longitude=23.6236&current_weather=true')
+---
 
-I ran that exact fetch from inside your live homepage. The result:
+# 2) The React #418 hydration error — found it, fixed it
 
-    THREW: Failed to fetch
+## What #418 actually means
 
-Your Content-Security-Policy header, live on the site right now, allows these
-`connect-src` hosts and no others:
+React's own error text for 418, verbatim:
 
-    'self'
-    https://zimpimoierpsocnmnizm.supabase.co
-    wss://zimpimoierpsocnmnizm.supabase.co
-    https://pagead2.googlesyndication.com
-    https://adservice.google.com
+    Hydration failed because the server rendered %s didn't match the client.
+    As a result this tree will be regenerated on the client. This can happen
+    if a SSR-ed Client Component used:
+      - A server/client branch `if (typeof window !== 'undefined')`.
+      - Variable input such as `Date.now()` or `Math.random()` which changes
+        each time it's called.
+      - Date formatting in a user's locale which doesn't match the server.
+      ...
 
-`api.open-meteo.com` is not among them, so the browser refuses the request before it
-leaves the page.
+Two of those bullets describe your header exactly.
 
-**And that is why you never saw an error.** The component ends with:
+## The cause
 
-    .catch(() => setLoading(false))
-    ...
-    if (loading || temp === null) return null
+`app/components/LayoutShell.tsx` starts with `'use client'` — it is an **SSR-ed
+client component**, the precise case React names. Line 278 read:
 
-CSP blocks the fetch, the catch swallows it, `temp` stays null, and the component
-returns `null` — it renders nothing at all. No broken box, no console complaint from
-the component, just a gap in the header where the temperature should be. It has been
-doing this for every visitor on every page load.
+    {new Date().toLocaleDateString('ro-RO', { weekday:'long', day:'numeric',
+                                              month:'long', year:'numeric' })}
+
+That line runs **twice**:
+
+1. On the server — Netlify's Node process, running in **UTC**.
+2. Again in the visitor's browser during hydration — Romania is **UTC+3** in summer.
+
+`new Date()` with no argument is "right now", so the two calls are different
+instants to begin with, and they are then formatted in two different time zones.
+Between **21:00 and 24:00 UTC** — 00:00 to 03:00 Romanian time — the server says one
+weekday and the browser says the next. Different text in the same DOM node, so React
+throws #418 and **regenerates that whole subtree on the client**.
+
+It is made worse by caching: `netlify.toml` sets
+`Cache-Control: public, s-maxage=60, stale-while-revalidate=300`, so the HTML a
+visitor receives can be several minutes old before their browser ever hydrates it.
+
+There is a second, non-obvious bug hiding in the same line. Because no time zone was
+pinned, a reader in Germany or the US was shown **their own local date** on a
+Romanian newspaper's masthead.
 
 ## The fix
 
-Add `https://api.open-meteo.com` to `connect-src`. The policy is declared in **two**
-files and both have to change or they drift apart:
+Pin the zone, and tell React the remaining sliver is expected:
 
-- `next.config.ts` — line 40, the `csp` array. This is the one that actually applies
-  to server-rendered pages.
-- `netlify.toml` — line 69, the `[[headers]]` block. This one covers static/CDN
-  responses.
+    <span className="hidden sm:inline capitalize" suppressHydrationWarning>
+      {new Date().toLocaleDateString('ro-RO', { weekday:'long', day:'numeric',
+        month:'long', year:'numeric', timeZone: 'Europe/Bucharest' })}
+    </span>
 
-Both are in this archive, already edited. I checked that the resulting `connect-src`
-is now character-for-character identical in the two files, and both were byte-identical
-to `origin/main` before I touched them, so nothing else is overwritten. `tsc` is clean.
+`timeZone: 'Europe/Bucharest'` makes server and client format the same instant the
+same way, and makes the date correct for Romanian readers wherever they are.
+`suppressHydrationWarning` covers what pinning cannot: a cached render and its
+hydration can still land on opposite sides of midnight. It applies to this one text
+node only — it does not silence hydration checks anywhere else.
 
-    git add next.config.ts netlify.toml
-    git commit -m "Allow api.open-meteo.com in CSP connect-src so WeatherWidget renders"
+## Three more files with the same fault
 
-Netlify rebuilds on push. After the deploy, hard-reload the homepage — you should see
-the temperature and "Cluj-Napoca" appear in the header bar next to the date.
+Same problem, smaller blast radius: these format a **stored** timestamp, so both
+sides use the same instant, but with no `timeZone` the server (UTC) and the reader's
+browser still disagree for anything published near midnight UTC — and article dates
+were being shown in the reader's zone rather than Romania's.
 
-## While I was in there
+    app/components/RelatedArticles.tsx    formatDate()
+    app/components/CommentSection.tsx     formatDate()
+    app/components/ArticleLangToggle.tsx  fmtDate()
 
-I checked every third-party host the frontend calls from the browser.
-`api.open-meteo.com` is the only one being blocked. The other two the code touches,
-`api.anthropic.com` and `api.resend.com`, are called from server-side API routes,
-where CSP does not apply — so nothing else is silently broken this way.
+All three now pin `timeZone: 'Europe/Bucharest'`.
 
-## One unrelated thing worth a look later
+## What I checked and did not change
 
-The homepage throws a React error #418 (a hydration mismatch) on load. It is not
-related to the widget and it is not new, but it means some component renders
-different HTML on the server than in the browser. It costs you a client-side re-render
-of that subtree. Say the word and I will track down which component it is.
+`© {new Date().getFullYear()}` appears in `LayoutShell.tsx`, `SiteHeader.tsx` and
+`SiteFooter.tsx`. Same family of bug, but the year only differs across New Year's
+midnight, so I left them rather than widen the diff. Say the word and I will pin
+those too.
+
+The admin pages have many `toLocaleDateString` calls. They are irrelevant here —
+they render behind the login gate and are not part of the public SSR/hydration path.
+
+---
+
+# Verification
+
+- `tsc --noEmit` on the whole app: clean (only the pre-existing `@upstash/*` errors
+  in `lib/rate-limit.ts`, untouched).
+- `eslint` on all four files: **0 errors** (1 pre-existing warning in
+  CommentSection about a `useEffect` dependency, not mine).
+- Diff versus `origin/main`: LayoutShell +14/-2, RelatedArticles +4/-0,
+  CommentSection +3/-1, ArticleLangToggle +3/-1. Nothing else touched.
+
+**One thing worth flagging:** my working copy of `LayoutShell.tsx` was **stale** —
+it predated the "Zboruri" flights button you added today. I refreshed it from
+`origin/main` before editing, so this file is your current version plus the date fix,
+and the flights button is intact. Had I edited my old copy, committing it would have
+deleted that button.
+
+    git add app/components/
+    git commit -m "Pin date formatting to Europe/Bucharest to fix React #418 hydration mismatch"

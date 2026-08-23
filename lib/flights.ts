@@ -139,6 +139,7 @@ export interface FlightRow {
   aircraft: string | null
   scheduled_time: string | null // HH:MM (local)
   estimated_time: string | null // HH:MM (local), when the source publishes it
+  other_time: string | null     // time at the other end of the leg, when published
   status: StatusCode
   status_raw: string | null
   is_charter: boolean
@@ -286,7 +287,8 @@ export function airlineColor(flightNo: string): string {
 export function statusLabel(f: FlightRow, lang: Lang): string {
   const m = STATUS_META[f.status] ?? STATUS_META.UNKNOWN
   const base = lang === 'ro' ? m.ro : m.en
-  const time = f.estimated_time
+  // DB time columns serialize as HH:MM:SS — display as HH:MM.
+  const time = f.estimated_time ? String(f.estimated_time).slice(0, 5) : null
   if ((f.status === 'LANDED' || f.status === 'DEPARTED') && time) return `${base} ${time}`
   if (f.status === 'DELAYED' && time) return `${lang === 'ro' ? 'Estimat' : 'Est.'} ${time}`
   return base

@@ -26,6 +26,7 @@ export type Database = {
           aircraft: string | null
           scheduled_time: string
           estimated_time: string | null
+          other_time: string | null
           status: string
           status_raw: string | null
           is_charter: boolean
@@ -43,6 +44,7 @@ export type Database = {
           aircraft?: string | null
           scheduled_time: string
           estimated_time?: string | null
+          other_time?: string | null
           status?: string
           status_raw?: string | null
           is_charter?: boolean
@@ -60,6 +62,7 @@ export type Database = {
           aircraft?: string | null
           scheduled_time?: string
           estimated_time?: string | null
+          other_time?: string | null
           status?: string
           status_raw?: string | null
           is_charter?: boolean

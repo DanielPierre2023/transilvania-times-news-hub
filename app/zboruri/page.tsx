@@ -29,7 +29,7 @@ async function loadInitial(): Promise<{ flights: FlightRow[]; today: string }> {
   const { data } = await supabase
     .from('airport_flights')
     .select(
-      'airport, direction, flight_date, flight_no, airline, city, aircraft, scheduled_time, estimated_time, status, status_raw, is_charter, source_url, updated_at',
+      'airport, direction, flight_date, flight_no, airline, city, aircraft, scheduled_time, estimated_time, other_time, status, status_raw, is_charter, source_url, updated_at',
     )
     .gte('flight_date', addDays(today, -1))
     .lte('flight_date', addDays(today, 1))
