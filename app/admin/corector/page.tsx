@@ -392,13 +392,18 @@ export default function CorectorPage() {
     if (uploadRef.current) uploadRef.current.value = ''
   }
 
-  // ── AI cover generation (same as ArticleEditor — tt-generate-cover)
+  // ── AI cover generation (same as ArticleEditor — generate-cover-image)
   async function generateCover() {
     const imgTitle = title || proofResult?.title_ro || proofResult?.suggested_title
     if (!imgTitle) { setError('Completează titlul sau rulează corectura mai întâi.'); return }
     setGenerating(true); setError('')
     try {
-      const { data: res, error: genErr } = await supabase.functions.invoke('tt-generate-cover', {
+      // Cover images come from `generate-cover-image` (classic mode:
+      // { title, summary, category } -> { publicUrl }). The old slug
+      // `tt-generate-cover` no longer holds cover code — the scraped-article
+      // processor was deployed over it, so calling it ran a rewrite batch
+      // instead of making an image, and returned no publicUrl.
+      const { data: res, error: genErr } = await supabase.functions.invoke('generate-cover-image', {
         body: { title: imgTitle, summary: proofResult?.excerpt_ro || '', category }
       })
       if (genErr) throw new Error(genErr.message)

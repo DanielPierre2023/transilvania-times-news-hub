@@ -327,7 +327,12 @@ export default function EditorPage() {
 
     setGeneratingImg(true)
     try {
-      const { data, error } = await supabase.functions.invoke('tt-generate-cover', {
+      // Cover images come from `generate-cover-image` (classic mode:
+      // { title, summary, category } -> { publicUrl }). The old slug
+      // `tt-generate-cover` no longer holds cover code — the scraped-article
+      // processor was deployed over it, so calling it ran a rewrite batch
+      // instead of making an image, and returned no publicUrl.
+      const { data, error } = await supabase.functions.invoke('generate-cover-image', {
         body: { title: imgTitle, summary: imgSummary, category }
       })
       if (error) throw new Error(error.message)

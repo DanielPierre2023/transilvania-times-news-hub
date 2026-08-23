@@ -83,6 +83,10 @@ export default function NewsroomPage() {
   // Lipsync cost tier: economic $0.70/min · bun $3 · pro ~$5 · premium $8
   const [quality, setQuality] = useState<'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium'>('economic')
   const [tone, setTone] = useState('stiri')
+  // Pause between news items, in ms. TTS engines ignore blank lines, so without
+  // this the anchor runs one story straight into the next. 700ms ≈ a real
+  // newsreader's beat before the next item.
+  const [pauseMs, setPauseMs] = useState(700)
   const [voUrl, setVoUrl] = useState('')
 
   const [falConfigured, setFalConfigured] = useState(false)
@@ -395,6 +399,9 @@ export default function NewsroomPage() {
             : elConfigured
               ? { text, voice_id: voiceId, gender: 'f', tone, language: lang }
               : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
+      // Pause between stories is engine-specific markup, built server-side so it
+      // never appears in the script the user edits.
+      body.pause_ms = pauseMs
       const r = await invokeRaw('generate-voiceover', body)
       if (r.error) throw new Error(String(r.error))
       const url = String(r.publicUrl || '')
@@ -602,6 +609,7 @@ export default function NewsroomPage() {
         if (typeof d.elVoice === 'string' && d.elVoice.trim()) setElVoice(d.elVoice)
         if (typeof d.quality === 'string') setQuality(d.quality as 'economic'|'veed'|'standard'|'bun'|'pro'|'premium')
         if (typeof d.tone === 'string') setTone(d.tone)
+        if (typeof d.pauseMs === 'number' && d.pauseMs >= 0 && d.pauseMs <= 3000) setPauseMs(d.pauseMs)
         if (typeof d.presScale === 'number') setPresScale(d.presScale)
         if (typeof d.presX === 'number') setPresX(d.presX)
         if (typeof d.presY === 'number') setPresY(d.presY)
@@ -621,12 +629,12 @@ export default function NewsroomPage() {
     if (!defaultsLoaded.current) return
     try {
       localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
-        anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone,
+        anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, pauseMs,
         presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl,
         subsOn, tickerOn, capMode,
       }))
     } catch { /* ignore */ }
-  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl, subsOn, tickerOn, capMode])
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, pauseMs, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl, subsOn, tickerOn, capMode])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
   const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement; ar: number } | null>(null)
@@ -2224,6 +2232,17 @@ export default function NewsroomPage() {
                   : <span className="text-[10.5px] text-amber-300/80">⚠ accent englezesc: vocile Gemini și cele implicite (Sarah/George) sunt înregistrate în engleză. Pune o voce <b>românească</b> în câmpul din stânga.</span>}
               </>
             )}
+            <select value={pauseMs} onChange={e => setPauseMs(Number(e.target.value))}
+              title="Pauză între știri. Motoarele TTS ignoră rândurile goale, așa că pauza se adaugă automat, per motor, la generare."
+              className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
+              {[
+                { v: 0,    l: 'fără pauză între știri' },
+                { v: 500,  l: 'pauză 0,5 s între știri' },
+                { v: 700,  l: 'pauză 0,7 s între știri' },
+                { v: 1000, l: 'pauză 1,0 s între știri' },
+                { v: 1500, l: 'pauză 1,5 s între știri' },
+              ].map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
             <button onClick={() => genVoice()} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
               {busy === 'voice' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />} Generează vocea
             </button>
