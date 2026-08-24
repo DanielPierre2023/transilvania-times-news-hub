@@ -1,27 +1,44 @@
-TRANSILVANIA TIMES — Zboruri: bugfix + test automat în CI
-==========================================================
+TRANSILVANIA TIMES — Zboruri: 3 fixes
+=====================================
 
-Extrageți în rădăcina repo-ului, commit + push. Funcția din Supabase e DEJA
-reparată și rulează în producție (v22) — nu trebuie să deployați nimic acolo.
+Extrageți în rădăcina repo-ului, commit + push. Nu trebuie făcut nimic în
+Supabase — funcția e deja pe v24 și baza a fost curățată.
 
-DESPRE fids.regression.mjs — NU SE DEPLOIAZĂ NICĂIERI:
-  • NU e o funcție Supabase. Funcția care rulează pe server e DOAR index.ts.
-  • NU intră în build-ul site-ului: Next.js compilează doar app/, lib/, i18n/
-    (vezi tsconfig.json), nu folderul supabase/.
-  • E un test pentru dezvoltatori, care stă lângă cod ca documentație vie —
-    exact ca parse.samples.test.ts, care e acolo de la început.
+1) LOGO COMPANII PE MOBIL (era absent din redesign)
+   • cardul mobil primește AirlineLogo lângă numele companiei;
+     desktopul rămâne neschimbat.
 
-  Îl puteți rula manual oricând, din rădăcina repo-ului:
-      node supabase/functions/flights-sync/fids.regression.mjs
-  Nu are nevoie de internet, de chei sau de baza de date. Afișează 7 verificări
-  și „all passed".
+2) SHARE FACEBOOK & MESSENGER (împărtășea homepage-ul, nu zborul)
+   • Cauza: Facebook a eliminat parametrul `quote` în 2017, iar Messenger
+     folosește doar link-ul URL. Ambele scrape-uiesc OpenGraph de la URL,
+     nu textul trimis.
+   • Fix: link permanent per zbor cu tag-uri OpenGraph flight-specifice:
+        /zboruri/f/{airport}-{d|a}-{YYYYMMDD}-{zbor}-{HHMM}/   (RO)
+        /en/zboruri/f/{airport}-{d|a}-{YYYYMMDD}-{zbor}-{HHMM}/  (EN)
+     Facebook / Messenger scrape titlul + descrierea generate din baza de
+     date și afișează cardul zborului. Pagina redirecționează utilizatorii
+     către panoul aeroportului; canonical rămâne pagina părinte (fără
+     dilluție SEO — noindex pe permalink-uri).
+   • WhatsApp și Telegram continuă cu textul pre-populat + link (funcționează).
 
-NOU: rulează AUTOMAT în GitHub Actions (.github/workflows/ci.yml), la fiecare
-push și pull request, imediat după lint. Dacă cineva strică logica de dată a
-zborurilor, CI-ul devine roșu ÎNAINTE ca Netlify să publice — nu după ce
-cititorii văd zboruri „decolate" care încă n-au plecat.
+3) ZBORURI VECHI CU „DELAYED" RĂMASE PE PANOU (ex. A2 107)
+   • Cauza: după ce aeroportul scoate un zbor completat din orarul publicat,
+     upsert-ul nu-l mai atinge; sticky-restore se aplica doar la
+     SCHEDULED → terminal, nu la DELAYED → terminal.
+   • Fix: după 60 min de la ora ESTIMATĂ, DELAYED devine automat
+     DEPARTED (plecări) / LANDED (sosiri), păstrând estimarea ca ora reală.
+     Regulă în funcție + patch DB la fiecare sync (curăță și rândurile
+     rămase din trecut). A2 107 22:00 → 01:00 e deja marcat DEPARTED în bază.
 
-Fișiere: .github/workflows/ci.yml (pas nou),
-         supabase/functions/flights-sync/index.ts (fix-ul),
-         supabase/functions/flights-sync/fids.regression.mjs (testul).
-Restul, neschimbat, inclus ca superset.
+TESTE NOI ÎN CI:
+   .github/workflows/ci.yml rulează la fiecare push:
+     - node supabase/functions/flights-sync/fids.regression.mjs (7 verificări)
+     - node supabase/functions/flights-sync/stale.regression.mjs (5 verificări)
+
+Fișiere principale:
+   app/components/FlightBoard.tsx     — logo pe mobil + share prin permalink
+   app/zboruri/f/[slug]/page.tsx      — permalink RO
+   app/en/zboruri/f/[slug]/page.tsx   — permalink EN
+   supabase/functions/flights-sync/index.ts — DELAYED cleanup
+   supabase/functions/flights-sync/stale.regression.mjs — test nou
+   .github/workflows/ci.yml           — CI pas nou

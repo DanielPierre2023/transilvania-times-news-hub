@@ -879,6 +879,72 @@ serve(async (req) => {
     }
   }
 
+  // DELAYED rows whose ESTIMATED time has passed by 60+ minutes are stale:
+  // either the flight actually left at that estimate (most common) or the
+  // estimate itself slipped without a fresh publish. Either way, showing
+  // "Delayed 22:00 → 01:00" hours after 01:00 is dishonest. Promote to
+  // DEPARTED (departures) or LANDED (arrivals), preserving the estimate as
+  // the actual time. Also patches the leaky path where the airport timetable
+  // stops publishing a completed flight (the fresh scrape doesn't include it,
+  // so the sticky-restore never runs on it). Runs across ALL airports.
+  {
+    const todayIso = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Bucharest", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date());
+    const nowMin = Number(parts.find((x) => x.type === "hour")?.value ?? 0) * 60 +
+      Number(parts.find((x) => x.type === "minute")?.value ?? 0);
+    const dayUtc = (iso: string) => {
+      const [y, m, d] = iso.split("-").map(Number);
+      return Date.UTC(y, m - 1, d);
+    };
+    for (const rec of all) {
+      if (rec.status !== "DELAYED" || !rec.estimated_time) continue;
+      // Days since today, times 1440, plus the ESTIMATED minute of that day.
+      const estIdx = Math.round((dayUtc(rec.flight_date) - dayUtc(todayIso)) / 86_400_000) * 1440 +
+        minutesOf(String(rec.estimated_time).slice(0, 5));
+      if (estIdx < nowMin - 60) {
+        rec.status = rec.direction === "departure" ? "DEPARTED" : "LANDED";
+      }
+    }
+    // ALSO: any DELAYED row already in the DB whose estimate has passed but
+    // that isn't in this run's `all` (airport dropped it from the timetable
+    // once it completed) never gets touched by the upsert. Patch those in DB.
+    try {
+      // Bucharest wall-clock now, as "YYYY-MM-DD HH:MM"
+      const nowH = String(Math.floor(nowMin / 60)).padStart(2, "0");
+      const nowM = String(nowMin % 60).padStart(2, "0");
+      const nowStamp = `${todayIso} ${nowH}:${nowM}`;
+      const { data: stale } = await supabase
+        .from("airport_flights")
+        .select("airport,direction,flight_date,flight_no,scheduled_time,estimated_time")
+        .eq("status", "DELAYED")
+        .not("estimated_time", "is", null)
+        .lte("flight_date", todayIso);
+      const toPatch: { airport: string; direction: string; flight_date: string; flight_no: string; scheduled_time: string; new_status: string }[] = [];
+      for (const r of (stale ?? [])) {
+        const est = String(r.estimated_time).slice(0, 5);
+        const estStamp = `${r.flight_date} ${est}`;
+        // Compare wall-clock strings (Bucharest local); works for the same TZ.
+        if (estStamp < nowStamp && (Date.parse(`${nowStamp}:00+03:00`) - Date.parse(`${estStamp}:00+03:00`)) > 60 * 60_000) {
+          toPatch.push({
+            airport: r.airport, direction: r.direction, flight_date: r.flight_date,
+            flight_no: r.flight_no, scheduled_time: String(r.scheduled_time).slice(0, 5),
+            new_status: r.direction === "departure" ? "DEPARTED" : "LANDED",
+          });
+        }
+      }
+      for (const p of toPatch) {
+        await supabase.from("airport_flights").update({ status: p.new_status })
+          .eq("airport", p.airport).eq("direction", p.direction)
+          .eq("flight_date", p.flight_date).eq("flight_no", p.flight_no)
+          .eq("scheduled_time", p.scheduled_time);
+      }
+    } catch { /* best-effort DB cleanup */ }
+  }
+
   // Flights well past their scheduled time (90+ min) that still carry no live
   // information get an explicit NO_INFO status instead of a misleading
   // "Scheduled" — covers carriers absent from AeroDataBox, windows the

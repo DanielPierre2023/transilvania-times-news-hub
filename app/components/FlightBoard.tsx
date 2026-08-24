@@ -26,6 +26,20 @@ type Mode = 'live' | 'today' | 'tomorrow' | 'yesterday'
 // Widened label shape (LABELS.ro / LABELS.en are distinct literal types under `as const`).
 type L = { [K in keyof (typeof LABELS)['ro']]: string }
 const SITE = 'https://transilvaniatimes.com/zboruri/'
+const AIRPORT_SLUG_MAP: Record<AirportCode, string> = { CLJ: 'cluj', TGM: 'targu-mures', SBZ: 'sibiu' }
+
+/** Per-flight permalink used for Facebook/Messenger shares. Those platforms
+ *  ignore any text passed to their share dialog — they render only what they
+ *  scrape from the target URL's OpenGraph tags. See app/zboruri/f/[slug]. */
+function flightPermalink(f: FlightRow, lang: Lang): string {
+  const airportSlug = AIRPORT_SLUG_MAP[f.airport]
+  const dir = f.direction === 'departure' ? 'd' : 'a'
+  const date = f.flight_date.replaceAll('-', '')
+  const no = f.flight_no.replace(/\s+/g, '').toLowerCase()
+  const time = String(f.scheduled_time ?? '00:00').slice(0, 5).replace(':', '')
+  const base = lang === 'en' ? 'https://transilvaniatimes.com/en/zboruri/f' : 'https://transilvaniatimes.com/zboruri/f'
+  return `${base}/${airportSlug}-${dir}-${date}-${no}-${time}/`
+}
 
 /* Editorial status pills: tinted ground + coloured dot; the dot pulses while
    the status is "in motion" (check-in, boarding, en-route). */
@@ -507,8 +521,8 @@ function FlightRowView({ f, lang, t, direction, airport }: { f: FlightRow } & Ct
       {/* Share */}
       <td className="px-4 py-3 text-right pr-4 whitespace-nowrap">
         <div className="inline-flex items-center gap-3">
-          <ShareLinks shareText={shareText} />
-          <ShareMore text={shareText} lang={lang} />
+          <ShareLinks shareText={shareText} permalink={flightPermalink(f, lang)} />
+          <ShareMore text={shareText} url={flightPermalink(f, lang)} lang={lang} />
         </div>
       </td>
     </tr>
@@ -573,7 +587,7 @@ function FlightCard({ f, lang, t, direction, airport, open, onToggleShare }: {
           )}
         </div>
 
-        {/* City + airline + other-end time */}
+        {/* City + airline (logo + name) + other-end time */}
         <div className="min-w-0">
           <div className="font-sans text-[15px] font-semibold text-foreground leading-tight truncate">
             {f.city ?? '—'}
@@ -582,8 +596,9 @@ function FlightCard({ f, lang, t, direction, airport, open, onToggleShare }: {
             )}
           </div>
           <div className="mt-1 flex items-center gap-1.5 font-sans text-[11.5px] text-muted-foreground min-w-0">
+            <AirlineLogo flightNo={f.flight_no} />
             {name && (
-              <span className="font-bold truncate max-w-[104px]" style={{ color: airlineColor(f.flight_no) }}>{name}</span>
+              <span className="font-bold truncate max-w-[92px]" style={{ color: airlineColor(f.flight_no) }}>{name}</span>
             )}
             <span className="font-mono shrink-0">{f.flight_no}</span>
             {other && (
@@ -619,8 +634,8 @@ function FlightCard({ f, lang, t, direction, airport, open, onToggleShare }: {
       {open && (
         <div className="mt-3 flex items-center gap-2.5 border-t border-dashed border-foreground/15 pt-3">
           <span className="mr-auto font-sans text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t.share}</span>
-          <ShareLinks shareText={shareText} big />
-          <ShareMore text={shareText} lang={lang} big />
+          <ShareLinks shareText={shareText} permalink={flightPermalink(f, lang)} big />
+          <ShareMore text={shareText} url={flightPermalink(f, lang)} lang={lang} big />
         </div>
       )}
     </div>
@@ -631,12 +646,16 @@ function FlightCard({ f, lang, t, direction, airport, open, onToggleShare }: {
 
 /** WhatsApp / Messenger / Facebook / Telegram, colour-coded. `big` renders
  *  40px round chips (mobile touch targets); default is inline desktop icons. */
-function ShareLinks({ shareText, big = false }: { shareText: string; big?: boolean }) {
+function ShareLinks({ shareText, permalink, big = false }: { shareText: string; permalink: string; big?: boolean }) {
   const links: { label: string; href: string; color: string; icon: React.ReactNode }[] = [
-    { label: 'WhatsApp', href: `https://wa.me/?text=${encodeURIComponent(shareText)}`, color: '#25D366', icon: <IconWhatsApp /> },
-    { label: 'Messenger', href: `fb-messenger://share?link=${encodeURIComponent(SITE)}`, color: '#0084FF', icon: <IconMessenger /> },
-    { label: 'Facebook', href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE)}&quote=${encodeURIComponent(shareText)}`, color: '#1877F2', icon: <IconFacebook /> },
-    { label: 'Telegram', href: `https://t.me/share/url?url=${encodeURIComponent(SITE)}&text=${encodeURIComponent(shareText)}`, color: '#26A5E4', icon: <IconTelegram /> },
+    // WhatsApp + Telegram accept text — send the full flight card.
+    { label: 'WhatsApp', href: `https://wa.me/?text=${encodeURIComponent(shareText + '\n' + permalink)}`, color: '#25D366', icon: <IconWhatsApp /> },
+    { label: 'Telegram', href: `https://t.me/share/url?url=${encodeURIComponent(permalink)}&text=${encodeURIComponent(shareText)}`, color: '#26A5E4', icon: <IconTelegram /> },
+    // Facebook + Messenger discard text; they scrape OpenGraph tags from the
+    // target URL. Point them at the per-flight permalink so the shared post
+    // shows the flight, not the site's generic homepage summary.
+    { label: 'Messenger', href: `https://www.facebook.com/dialog/send?app_id=140586622674265&link=${encodeURIComponent(permalink)}&redirect_uri=${encodeURIComponent(permalink)}`, color: '#0084FF', icon: <IconMessenger /> },
+    { label: 'Facebook', href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(permalink)}`, color: '#1877F2', icon: <IconFacebook /> },
   ]
   return (
     <>
@@ -685,7 +704,7 @@ function IconTelegram() {
 
 /** Native share sheet (Viber, Signal, SMS, email — whatever is installed);
  *  desktop fallback copies the full text to the clipboard. */
-function ShareMore({ text, lang, big = false }: { text: string; lang: Lang; big?: boolean }) {
+function ShareMore({ text, url, lang, big = false }: { text: string; url: string; lang: Lang; big?: boolean }) {
   const [copied, setCopied] = useState(false)
   const icon = copied ? <Check className="h-[18px] w-[18px]" /> : <Share2 className="h-[18px] w-[18px]" />
   return (
@@ -695,9 +714,9 @@ function ShareMore({ text, lang, big = false }: { text: string; lang: Lang; big?
       onClick={() => {
         const nav = navigator as Navigator & { share?: (d: { text: string; url: string }) => Promise<void> }
         if (nav.share) {
-          nav.share({ text, url: SITE }).catch(() => {})
+          nav.share({ text, url }).catch(() => {})
         } else {
-          navigator.clipboard?.writeText(text).then(() => {
+          navigator.clipboard?.writeText(text + '\n' + url).then(() => {
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
           }).catch(() => {})
