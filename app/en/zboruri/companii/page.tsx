@@ -40,6 +40,14 @@ export default async function AirlinesPageEn() {
         '@type': 'ListItem', position: i + 1, name: a.name,
       })),
     },
+    {
+      '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_URL}/en/` },
+        { '@type': 'ListItem', position: 2, name: 'Flights', item: `${SITE_URL}/en/zboruri/` },
+        { '@type': 'ListItem', position: 3, name: 'Airlines & baggage', item: `${SITE_URL}/en/zboruri/companii/` },
+      ],
+    },
   ]
   return (
     <>

@@ -30,6 +30,8 @@ import ArticleContent from '@/app/components/ArticleContent'
 import type { InlineRelatedItem } from '@/app/components/InlineRelatedBlock'
 import MostRead from '@/app/components/MostRead'
 import FollowUs from '@/app/components/FollowUs'
+import AdUnit from '@/app/components/AdUnit'
+import { AD_SLOTS } from '@/lib/ads'
 import SectionHeader from '@/app/components/SectionHeader'
 import ViewTracker from '@/app/components/ViewTracker'
 import { getCounty } from '@/lib/counties'
@@ -427,6 +429,8 @@ export default async function ArticlePageEN(
               </div>
             )}
 
+            <AdUnit type="leaderboard" slot={AD_SLOTS.articleBottom} label="Advertisement" />
+
             <FollowUs locale={defaultLang} />
 
             <CommentSection articleId={post.id} />
@@ -435,6 +439,7 @@ export default async function ArticlePageEN(
           {/* RIGHT: sidebar */}
           <div className="lg:col-span-4">
             <MostRead articles={mostRead} locale={defaultLang} />
+            <AdUnit type="sidebar" slot={AD_SLOTS.articleSidebar} label="Advertisement" />
           </div>
         </div>
 

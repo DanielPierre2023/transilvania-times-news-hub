@@ -1,5 +1,8 @@
 import type { Metadata } from 'next'
 import FlightBoard from '@/app/components/FlightBoard'
+import AirportQuickLinks from '@/app/components/AirportQuickLinks'
+import AdUnit from '@/app/components/AdUnit'
+import { AD_SLOTS } from '@/lib/ads'
 import { createSupabaseAnonClient } from '@/lib/supabase/service'
 import { bucharestDate, addDays, type FlightRow } from '@/lib/flights'
 
@@ -41,7 +44,7 @@ async function loadInitial(): Promise<{ flights: FlightRow[]; today: string }> {
 export default async function ZboruriPage() {
   const { flights, today } = await loadInitial()
 
-  const ld = {
+  const ld = [{
     '@context': 'https://schema.org',
     '@type': 'WebPage',
     name: 'Zboruri — Aeroporturile Transilvaniei',
@@ -55,12 +58,24 @@ export default async function ZboruriPage() {
       { '@type': 'Airport', name: 'Aeroportul Internațional „Transilvania” Târgu Mureș', iataCode: 'TGM', icaoCode: 'LRTM' },
       { '@type': 'Airport', name: 'Aeroportul Internațional Sibiu', iataCode: 'SBZ', icaoCode: 'LRSB' },
     ],
-  }
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Acasă', item: `${SITE_URL}/` },
+      { '@type': 'ListItem', position: 2, name: 'Zboruri', item: `${SITE_URL}/zboruri/` },
+    ],
+  }]
 
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld) }} />
+      <AirportQuickLinks lang="ro" />
       <FlightBoard initialFlights={flights} initialToday={today} initialLang="ro" />
+      <div className="max-w-7xl mx-auto border-x border-foreground/10 px-4 sm:px-6 pb-8">
+        <AdUnit type="leaderboard" slot={AD_SLOTS.zboruriBelowBoard} />
+      </div>
     </>
   )
 }

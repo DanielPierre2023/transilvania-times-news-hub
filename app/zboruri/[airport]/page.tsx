@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import FlightBoard from '@/app/components/FlightBoard'
+import AdUnit from '@/app/components/AdUnit'
+import { AD_SLOTS } from '@/lib/ads'
 import { createSupabaseAnonClient } from '@/lib/supabase/service'
 import { AIRPORTS, bucharestDate, addDays, type FlightRow } from '@/lib/flights'
 import { SLUG_TO_AIRPORT, AIRPORT_SLUG, AIRPORT_SEO } from '@/lib/airport-seo'
@@ -72,6 +74,14 @@ export default async function AirportZboruriPage({ params }: PageProps) {
         acceptedAnswer: { '@type': 'Answer', text: f.a },
       })),
     },
+    {
+      '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Acasă', item: `${SITE_URL}/` },
+        { '@type': 'ListItem', position: 2, name: 'Zboruri', item: `${SITE_URL}/zboruri/` },
+        { '@type': 'ListItem', position: 3, name: m.short, item: `${SITE_URL}/zboruri/${slug}/` },
+      ],
+    },
   ]
 
   return (
@@ -91,6 +101,10 @@ export default async function AirportZboruriPage({ params }: PageProps) {
       </div>
 
       <FlightBoard initialFlights={flights} initialToday={today} initialLang="ro" initialAirport={code} />
+
+      <div className="max-w-7xl mx-auto border-x border-foreground/10 px-4 sm:px-6">
+        <AdUnit type="leaderboard" slot={AD_SLOTS.airportAboveFaq} />
+      </div>
 
       <div className="max-w-7xl mx-auto border-x border-foreground/10">
         <div className="px-4 sm:px-6 py-10 max-w-3xl">

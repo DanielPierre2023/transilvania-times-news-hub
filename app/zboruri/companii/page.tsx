@@ -40,6 +40,14 @@ export default async function CompaniiPage() {
         '@type': 'ListItem', position: i + 1, name: a.name,
       })),
     },
+    {
+      '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Acasă', item: `${SITE_URL}/` },
+        { '@type': 'ListItem', position: 2, name: 'Zboruri', item: `${SITE_URL}/zboruri/` },
+        { '@type': 'ListItem', position: 3, name: 'Companii aeriene & bagaje', item: `${SITE_URL}/zboruri/companii/` },
+      ],
+    },
   ]
   return (
     <>
