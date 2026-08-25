@@ -51,6 +51,9 @@ interface ProofResult {
   title_en?: string; content_en?: string; excerpt_en?: string; summary_en?: string
   tags_en?: string[]; seo_title_en?: string; seo_description_en?: string
   corrected_content?: string
+  // Rich (imported) articles only: the translated body, as sanitized HTML with
+  // the SAME structure as the source (bold/italic/headings/tables preserved).
+  translated_body_html?: string
   _meta?: { elapsed_s: number; summary_words: number; summary_in_range: boolean; translated: boolean }
 }
 
@@ -369,7 +372,27 @@ export default function EditorTokenPage() {
         })
         if (fnErr) throw new Error(fnErr.message)
         if (!data?.ok) throw new Error(data?.error || 'Generarea metadatelor a eșuat.')
-        setProofResult({ ...(data as ProofResult), ok: true, corrections: [] })
+
+        // Translate the body 1:1 (structure-preserving HTML) so the other
+        // language matches exactly — bold, italic, headings and tables intact.
+        let translatedBodyHtml = ''
+        if (translate) {
+          try {
+            const { data: tr, error: trErr } = await supabase.functions.invoke('tt-translate-html', {
+              body: { html: content, source_lang: language, target_lang: language === 'ro' ? 'en' : 'ro' },
+            })
+            if (!trErr && tr?.ok && tr?.html) {
+              const sanitizeHtml = (await import('sanitize-html')).default
+              translatedBodyHtml = sanitizeHtml(tr.html as string, SANITIZE_OPTS).trim()
+            } else {
+              setError(`Traducerea 1:1 a corpului nu a putut fi generată${trErr ? `: ${trErr.message}` : ''}. Metadatele și versiunea ${language === 'ro' ? 'RO' : 'EN'} sunt gata; poți publica și adăuga traducerea ulterior.`)
+            }
+          } catch (te) {
+            setError(`Traducerea 1:1 a corpului a eșuat: ${(te as Error).message}. Poți publica versiunea ${language === 'ro' ? 'RO' : 'EN'} și reîncerca.`)
+          }
+        }
+
+        setProofResult({ ...(data as ProofResult), ok: true, corrections: [], translated_body_html: translatedBodyHtml })
         setCorrections([])
         setTab('preview')
         await saveDraft(true)
@@ -465,6 +488,15 @@ export default function EditorTokenPage() {
         word_count: pr.word_count || wordCount(plainForCount),
         layout_mode: layoutMode,
         status: 'draft',
+      }
+
+      // Rich (imported) articles: both language bodies are structure-preserving
+      // HTML — the authored body in `language`, the 1:1 translation in the other.
+      if (layoutMode === 'rich') {
+        const authored = finalContent
+        const translated = pr.translated_body_html || ''
+        row.content_ro = language === 'ro' ? authored : (translated || (row.content_ro as string) || '')
+        row.content_en = language === 'en' ? authored : (translated || (row.content_en as string) || '')
       }
 
       const { data, error: insertErr } = await supabase.from('blog_posts').insert(row).select('id').single()
@@ -1015,7 +1047,18 @@ export default function EditorTokenPage() {
                   </div>
                 )}
               </div>
-              {proofResult._meta?.translated && (
+              {layoutMode === 'rich' && proofResult.translated_body_html && looksLikeHtml(proofResult.translated_body_html) && (
+                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-2 flex items-center gap-1">
+                    <Globe className="w-3.5 h-3.5" /> Versiunea {language === 'ro' ? 'EN' : 'RO'} (aspect 1:1)
+                  </p>
+                  <div
+                    className="max-h-96 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 rounded-lg p-4 border border-zinc-100 dark:border-zinc-800 prose prose-sm max-w-none font-serif text-zinc-800 dark:text-zinc-200 prose-headings:font-serif prose-headings:font-bold prose-strong:font-bold prose-table:text-sm [&_td]:border [&_th]:border [&_td]:px-2 [&_th]:px-2 [&_td]:py-1 [&_th]:py-1"
+                    dangerouslySetInnerHTML={{ __html: proofResult.translated_body_html }}
+                  />
+                </div>
+              )}
+              {proofResult._meta?.translated && !(layoutMode === 'rich' && proofResult.translated_body_html) && (
                 <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
                   <p className="text-xs text-green-600 flex items-center gap-1">
                     <Globe className="w-3.5 h-3.5" /> Traducerea {language === 'ro' ? 'EN' : 'RO'} a fost generată
