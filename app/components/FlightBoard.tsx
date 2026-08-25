@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   PlaneTakeoff, PlaneLanding, Search, RefreshCw, Plane, Share2, Check,
-  SlidersHorizontal, ChevronDown, X,
+  SlidersHorizontal, ChevronDown, X, Building2,
 } from 'lucide-react'
 import AirportsLogo from './AirportsLogo'
 import AirlineLogo from './AirlineLogo'
@@ -161,6 +161,11 @@ export default function FlightBoard({ initialFlights, initialToday, initialLang,
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <a href={lang === 'en' ? '/en/zboruri/companii/' : '/zboruri/companii/'}
+              className="hidden sm:inline-flex items-center gap-1.5 font-sans text-[11px] font-bold uppercase tracking-wider text-foreground/60 hover:text-brand-red transition-colors"
+              title={lang === 'ro' ? 'Companii aeriene & bagaje' : 'Airlines & baggage'}>
+              <Building2 className="w-3.5 h-3.5" />{lang === 'ro' ? 'Companii' : 'Airlines'}
+            </a>
             <span className="inline-flex items-center gap-1.5 font-sans text-[10px] font-bold uppercase tracking-[0.14em] text-brand-red" aria-live="polite">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-red/50" />

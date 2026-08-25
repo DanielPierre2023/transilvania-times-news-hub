@@ -41,19 +41,25 @@ function sources(code: string, wide: boolean): string[] {
 export default function AirlineLogo({
   flightNo,
   wide = false,
+  large = false,
   className = '',
 }: {
   flightNo: string
   wide?: boolean
+  large?: boolean
   className?: string
 }) {
   const code = airlineCode(flightNo)
   const isIata = /^[A-Z0-9]{2}$/.test(code)
   const [idx, setIdx] = useState(0)
 
-  const box = wide
-    ? 'inline-flex h-7 w-[76px] items-center justify-start shrink-0'
-    : 'inline-flex h-7 w-9 items-center justify-center shrink-0'
+  const box = large
+    ? (wide
+        ? 'inline-flex h-10 w-[92px] items-center justify-start shrink-0'
+        : 'inline-flex h-10 w-12 items-center justify-center shrink-0')
+    : (wide
+        ? 'inline-flex h-7 w-[76px] items-center justify-start shrink-0'
+        : 'inline-flex h-7 w-9 items-center justify-center shrink-0')
 
   const srcs = isIata ? sources(code, wide) : []
   const src = srcs[idx]
@@ -62,7 +68,8 @@ export default function AirlineLogo({
     return (
       <span className={`${box} ${className}`} aria-hidden="true">
         <span
-          className="inline-flex items-center justify-center h-6 min-w-[34px] px-1.5 rounded-sm font-mono text-[12px] font-bold text-white"
+          className={`inline-flex items-center justify-center rounded-sm font-mono font-bold text-white ${
+            large ? 'h-9 min-w-[46px] px-2 text-[15px]' : 'h-6 min-w-[34px] px-1.5 text-[12px]'}`}
           style={{ backgroundColor: airlineColor(flightNo) }}
         >
           {code}
@@ -81,11 +88,15 @@ export default function AirlineLogo({
         key={src}
         src={src}
         alt=""
-        width={wide && !isKiwi ? 76 : 28}
-        height={28}
+        width={wide && !isKiwi ? (large ? 92 : 76) : (large ? 40 : 28)}
+        height={large ? 40 : 28}
         loading="lazy"
         onError={() => setIdx((i) => i + 1)}
-        className={wide && !isKiwi ? 'h-7 w-[76px] object-contain object-left' : 'h-7 w-7 object-contain'}
+        className={
+          wide && !isKiwi
+            ? (large ? 'h-10 w-[92px] object-contain object-left' : 'h-7 w-[76px] object-contain object-left')
+            : (large ? 'h-10 w-10 object-contain' : 'h-7 w-7 object-contain')
+        }
         style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: wide ? 'left center' : 'center' } : undefined}
       />
     </span>
