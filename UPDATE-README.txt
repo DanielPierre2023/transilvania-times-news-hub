@@ -1,26 +1,20 @@
-TRANSILVANIA TIMES — Zboruri: „Companii & bagaje" — design nou cu carduri
-=========================================================================
+TRANSILVANIA TIMES — Zboruri: secțiune „Urmărește-ți bagajul"
+=============================================================
 
-Extrageți în rădăcina repo-ului, commit + push. Pură frontend, nimic în Supabase.
-Înlocuiește zip-ul „companii" anterior (superset complet).
+Extrageți în rădăcina repo-ului, commit + push. Nimic în Supabase. Superset.
 
-CE E NOU (design):
-  • Carduri ALBE distincte, cu umbră și colțuri rotunjite, pe un fundal cald
-    colorat — fiecare companie separată clar, fără confuzie.
-  • Bandă superioară în culoarea companiei (identitate) + insigne colorate
-    pe aeroport: CLJ roșu, TGM verde-petrol, SBZ albastru — nicio confuzie.
-  • LOGO-UL companiei, mare, într-o casetă albă în capul fiecărui card
-    (aceeași sursă ca panoul live).
-  • Rutele plafonate la 12 + buton „+N rute" pentru restul (cardurile rămân
-    compacte; lista completă e la o atingere).
-  • Cardurile de birou bagaje (sus) au același stil: alb, bandă colorată,
-    insignă de aeroport.
+CE E NOU:
+  • Secțiune „Urmărește-ți bagajul online" pe pagina Companii: după PIR și
+    numărul de referință, urmăriți bagajul pe pagina OFICIALĂ a companiei.
+    Linkuri directe VERIFICATE pentru companiile principale:
+      Wizz Air, TAROM, Lufthansa, Turkish Airlines, Ryanair.
+  • Link „Urmărește bagajul ↗" și pe cardul fiecăreia dintre aceste companii,
+    în panoul de bagaje.
+  • Pentru restul companiilor: site-ul oficial din card (nu inventăm linkuri).
 
-Datele (rute complete, handling Menzies/TAROM/Turkish) rămân cele reale,
-neschimbate.
+Toate linkurile de urmărire au fost verificate ca pagini oficiale reale.
 
 Fișiere modificate:
-  app/components/AirlineLogo.tsx        (dimensiune „large" pentru logo în card)
-  app/components/AirlinesDirectory.tsx  (carduri noi + plafonare rute)
-  app/components/AirlinesPageContent.tsx(carduri birou bagaje)
-(restul, neschimbate, incluse ca superset)
+  lib/airline-directory.ts               (câmp baggageTracking + 5 linkuri)
+  app/components/AirlinesDirectory.tsx   (link pe card)
+  app/components/AirlinesPageContent.tsx (secțiunea nouă)

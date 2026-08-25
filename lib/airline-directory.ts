@@ -146,6 +146,9 @@ export interface DirectoryAirline {
   airports: AirportCode[]
   /** Marked seasonal/charter → shown with a caveat. */
   seasonal?: boolean
+  /** Official baggage-tracing / delayed-bag page (verified). Used for the
+   *  "track your bag" links. Only set where confirmed, never guessed. */
+  baggageTracking?: string
 }
 
 /** Ordered alphabetically by display name at render time. Websites are the
@@ -158,16 +161,106 @@ export const AIRLINE_DIRECTORY: DirectoryAirline[] = [
   { iata: 'XC', name: 'Corendon Airlines', website: 'https://www.corendonairlines.com', airports: ['CLJ', 'SBZ'], seasonal: true },
   { iata: 'H4', name: 'HiSky', website: 'https://www.hisky.aero', airports: ['CLJ', 'SBZ'] },
   { iata: 'LO', name: 'LOT Polish Airlines', website: 'https://www.lot.com', airports: ['CLJ'] },
-  { iata: 'LH', name: 'Lufthansa', website: 'https://www.lufthansa.com', airports: ['CLJ', 'SBZ'] },
+  { iata: 'LH', name: 'Lufthansa', website: 'https://www.lufthansa.com', airports: ['CLJ', 'SBZ'], baggageTracking: 'https://www.lufthansa.com/us/en/baggage-irregularities' },
   { iata: 'NE', name: 'Nesma Airlines', website: 'https://www.nesmaairlines.com', airports: ['SBZ'], seasonal: true },
   { iata: 'DY', name: 'Norwegian', website: 'https://www.norwegian.com', airports: ['CLJ'], seasonal: true },
   { iata: 'PC', name: 'Pegasus Airlines', website: 'https://www.flypgs.com', airports: ['CLJ'] },
-  { iata: 'FR', name: 'Ryanair', website: 'https://www.ryanair.com', airports: ['CLJ'] },
+  { iata: 'FR', name: 'Ryanair', website: 'https://www.ryanair.com', airports: ['CLJ'], baggageTracking: 'https://help.ryanair.com/hc/en-us/sections/12489260303377-Damaged-Lost-or-Delayed-Bags' },
   { iata: 'GQ', name: 'Sky Express', website: 'https://www.skyexpress.gr', airports: ['CLJ', 'TGM', 'SBZ'], seasonal: true },
   { iata: 'U5', name: 'SkyUp Airlines', website: 'https://www.skyup.aero', airports: ['CLJ'], seasonal: true },
   { iata: 'LX', name: 'SWISS', website: 'https://www.swiss.com', airports: ['CLJ'] },
   { iata: 'TI', name: 'Tailwind Airlines', website: 'https://www.tailwind.com.tr', airports: ['TGM'], seasonal: true },
-  { iata: 'RO', name: 'TAROM', website: 'https://www.tarom.ro', airports: ['CLJ', 'SBZ', 'TGM'] },
-  { iata: 'TK', name: 'Turkish Airlines', website: 'https://www.turkishairlines.com', airports: ['CLJ'] },
-  { iata: 'W4', name: 'Wizz Air', website: 'https://wizzair.com', airports: ['CLJ', 'TGM', 'SBZ'] },
+  { iata: 'RO', name: 'TAROM', website: 'https://www.tarom.ro', airports: ['CLJ', 'SBZ', 'TGM'], baggageTracking: 'https://www.tarom.ro/en/lost-or-delayed-baggage' },
+  { iata: 'TK', name: 'Turkish Airlines', website: 'https://www.turkishairlines.com', airports: ['CLJ'], baggageTracking: 'https://www.turkishairlines.com/en-int/any-questions/baggage-issues/' },
+  { iata: 'W4', name: 'Wizz Air', website: 'https://wizzair.com', airports: ['CLJ', 'TGM', 'SBZ'], baggageTracking: 'https://www.wizzair.com/en-gb/help-centre/damaged-or-lost-bags-and-items/damaged-delayed-and-lost-bags/lost-baggage-tracking' },
 ]
+
+/* ── Handler spotlight: Menzies Aviation Romania ──────────────────────────────
+ *  The dominant ramp & baggage handler at CLJ and the sole handler at SBZ.
+ *  Shown as a presentation card at the top of /zboruri/companii so passengers
+ *  know where lost checked baggage and items left on board are dealt with. */
+
+export interface HandlerSpotlight {
+  name: string
+  logo: string
+  brand: string
+  tagline: { ro: string; en: string }
+  about: { ro: string; en: string }
+  stations: {
+    airport: AirportCode
+    role: { ro: string; en: string }
+    phones: string[]
+    emails: string[]
+    hours: { ro: string; en: string }
+  }[]
+  website: string
+}
+
+export const MENZIES: HandlerSpotlight = {
+  name: 'Menzies Aviation Romania',
+  logo: '/handlers/menzies.png',
+  brand: '#213768',
+  tagline: {
+    ro: 'Agentul principal de handling (rampă & bagaje) la Cluj-Napoca și Sibiu',
+    en: 'The main ground handler (ramp & baggage) at Cluj-Napoca and Sibiu',
+  },
+  about: {
+    ro: 'Menzies asigură serviciile „sub aripă” — descărcarea și încărcarea avionului, sortarea și transportul bagajelor, plus check-in și îmbarcare pentru majoritatea companiilor. Dacă un bagaj de cală lipsește sau e deteriorat, ori ați uitat un obiect la bord, ghișeul Menzies este primul punct de contact la Cluj și Sibiu. La Târgu Mureș, handlingul e făcut de aeroport (mai jos).',
+    en: 'Menzies runs the “below-the-wing” services — aircraft loading/unloading, baggage sorting and transport, plus check-in and boarding for most airlines. If a checked bag is missing or damaged, or you left something on board, the Menzies desk is the first point of contact at Cluj and Sibiu. At Târgu Mureș, handling is done by the airport itself (below).',
+  },
+  stations: [
+    {
+      airport: 'CLJ',
+      role: { ro: 'Aeroportul Cluj-Napoca — pasageri, rampă, bagaje', en: 'Cluj-Napoca Airport — passenger, ramp, baggage' },
+      phones: ['+40 264 307 562', '+40 264 307 506'],
+      emails: ['clj.admin@menziesaviation.com', 'clj.tkt@menziesaviation.com'],
+      hours: { ro: 'Zilnic 04:30–20:00', en: 'Daily 04:30–20:00' },
+    },
+    {
+      airport: 'SBZ',
+      role: { ro: 'Aeroportul Sibiu — pasageri, rampă, bagaje', en: 'Sibiu Airport — passenger, ramp, baggage' },
+      phones: ['+40 758 255 710'],
+      emails: [],
+      hours: { ro: 'Non-stop, 24/7', en: 'Around the clock, 24/7' },
+    },
+  ],
+  website: 'https://www.menziesaviation.com',
+}
+
+/* ── Two contexts for a lost item ─────────────────────────────────────────────
+ *  (1) AT THE AIRPORT — a checked bag missing/damaged at reclaim (the handler
+ *      desks above), or an item dropped in the terminal (airport lost & found).
+ *  (2) DURING THE FLIGHT / ON BOARD — a personal item left on the aircraft,
+ *      which is the airline's responsibility; at CLJ/SBZ items found on board
+ *      are collected by Menzies, at TGM by the airport. */
+
+export interface TerminalLostFound {
+  name: { ro: string; en: string }
+  phone?: string
+  email?: string
+}
+
+/** Airport-operator lost property for items dropped in the TERMINAL (not the
+ *  baggage-handler desk). */
+export const TERMINAL_LOST_FOUND: Record<AirportCode, TerminalLostFound> = {
+  CLJ: {
+    name: { ro: 'Aeroportul Cluj-Napoca — obiecte pierdute', en: 'Cluj-Napoca Airport — lost property' },
+    phone: '+40 264 307 500',
+    email: 'office@airportcluj.ro',
+  },
+  TGM: {
+    name: { ro: 'Aeroportul Transilvania (Târgu Mureș) — handling propriu', en: 'Transylvania Airport (Târgu Mureș) — in-house handling' },
+    phone: '+40 265 328 258',
+    email: 'handling@transylvaniaairport.ro',
+  },
+  SBZ: {
+    name: { ro: 'Aeroportul Sibiu — ghișeul Menzies (24/7)', en: 'Sibiu Airport — Menzies desk (24/7)' },
+    phone: '+40 758 255 710',
+  },
+}
+
+/** Guidance for an item left ON BOARD / during the flight. */
+export const ONBOARD_GUIDANCE = {
+  ro: 'Un obiect uitat în avion aparține companiei aeriene, nu aeroportului. Anunțați cât mai repede compania cu care ați zburat (numărul zborului și locul). La Cluj și Sibiu, obiectele găsite la bord sunt de regulă colectate de Menzies (contact mai sus); la Târgu Mureș, de aeroport. Confirmați întotdeauna cu compania aeriană.',
+  en: 'An item left on the aircraft is the airline’s responsibility, not the airport’s. Contact the airline you flew with as soon as possible (flight number and seat). At Cluj and Sibiu, items found on board are usually collected by Menzies (contact above); at Târgu Mureș, by the airport. Always confirm with your airline.',
+} as const

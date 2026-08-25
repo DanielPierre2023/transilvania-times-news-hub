@@ -19,14 +19,14 @@ const T = {
   ro: {
     all: 'Toate', search: 'Caută companie sau destinație…',
     destinations: 'Destinații', website: 'Site oficial', flights: 'Vezi zborurile',
-    lostFound: 'Bagaje & obiecte pierdute',
+    lostFound: 'Bagaje & obiecte pierdute', trackBag: 'Urmărește bagajul',
     seasonal: 'sezonier', none: 'Nicio companie pentru filtrul selectat.',
     noRoutes: 'Fără rute în programul curent', more: 'rute', less: 'mai puține',
   },
   en: {
     all: 'All', search: 'Search airline or destination…',
     destinations: 'Destinations', website: 'Official site', flights: 'See flights',
-    lostFound: 'Baggage & lost property',
+    lostFound: 'Baggage & lost property', trackBag: 'Track your bag',
     seasonal: 'seasonal', none: 'No airline matches the current filter.',
     noRoutes: 'No routes in the current schedule', more: 'routes', less: 'fewer',
   },
@@ -214,6 +214,12 @@ function AirlineCard({ a, aps, destinations, lang, t, boardBase }: {
               )
             })}
           </div>
+          {a.baggageTracking && (
+            <a href={a.baggageTracking} target="_blank" rel="noopener noreferrer nofollow"
+              className="mt-3 inline-flex items-center gap-1.5 font-sans text-[11px] font-bold text-brand-red hover:underline">
+              <ExternalLink className="w-3.5 h-3.5" /> {t.trackBag}
+            </a>
+          )}
         </div>
       </div>
 
