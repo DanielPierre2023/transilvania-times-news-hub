@@ -23,7 +23,8 @@ import {
   Upload, Globe, FileText, Loader2, X, RotateCcw, ShieldAlert,
   FileType, AlignLeft, LayoutList
 } from 'lucide-react'
-import { tokenizeRichBlocks, renderInline } from '@/lib/article-blocks'
+import { tokenizeRichBlocks, renderInline, looksLikeHtml } from '@/lib/article-blocks'
+import type { IOptions } from 'sanitize-html'
 
 type LayoutMode = 'auto' | 'rich'
 
@@ -86,21 +87,38 @@ function wordCount(t: string): number {
   return t ? t.trim().split(/\s+/).filter(w => w.length > 0).length : 0
 }
 
-// ── Word (.docx) → canonical marker text ────────────────────────────────────
-// Browser-only helpers (use DOMParser/document); called solely from the import
-// handler, never during SSR. See handleDocxImport for the mapping rationale.
+// ── Word (.docx) → 1:1 sanitized HTML ────────────────────────────────────────
+// Browser-only helpers (DOMParser/document); called solely from the import
+// handler, never during SSR. The .docx is converted to HTML and rendered
+// verbatim on the published page — bold, italic, headings, lists and tables
+// preserved exactly as authored. See handleDocxImport.
 
-function inlineToMarkers(el: Element): string {
-  let s = el.innerHTML
-  s = s.replace(/<\/?(strong|b)\b[^>]*>/gi, '**')  // bold runs → **
-  s = s.replace(/<br\s*\/?>/gi, ' ')
-  s = s.replace(/<[^>]+>/g, '')                    // strip remaining tags
-  const ta = document.createElement('textarea')    // decode HTML entities
-  ta.innerHTML = s
-  s = ta.value
-  s = s.replace(/\*\*\s*\*\*/g, ' ')               // drop empty ** ** pairs
-  s = s.replace(/[ \t]+/g, ' ').trim()
-  return s
+// Strict allowlist for editor-imported HTML. Anything outside this set (scripts,
+// styles, event handlers, unknown attributes) is dropped at import time, so the
+// stored body is safe to render directly on the published page.
+const SANITIZE_OPTS: IOptions = {
+  allowedTags: [
+    'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
+    'h2', 'h3', 'h4', 'blockquote',
+    'ul', 'ol', 'li', 'a', 'sub', 'sup', 'hr',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+  ],
+  allowedAttributes: {
+    a: ['href', 'title'],
+    th: ['colspan', 'rowspan', 'scope'],
+    td: ['colspan', 'rowspan'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  transformTags: {
+    // Keep a single <h1> on the page (the article title); demote doc headings.
+    h1: 'h2',
+    a: (tagName, attribs) => ({ tagName: 'a', attribs: { ...attribs, rel: 'noopener noreferrer' } }),
+  },
+}
+
+function stripHtmlToText(html: string): string {
+  const doc = new DOMParser().parseFromString(html || '', 'text/html')
+  return (doc.body.textContent || '').replace(/\s+/g, ' ').trim()
 }
 
 function isWholeBold(el: Element, text: string): boolean {
@@ -110,60 +128,38 @@ function isWholeBold(el: Element, text: string): boolean {
   return norm(text).length > 0 && norm(bold).length >= norm(text).length
 }
 
-function docxHtmlToCanonical(html: string): { title: string; body: string } {
+// Split a mammoth HTML document into { title, bodyHtml }:
+//   • first heading OR first whole-bold short paragraph → title (removed from
+//     the body so it is not duplicated under the page's <h1>);
+//   • a leading "de X" / "by X" byline paragraph → dropped (author = token).
+// The remaining markup is returned untouched, for the caller to sanitize.
+function docxHtmlToArticle(html: string): { title: string; bodyHtml: string } {
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const children = Array.from(doc.body.children)
-  const out: string[] = []
+  const body = doc.body
   let title = ''
-  let sawTitle = false
 
-  for (let idx = 0; idx < children.length; idx++) {
-    const el = children[idx]
-    const tag = el.tagName.toLowerCase()
-    const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
-
-    if (tag === 'ul' || tag === 'ol') {
-      const items = Array.from(el.querySelectorAll(':scope > li'))
-      items.forEach((li, i) => {
-        const t = inlineToMarkers(li)
-        if (t) out.push(tag === 'ol' ? `${i + 1}. ${t}` : `- ${t}`)
-      })
-      continue
+  const first = Array.from(body.children).find(el => (el.textContent || '').trim().length > 0)
+  if (first) {
+    const tag = first.tagName.toLowerCase()
+    const text = (first.textContent || '').replace(/\s+/g, ' ').trim()
+    const boldTitle = (tag === 'p' || tag === 'div') && isWholeBold(first, text) && text.split(/\s+/).length <= 16
+    if (/^h[1-6]$/.test(tag) || boldTitle) {
+      title = text
+      first.remove()
     }
-
-    if (!text) continue
-
-    const hMatch = tag.match(/^h([1-6])$/)
-    if (hMatch) {
-      if (!sawTitle && !title) { title = text; sawTitle = true; continue }
-      out.push(parseInt(hMatch[1], 10) >= 3 ? `### ${text}` : `## ${text}`)
-      continue
-    }
-
-    if (tag === 'p' || tag === 'div') {
-      const wholeBold = isWholeBold(el, text)
-      const words = text.split(/\s+/).length
-
-      // First whole-bold short line → article title (only if none yet).
-      if (!sawTitle && !title && wholeBold && words <= 16 && idx <= 1) {
-        title = text; sawTitle = true; continue
-      }
-      // Leading "de X" / "by X" byline → drop (author comes from the token).
-      if (wholeBold && idx < 3 && words <= 5 && /^(de|by)\s+\S+/i.test(text)) continue
-
-      if (wholeBold) {
-        const isQuote = /^[„“"«]/.test(text) || words > 14
-        out.push(isQuote ? `> ${text}` : `## ${text}`)
-      } else {
-        out.push(inlineToMarkers(el))
-      }
-      continue
-    }
-
-    out.push(inlineToMarkers(el))
   }
 
-  return { title, body: out.filter(Boolean).join('\n\n') }
+  // Drop a "de X" / "by X" byline among the first few blocks (author = token).
+  for (const el of Array.from(body.children).filter(e => (e.textContent || '').trim()).slice(0, 3)) {
+    if (el.tagName.toLowerCase() !== 'p') continue
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+    if (isWholeBold(el, text) && text.split(/\s+/).length <= 5 && /^(de|by)\s+\S+/i.test(text)) {
+      el.remove()
+      break
+    }
+  }
+
+  return { title, bodyHtml: body.innerHTML }
 }
 
 // Apply user-accepted corrections to the original text.
@@ -251,9 +247,12 @@ export default function EditorTokenPage() {
   // instead start from the ORIGINAL user text and apply only the corrections
   // the user has accepted. This is what actually goes to blog_posts.
   const finalContent = useMemo(() => {
+    // Rich (imported) bodies are stored verbatim — the corrector never rewrites
+    // them, so the published article stays 1:1 with the Word document.
+    if (layoutMode === 'rich') return content
     if (!proofResult?.ok || !corrections.length) return content
     return applyCorrections(content, corrections)
-  }, [content, corrections, proofResult])
+  }, [content, corrections, proofResult, layoutMode])
 
   // State — UI
   const [tab, setTab] = useState<Tab>('write')
@@ -351,6 +350,37 @@ export default function EditorTokenPage() {
   // tab unlocks when phase 2 completes. Each phase gets its own gateway
   // budget, so one slow AI call no longer kills the whole pipeline.
   async function runProof() {
+    // Rich (imported HTML) articles keep the body 1:1 with Word, so we skip the
+    // text corrector entirely and only generate metadata + translation from the
+    // plain-text extraction. No corrections to review → straight to preview.
+    if (layoutMode === 'rich') {
+      const plain = stripHtmlToText(content)
+      if (plain.length < 300) { setError('Textul articolului trebuie să aibă minim 300 de caractere.'); return }
+      setProofing(true); setError(''); setMetaLoading(true)
+      try {
+        const { data, error: fnErr } = await supabase.functions.invoke('tt-proof-article', {
+          body: {
+            phase: 'metadata',
+            text: plain, title: title || undefined,
+            author_name: auth?.author_name || 'Redacția',
+            category, county: county || undefined,
+            language, translate,
+          },
+        })
+        if (fnErr) throw new Error(fnErr.message)
+        if (!data?.ok) throw new Error(data?.error || 'Generarea metadatelor a eșuat.')
+        setProofResult({ ...(data as ProofResult), ok: true, corrections: [] })
+        setCorrections([])
+        setTab('preview')
+        await saveDraft(true)
+      } catch (e) {
+        setError((e as Error).message)
+      } finally {
+        setProofing(false); setMetaLoading(false)
+      }
+      return
+    }
+
     if (!content || content.length < 300) { setError('Textul trebuie să aibă minim 300 de caractere.'); return }
     setProofing(true); setError('')
     try {
@@ -362,9 +392,9 @@ export default function EditorTokenPage() {
           author_name: auth?.author_name || 'Redacția',
           category, county: county || undefined,
           language, translate,
-          // Rich articles keep authored structure (subtitles, bold, dashes);
-          // auto articles get the standard flat-prose house style.
-          format_mode: layoutMode === 'rich' ? 'preserve' : 'enforce',
+          // Reached only for 'auto' articles (rich returns early above), which
+          // get the standard flat-prose house style.
+          format_mode: 'enforce',
         },
       })
       if (fnErr) throw new Error(fnErr.message)
@@ -413,7 +443,9 @@ export default function EditorTokenPage() {
     try {
       const pr = proofResult
       const slug = pr.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 60) + '-' + Math.random().toString(36).substring(2, 8)
-      const readingTime = Math.max(1, Math.round(wordCount(finalContent) / 200))
+      // For rich bodies, count words from the text, not the HTML markup.
+      const plainForCount = layoutMode === 'rich' ? stripHtmlToText(finalContent) : finalContent
+      const readingTime = Math.max(1, Math.round(wordCount(plainForCount) / 200))
 
       const row: Record<string, unknown> = {
         slug,
@@ -430,7 +462,7 @@ export default function EditorTokenPage() {
         ai_editor: null,
         cover_image: imageUrl || null, cover_image_credit: imageCredit || null,
         reading_time_min: readingTime,
-        word_count: pr.word_count || wordCount(content),
+        word_count: pr.word_count || wordCount(plainForCount),
         layout_mode: layoutMode,
         status: 'draft',
       }
@@ -449,20 +481,13 @@ export default function EditorTokenPage() {
     }
   }
 
-  // ── Import from Word (.docx)
+  // ── Import from Word (.docx) — 1:1 fidelity
   //
-  // Editors write in Word and mark structure with WHOLE-PARAGRAPH BOLD (section
-  // subtitles) plus the occasional bold pull-quote — Word heading styles are
-  // rare. A plain textarea paste throws all of that away, so instead we parse
-  // the .docx itself (mammoth → HTML) and map it to the canonical markers:
-  //   whole-bold short line   → ## subtitle
-  //   whole-bold long / „…"    → > pull-quote
-  //   Word Heading 1-2 / 3+    → ## / ###
-  //   list items              → - / 1.
-  //   inline bold             → **bold**
-  // The first bold line becomes the title (if empty); a leading "de X" byline
-  // line is dropped (the author comes from the editor token). Importing flips
-  // the article to 'rich' — the editor can switch it back to 'auto' anytime.
+  // mammoth converts the .docx to HTML with bold, italic, headings, lists and
+  // tables intact. We strip only the title/byline, sanitize against a strict
+  // allowlist, and store the HTML verbatim — the published page mirrors the
+  // Word document exactly. Import sets 'rich'; the editor can switch back to
+  // 'auto' (automatic pagination) anytime.
   async function handleDocxImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -473,15 +498,17 @@ export default function EditorTokenPage() {
       const mammoth = await import('mammoth/mammoth.browser')
       const convertToHtml = mammoth.convertToHtml ?? mammoth.default.convertToHtml
       const arrayBuffer = await file.arrayBuffer()
-      const { value: html } = await convertToHtml({ arrayBuffer })
-      const { title: importedTitle, body } = docxHtmlToCanonical(html)
-      if (!body.trim()) { setError('Documentul pare gol sau nu a putut fi citit.'); return }
+      const { value: rawHtml } = await convertToHtml({ arrayBuffer })
+      const { title: importedTitle, bodyHtml } = docxHtmlToArticle(rawHtml)
+      const sanitizeHtml = (await import('sanitize-html')).default
+      const clean = sanitizeHtml(bodyHtml, SANITIZE_OPTS).trim()
+      if (!stripHtmlToText(clean)) { setError('Documentul pare gol sau nu a putut fi citit.'); return }
       if (importedTitle && !title.trim()) setTitle(importedTitle)
-      setContent(body)
+      setContent(clean)
       setLayoutMode('rich')
       setTab('write')
-      setSuccess('Articol importat din Word. Aspect „structurat" activat — verifică subtitlurile și citatele înainte de corectură.')
-      setTimeout(() => setSuccess(''), 5000)
+      setSuccess('Articol importat din Word — aspect 1:1 (bold, italic, tabele păstrate). Verifică în previzualizare.')
+      setTimeout(() => setSuccess(''), 6000)
     } catch (err) {
       setError(`Import Word eșuat: ${(err as Error).message}`)
     } finally {
@@ -732,13 +759,29 @@ export default function EditorTokenPage() {
 
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[10px] uppercase tracking-wide text-zinc-400">Textul articolului</label>
-                <span className={`text-xs font-mono ${wc < 300 ? 'text-red-500' : 'text-zinc-400'}`}>{wc} cuvinte</span>
+                <label className="text-[10px] uppercase tracking-wide text-zinc-400">
+                  {layoutMode === 'rich' && looksLikeHtml(content) ? 'Articol importat din Word (aspect 1:1)' : 'Textul articolului'}
+                </label>
+                {layoutMode === 'rich' && looksLikeHtml(content) ? (
+                  <button onClick={() => { setContent(''); setLayoutMode('auto') }}
+                    className="text-xs text-zinc-400 hover:text-red-600 transition-colors flex items-center gap-1">
+                    <X className="w-3 h-3" /> Șterge & scrie manual
+                  </button>
+                ) : (
+                  <span className={`text-xs font-mono ${wc < 300 ? 'text-red-500' : 'text-zinc-400'}`}>{wc} cuvinte</span>
+                )}
               </div>
-              <textarea value={content} onChange={e => setContent(e.target.value)}
-                placeholder="Scrie aici textul articolului. Minimum 300 de caractere pentru corectura AI..."
-                rows={20}
-                className="w-full px-1 py-2 text-sm leading-relaxed border-0 bg-transparent text-zinc-900 dark:text-white focus:outline-none resize-y font-serif" />
+              {layoutMode === 'rich' && looksLikeHtml(content) ? (
+                <div
+                  className="prose prose-sm max-w-none font-serif text-zinc-800 dark:text-zinc-200 max-h-[520px] overflow-y-auto rounded-lg bg-zinc-50 dark:bg-zinc-950 p-4 border border-zinc-100 dark:border-zinc-800 prose-headings:font-serif prose-headings:font-bold prose-strong:font-bold prose-table:text-sm [&_td]:border [&_th]:border [&_td]:px-2 [&_th]:px-2 [&_td]:py-1 [&_th]:py-1"
+                  dangerouslySetInnerHTML={{ __html: content }}
+                />
+              ) : (
+                <textarea value={content} onChange={e => setContent(e.target.value)}
+                  placeholder="Scrie aici textul articolului. Minimum 300 de caractere pentru corectura AI..."
+                  rows={20}
+                  className="w-full px-1 py-2 text-sm leading-relaxed border-0 bg-transparent text-zinc-900 dark:text-white focus:outline-none resize-y font-serif" />
+              )}
             </div>
 
             {/* Image — same pattern as ArticleEditor */}
@@ -947,10 +990,15 @@ export default function EditorTokenPage() {
               </div>
               <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
                 <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-2">
-                  Conținut final ({wordCount(finalContent)} cuvinte
+                  Conținut final ({wordCount(layoutMode === 'rich' ? stripHtmlToText(finalContent) : finalContent)} cuvinte
                   {corrections.length > 0 && ` — ${corrections.filter(c => c.accepted !== false).length}/${corrections.length} corecturi aplicate`})
                 </p>
-                {layoutMode === 'rich' ? (
+                {layoutMode === 'rich' && looksLikeHtml(finalContent) ? (
+                  <div
+                    className="max-h-96 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 rounded-lg p-4 border border-zinc-100 dark:border-zinc-800 prose prose-sm max-w-none font-serif text-zinc-800 dark:text-zinc-200 prose-headings:font-serif prose-headings:font-bold prose-strong:font-bold prose-table:text-sm [&_td]:border [&_th]:border [&_td]:px-2 [&_th]:px-2 [&_td]:py-1 [&_th]:py-1"
+                    dangerouslySetInnerHTML={{ __html: finalContent }}
+                  />
+                ) : layoutMode === 'rich' ? (
                   <div className="max-h-96 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 rounded-lg p-4 border border-zinc-100 dark:border-zinc-800 space-y-3 font-serif text-zinc-800 dark:text-zinc-200">
                     {tokenizeRichBlocks(finalContent).map((b, i) => {
                       if (b.type === 'h2') return <h3 key={i} className="text-lg font-bold" dangerouslySetInnerHTML={{ __html: renderInline(b.text, false) }} />

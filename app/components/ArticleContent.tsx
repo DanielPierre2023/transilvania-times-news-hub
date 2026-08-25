@@ -6,7 +6,7 @@ import Image from 'next/image'
 import { Camera, Bot } from 'lucide-react'
 import AuthorByline, { type AuthorData } from './AuthorByline'
 import InlineRelatedBlock, { type InlineRelatedItem } from './InlineRelatedBlock'
-import { tokenizeRichBlocks, renderInline, type Block } from '@/lib/article-blocks'
+import { tokenizeRichBlocks, renderInline, looksLikeHtml, type Block } from '@/lib/article-blocks'
 
 export type { InlineRelatedItem }
 
@@ -241,8 +241,11 @@ export default function ArticleContent({
   // 'rich'  → semantic blocks from the canonical grammar (opt-in editorial).
   // else    → the original paragraph-normalisation ("fixed pagination").
   const isRich = layoutMode === 'rich'
+  // Rich bodies arrive in two forms: sanitized HTML imported from Word
+  // (rendered verbatim, 1:1) and manual marker shorthand (tokenized).
+  const isRichHtml = isRich && !!content && looksLikeHtml(content)
 
-  const richBlocks: Block[] = isRich && content ? tokenizeRichBlocks(content) : []
+  const richBlocks: Block[] = isRich && content && !isRichHtml ? tokenizeRichBlocks(content) : []
 
   const { paragraphs, preFormattedHtml } = !isRich && content
     ? extractParagraphs(content)
@@ -341,8 +344,23 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Article body — RICH (opt-in editorial layout) */}
-      {isRich && richBlocks.length > 0 && (
+      {/* Article body — RICH / imported Word HTML (1:1, sanitized at import).
+          Rendered verbatim so bold, italic, headings, lists and tables match
+          the source document exactly. The related block sits after the body so
+          it can never split a table. */}
+      {isRichHtml && (
+        <>
+          <div className={PROSE_CLASS} dangerouslySetInnerHTML={{ __html: content as string }} />
+          {inlineRelated.length >= 2 && (
+            <div className="my-8">
+              <InlineRelatedBlock articles={inlineRelated.slice(0, 2)} lang={lang} />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Article body — RICH / manual marker shorthand (## / > / - / **bold**) */}
+      {isRich && !isRichHtml && richBlocks.length > 0 && (
         <div className={PROSE_CLASS}>
           {richBlocks.map((block, idx) => (
             <div key={idx}>

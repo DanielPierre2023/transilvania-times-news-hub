@@ -72,6 +72,17 @@ export function hasStructureMarkers(raw: string): boolean {
 }
 
 /**
+ * Does this body look like real HTML (imported from Word) rather than plain
+ * text / marker shorthand? Rich bodies come in two forms: sanitized HTML from
+ * the .docx importer (rendered verbatim, 1:1) and manual marker shorthand
+ * (tokenized). This picks the HTML path.
+ */
+export function looksLikeHtml(raw: string): boolean {
+  if (!raw) return false
+  return /<(?:p|div|h[1-6]|ul|ol|li|table|thead|tbody|tr|td|th|blockquote|strong|em|b|i|u|a|br)\b[^>]*>/i.test(raw)
+}
+
+/**
  * Tokenize a rich-mode body into an ordered list of semantic blocks.
  * Pure and deterministic. Never throws on empty / malformed input.
  */
