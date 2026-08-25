@@ -15,7 +15,7 @@
 //   │  ┌────── TITLE IN RED BUBBLE ──────┐    │   ← rounded red bubble, white centered text
 //   │  │     (bold, white, centered)     │    │
 //   │  └─────────────▼───────────────────┘    │   ← red downward triangle tail
-//   ├──────── ARTICOL ÎN COMENTARII! ─────────┤   ← red bold text on white CTA banner
+//   ├──────── transilvaniatimes.com ──────────┤   ← brand domain wordmark banner
 //   └─────────────────────────────────────────┘
 //
 // Language toggle: RO ↔ EN. When EN selected, uses title_en + English CTA.
@@ -24,7 +24,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { Download, RefreshCw, Image as ImageIcon, Radio } from 'lucide-react'
+import { Download, RefreshCw, Image as ImageIcon, Radio, Sparkles, Copy, Check } from 'lucide-react'
 
 // ─── FORMATS ──────────────────────────────────────────────────────────────────
 
@@ -483,6 +483,18 @@ interface Article {
   is_breaking: boolean | null
 }
 
+// ─── SOCIAL COPY (from tt-social-copy edge function) ───────────────────────────
+
+interface SocialCopy {
+  url: string
+  primary_keyword?: string
+  facebook?: { post?: string; first_comment?: string; hashtags?: string[] }
+  instagram_feed?: { caption?: string; hashtags?: string[] }
+  instagram_story?: { text?: string }
+  x?: { post?: string }
+  linkedin?: { post?: string; hashtags?: string[] }
+}
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 export default function SocialPage() {
@@ -494,12 +506,23 @@ export default function SocialPage() {
   const [formatKey, setFormatKey] = useState<string>('story')
   const [isBreaking, setIsBreaking] = useState(false)
   const [breakingLabel, setBreakingLabel] = useState('BREAKING NEWS')
-  const [ctaRo, setCtaRo] = useState('ARTICOL ÎN COMENTARII!')
-  const [ctaEn, setCtaEn] = useState('ARTICLE IN COMMENTS!')
+  // Card banner: brand domain wordmark. Every share/screenshot becomes free
+  // brand + destination advertising, and it reads the same on every platform
+  // (unlike the old "ARTICOL ÎN COMENTARII!", which only made sense on a
+  // Facebook link-in-comments post). The link-in-comments tactic still lives
+  // in the generated Facebook copy below, where it belongs — in the post text.
+  const [ctaRo, setCtaRo] = useState('transilvaniatimes.com')
+  const [ctaEn, setCtaEn] = useState('transilvaniatimes.com')
   const [showOnlyBreaking, setShowOnlyBreaking] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [imageData, setImageData] = useState('')
   const [logoUrl] = useState('/assets/logos/logo-transilvania-times.png')
+
+  // ── SEO / social copy (per platform) ──────────────────────────────────────
+  const [copy, setCopy] = useState<SocialCopy | null>(null)
+  const [copyLoading, setCopyLoading] = useState(false)
+  const [copyError, setCopyError] = useState('')
+  const [copiedKey, setCopiedKey] = useState('')
 
   const supabase = createSupabaseBrowserClient()
 
@@ -516,6 +539,7 @@ export default function SocialPage() {
   const selectArticle = useCallback((id: string) => {
     setSelectedId(id)
     setImageData('')
+    setCopy(null); setCopyError('')
     const a = articles.find(x => x.id === id)
     if (a) {
       setTitle(lang === 'ro' ? (a.title_ro || a.title_en || '') : (a.title_en || a.title_ro || ''))
@@ -528,6 +552,7 @@ export default function SocialPage() {
   const switchLang = useCallback((newLang: Lang) => {
     setLang(newLang)
     setImageData('')
+    setCopy(null); setCopyError('')
     if (selectedId) {
       const a = articles.find(x => x.id === selectedId)
       if (a) {
@@ -551,6 +576,32 @@ export default function SocialPage() {
     }
     setGenerating(false)
   }, [title, coverUrl, formatKey, logoUrl, currentCta, isBreaking, breakingLabel])
+
+  // Generate reach-optimized, per-platform copy for the selected article.
+  const generateCopy = useCallback(async () => {
+    if (!selectedId) return
+    setCopyLoading(true)
+    setCopyError('')
+    setCopy(null)
+    try {
+      const { data, error } = await supabase.functions.invoke('tt-social-copy', {
+        body: { post_id: selectedId, lang },
+      })
+      if (error) throw new Error(error.message)
+      if (!data?.ok) throw new Error(data?.error || 'Generarea textului a eșuat.')
+      setCopy(data as SocialCopy)
+    } catch (e) {
+      setCopyError((e as Error).message)
+    }
+    setCopyLoading(false)
+  }, [selectedId, lang, supabase])
+
+  const copyToClipboard = useCallback((key: string, text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(''), 1600)
+    }).catch(() => {})
+  }, [])
 
   const download = useCallback(() => {
     if (!imageData) return
@@ -588,7 +639,7 @@ export default function SocialPage() {
       <div className="mb-6">
         <h1 className="font-serif text-2xl font-bold text-white">Social Media Generator</h1>
         <p className="font-sans text-[13px] text-white/40 mt-1">
-          Card cu titlu în Lora serif, BREAKING NEWS opțional, CTA bilingv
+          Card cu titlu în Lora serif + text social optimizat SEO, per platformă (RO/EN)
         </p>
       </div>
 
@@ -705,16 +756,20 @@ export default function SocialPage() {
             )}
           </div>
 
-          {/* CTA */}
+          {/* Banner (domain wordmark) */}
           <div className={sec}>
-            <p className={sh}>Call to Action</p>
+            <p className={sh}>Banner card</p>
+            <p className="font-sans text-[10px] text-white/30 -mt-2">
+              Textul din banda de jos a imaginii. Recomandat: domeniul — devine
+              reclamă de brand pe orice platformă și în orice screenshot.
+            </p>
             <div>
               <p className={`font-sans text-[10px] mb-1 ${lang === 'ro' ? 'text-white' : 'text-white/30'}`}>
                 RO {lang === 'ro' && <span className="text-[#C41E3A]">· activ</span>}
               </p>
               <input className={inp} value={ctaRo}
                 onChange={e => { setCtaRo(e.target.value); setImageData('') }}
-                placeholder="ARTICOL ÎN COMENTARII!" />
+                placeholder="transilvaniatimes.com" />
             </div>
             <div>
               <p className={`font-sans text-[10px] mb-1 ${lang === 'en' ? 'text-white' : 'text-white/30'}`}>
@@ -722,7 +777,7 @@ export default function SocialPage() {
               </p>
               <input className={inp} value={ctaEn}
                 onChange={e => { setCtaEn(e.target.value); setImageData('') }}
-                placeholder="ARTICLE IN COMMENTS!" />
+                placeholder="transilvaniatimes.com" />
             </div>
           </div>
 
@@ -748,6 +803,16 @@ export default function SocialPage() {
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generează...</>
               : <><ImageIcon className="w-4 h-4" /> Generează imagine</>}
           </button>
+
+          <button onClick={generateCopy} disabled={copyLoading || !selectedId}
+            className="w-full flex items-center justify-center gap-3 py-4 bg-[#0D1B4B] text-white font-sans text-[13px] font-bold uppercase tracking-widest hover:bg-[#0a1540] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {copyLoading
+              ? <><RefreshCw className="w-4 h-4 animate-spin" /> Scriu textele...</>
+              : <><Sparkles className="w-4 h-4" /> Generează text social (SEO)</>}
+          </button>
+          <p className="font-sans text-[10px] text-white/25 text-center">
+            Text optimizat pentru reach, separat pe Facebook, Instagram, X și LinkedIn — în limba {lang === 'ro' ? 'română' : 'engleză'}.
+          </p>
         </div>
 
         {/* RIGHT preview */}
@@ -784,6 +849,109 @@ export default function SocialPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* SEO / SOCIAL COPY RESULTS ─────────────────────────────────────────── */}
+      {(copyError || copy) && (
+        <div className="mt-8">
+          {copyError && (
+            <div className="bg-[#2a1416] border border-[#C41E3A]/40 text-[#f3b4bb] font-sans text-[13px] px-4 py-3">
+              ⚠ {copyError}
+            </div>
+          )}
+
+          {copy && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h2 className="font-serif text-xl font-bold text-white">Text social — gata de postat</h2>
+                {copy.primary_keyword && (
+                  <span className="font-sans text-[11px] text-white/50">
+                    Cuvânt-cheie: <span className="text-[#F0A500] font-bold">{copy.primary_keyword}</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <CopyCard title="Facebook" accent="#1877F2"
+                  blocks={[
+                    { key: 'fb-post', label: 'Postare', text: copy.facebook?.post },
+                    { key: 'fb-comment', label: 'Primul comentariu (link)', text: copy.facebook?.first_comment },
+                    { key: 'fb-tags', label: 'Hashtag-uri', text: (copy.facebook?.hashtags || []).join(' ') },
+                  ]}
+                  copiedKey={copiedKey} onCopy={copyToClipboard} />
+
+                <CopyCard title="Instagram — Feed" accent="#E1306C"
+                  blocks={[
+                    { key: 'ig-cap', label: 'Descriere', text: copy.instagram_feed?.caption },
+                    { key: 'ig-tags', label: 'Hashtag-uri', text: (copy.instagram_feed?.hashtags || []).join(' ') },
+                  ]}
+                  copiedKey={copiedKey} onCopy={copyToClipboard} />
+
+                <CopyCard title="Instagram — Story" accent="#F0A500"
+                  blocks={[
+                    { key: 'igs', label: 'Text (lângă sticker-ul de link)', text: copy.instagram_story?.text },
+                    { key: 'igs-link', label: 'Link pentru sticker', text: copy.url },
+                  ]}
+                  copiedKey={copiedKey} onCopy={copyToClipboard} />
+
+                <CopyCard title="X / Twitter" accent="#000000"
+                  blocks={[
+                    { key: 'x', label: `Tweet + link (${(copy.x?.post || '').length + 1 + (copy.url?.length || 0)} car.)`,
+                      text: copy.x?.post ? `${copy.x.post}\n${copy.url}` : copy.url },
+                  ]}
+                  copiedKey={copiedKey} onCopy={copyToClipboard} />
+
+                <CopyCard title="LinkedIn" accent="#0A66C2"
+                  blocks={[
+                    { key: 'li', label: 'Postare', text: copy.linkedin?.post ? `${copy.linkedin.post}\n\n${copy.url}` : copy.url },
+                    { key: 'li-tags', label: 'Hashtag-uri', text: (copy.linkedin?.hashtags || []).join(' ') },
+                  ]}
+                  copiedKey={copiedKey} onCopy={copyToClipboard} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── COPY CARD ─────────────────────────────────────────────────────────────────
+
+interface CopyBlock { key: string; label: string; text?: string }
+
+function CopyCard({
+  title, accent, blocks, copiedKey, onCopy,
+}: {
+  title: string
+  accent: string
+  blocks: CopyBlock[]
+  copiedKey: string
+  onCopy: (key: string, text: string) => void
+}) {
+  return (
+    <div className="bg-[#1a1a1a] border border-white/[0.07] overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.07]">
+        <span className="w-2.5 h-2.5 rounded-full" style={{ background: accent }} />
+        <span className="font-sans text-[12px] font-bold uppercase tracking-widest text-white">{title}</span>
+      </div>
+      <div className="p-4 space-y-3">
+        {blocks.filter(b => b.text && b.text.trim()).map(b => (
+          <div key={b.key}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-sans text-[10px] uppercase tracking-widest text-white/35">{b.label}</span>
+              <button onClick={() => onCopy(b.key, b.text!)}
+                className="flex items-center gap-1 font-sans text-[10px] text-white/40 hover:text-white transition-colors">
+                {copiedKey === b.key
+                  ? <><Check className="w-3 h-3 text-green-400" /> Copiat</>
+                  : <><Copy className="w-3 h-3" /> Copiază</>}
+              </button>
+            </div>
+            <p className="font-sans text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap bg-[#111] border border-white/[0.06] px-3 py-2.5">
+              {b.text}
+            </p>
+          </div>
+        ))}
       </div>
     </div>
   )
