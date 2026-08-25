@@ -20,13 +20,13 @@ export const ADSENSE_CLIENT = 'ca-pub-5809590003717527'
 
 export const AD_SLOTS = {
   /** Under the article body, after sources/corrections, before "Urmărește-ne". */
-  articleBottom: '',
+  articleBottom: '8399235275',    // AdSense unit: tt-article-bottom
   /** Right-hand article sidebar, under "Cele mai citite". */
-  articleSidebar: '',
+  articleSidebar: '9167617960',   // AdSense unit: tt-article-sidebar
   /** Under the flight board on /zboruri and /en/zboruri. */
-  zboruriBelowBoard: '',
+  zboruriBelowBoard: '5581500243', // AdSense unit: tt-zboruri-below-board
   /** Airport pages (/zboruri/cluj etc.), between the board and the FAQ. */
-  airportAboveFaq: '',
+  airportAboveFaq: '4076846883',  // AdSense unit: tt-airport-above-faq
 } as const
 
 export type AdSlotKey = keyof typeof AD_SLOTS
