@@ -349,6 +349,7 @@ export type Database = {
           updated_at: string
           view_count: number
           word_count: number | null
+          layout_mode: string
         }
         Insert: {
           ai_editor?: string | null
@@ -392,6 +393,7 @@ export type Database = {
           updated_at?: string
           view_count?: number
           word_count?: number | null
+          layout_mode?: string
         }
         Update: {
           ai_editor?: string | null
@@ -435,6 +437,7 @@ export type Database = {
           updated_at?: string
           view_count?: number
           word_count?: number | null
+          layout_mode?: string
         }
         Relationships: [
           {

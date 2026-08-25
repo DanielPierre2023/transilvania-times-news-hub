@@ -20,8 +20,12 @@ import { createBrowserClient } from '@supabase/ssr'
 import {
   PenLine, CheckCircle, XCircle, Wand2, Send, Save, Eye,
   AlertTriangle, ChevronDown, ChevronUp, Image as ImageIcon,
-  Upload, Globe, FileText, Loader2, X, RotateCcw, ShieldAlert
+  Upload, Globe, FileText, Loader2, X, RotateCcw, ShieldAlert,
+  FileType, AlignLeft, LayoutList
 } from 'lucide-react'
+import { tokenizeRichBlocks, renderInline } from '@/lib/article-blocks'
+
+type LayoutMode = 'auto' | 'rich'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +57,7 @@ interface DraftRow {
   id: string; title: string; content: string; category: string; county: string | null
   status: string; updated_at: string; language: string; word_count: number
   proof_result: ProofResult | null; image_url: string | null; image_credit: string | null
-  translate: boolean; blog_post_id: string | null
+  translate: boolean; blog_post_id: string | null; layout_mode?: LayoutMode | null
 }
 
 type Tab = 'write' | 'review' | 'preview'
@@ -80,6 +84,86 @@ const COUNTIES = [
 
 function wordCount(t: string): number {
   return t ? t.trim().split(/\s+/).filter(w => w.length > 0).length : 0
+}
+
+// ── Word (.docx) → canonical marker text ────────────────────────────────────
+// Browser-only helpers (use DOMParser/document); called solely from the import
+// handler, never during SSR. See handleDocxImport for the mapping rationale.
+
+function inlineToMarkers(el: Element): string {
+  let s = el.innerHTML
+  s = s.replace(/<\/?(strong|b)\b[^>]*>/gi, '**')  // bold runs → **
+  s = s.replace(/<br\s*\/?>/gi, ' ')
+  s = s.replace(/<[^>]+>/g, '')                    // strip remaining tags
+  const ta = document.createElement('textarea')    // decode HTML entities
+  ta.innerHTML = s
+  s = ta.value
+  s = s.replace(/\*\*\s*\*\*/g, ' ')               // drop empty ** ** pairs
+  s = s.replace(/[ \t]+/g, ' ').trim()
+  return s
+}
+
+function isWholeBold(el: Element, text: string): boolean {
+  if (!text) return false
+  const bold = Array.from(el.querySelectorAll('strong,b')).map(n => n.textContent || '').join('')
+  const norm = (x: string) => x.replace(/\s+/g, '')
+  return norm(text).length > 0 && norm(bold).length >= norm(text).length
+}
+
+function docxHtmlToCanonical(html: string): { title: string; body: string } {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const children = Array.from(doc.body.children)
+  const out: string[] = []
+  let title = ''
+  let sawTitle = false
+
+  for (let idx = 0; idx < children.length; idx++) {
+    const el = children[idx]
+    const tag = el.tagName.toLowerCase()
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+
+    if (tag === 'ul' || tag === 'ol') {
+      const items = Array.from(el.querySelectorAll(':scope > li'))
+      items.forEach((li, i) => {
+        const t = inlineToMarkers(li)
+        if (t) out.push(tag === 'ol' ? `${i + 1}. ${t}` : `- ${t}`)
+      })
+      continue
+    }
+
+    if (!text) continue
+
+    const hMatch = tag.match(/^h([1-6])$/)
+    if (hMatch) {
+      if (!sawTitle && !title) { title = text; sawTitle = true; continue }
+      out.push(parseInt(hMatch[1], 10) >= 3 ? `### ${text}` : `## ${text}`)
+      continue
+    }
+
+    if (tag === 'p' || tag === 'div') {
+      const wholeBold = isWholeBold(el, text)
+      const words = text.split(/\s+/).length
+
+      // First whole-bold short line → article title (only if none yet).
+      if (!sawTitle && !title && wholeBold && words <= 16 && idx <= 1) {
+        title = text; sawTitle = true; continue
+      }
+      // Leading "de X" / "by X" byline → drop (author comes from the token).
+      if (wholeBold && idx < 3 && words <= 5 && /^(de|by)\s+\S+/i.test(text)) continue
+
+      if (wholeBold) {
+        const isQuote = /^[„“"«]/.test(text) || words > 14
+        out.push(isQuote ? `> ${text}` : `## ${text}`)
+      } else {
+        out.push(inlineToMarkers(el))
+      }
+      continue
+    }
+
+    out.push(inlineToMarkers(el))
+  }
+
+  return { title, body: out.filter(Boolean).join('\n\n') }
 }
 
 // Apply user-accepted corrections to the original text.
@@ -150,6 +234,14 @@ export default function EditorTokenPage() {
   const [imageUrl, setImageUrl] = useState('')
   const [imageCredit, setImageCredit] = useState('')
 
+  // Per-article layout. 'auto' = automatic pagination (default, unchanged
+  // behaviour). 'rich' = respect authored structure (## / ### subtitles,
+  // > pull-quotes, - / 1. lists, **bold**). Only Birou editorial articles set
+  // this; the AI pipelines never do, so their rendering stays untouched.
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('auto')
+  const [importing, setImporting] = useState(false)
+  const docxRef = useRef<HTMLInputElement | null>(null)
+
   // State — proof
   const [proofResult, setProofResult] = useState<ProofResult | null>(null)
   const [corrections, setCorrections] = useState<Correction[]>([])
@@ -208,7 +300,7 @@ export default function EditorTokenPage() {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => saveDraft(true), 3000)
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current) }
-  }, [title, content, category, county])
+  }, [title, content, category, county, layoutMode])
 
   // ── Save draft
   async function saveDraft(auto = false) {
@@ -219,7 +311,7 @@ export default function EditorTokenPage() {
       title, content, category, county: county || null, language, translate,
       image_url: imageUrl || null, image_credit: imageCredit || null,
       word_count: wordCount(content), status: proofResult?.ok ? 'proofed' : 'draft',
-      proof_result: proofResult || null,
+      proof_result: proofResult || null, layout_mode: layoutMode,
     }
     if (draftId) {
       await supabase.from('editor_drafts').update({ ...row, updated_at: new Date().toISOString() }).eq('id', draftId)
@@ -235,6 +327,7 @@ export default function EditorTokenPage() {
     setDraftId(d.id); setTitle(d.title); setContent(d.content)
     setCategory(d.category); setCounty(d.county || ''); setLanguage((d.language || 'ro') as 'ro' | 'en')
     setTranslate(d.translate); setImageUrl(d.image_url || ''); setImageCredit(d.image_credit || '')
+    setLayoutMode((d.layout_mode as LayoutMode) || 'auto')
     if (d.proof_result?.ok) {
       setProofResult(d.proof_result); setCorrections(d.proof_result.corrections || [])
     } else {
@@ -246,6 +339,7 @@ export default function EditorTokenPage() {
   function newDraft() {
     setDraftId(null); setTitle(''); setContent(''); setCategory('opinion')
     setCounty(''); setLanguage('ro'); setTranslate(true); setImageUrl(''); setImageCredit('')
+    setLayoutMode('auto')
     setProofResult(null); setCorrections([]); setTab('write'); setError(''); setSuccess('')
   }
 
@@ -267,7 +361,10 @@ export default function EditorTokenPage() {
           text: content, title: title || undefined,
           author_name: auth?.author_name || 'Redacția',
           category, county: county || undefined,
-          language, translate, format_mode: 'enforce',
+          language, translate,
+          // Rich articles keep authored structure (subtitles, bold, dashes);
+          // auto articles get the standard flat-prose house style.
+          format_mode: layoutMode === 'rich' ? 'preserve' : 'enforce',
         },
       })
       if (fnErr) throw new Error(fnErr.message)
@@ -334,6 +431,7 @@ export default function EditorTokenPage() {
         cover_image: imageUrl || null, cover_image_credit: imageCredit || null,
         reading_time_min: readingTime,
         word_count: pr.word_count || wordCount(content),
+        layout_mode: layoutMode,
         status: 'draft',
       }
 
@@ -348,6 +446,47 @@ export default function EditorTokenPage() {
       setError((e as Error).message)
     } finally {
       setPublishing(false)
+    }
+  }
+
+  // ── Import from Word (.docx)
+  //
+  // Editors write in Word and mark structure with WHOLE-PARAGRAPH BOLD (section
+  // subtitles) plus the occasional bold pull-quote — Word heading styles are
+  // rare. A plain textarea paste throws all of that away, so instead we parse
+  // the .docx itself (mammoth → HTML) and map it to the canonical markers:
+  //   whole-bold short line   → ## subtitle
+  //   whole-bold long / „…"    → > pull-quote
+  //   Word Heading 1-2 / 3+    → ## / ###
+  //   list items              → - / 1.
+  //   inline bold             → **bold**
+  // The first bold line becomes the title (if empty); a leading "de X" byline
+  // line is dropped (the author comes from the editor token). Importing flips
+  // the article to 'rich' — the editor can switch it back to 'auto' anytime.
+  async function handleDocxImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!/\.docx$/i.test(file.name)) { setError('Selectați un fișier Word (.docx).'); return }
+    setImporting(true); setError('')
+    try {
+      // Browser build — avoids mammoth's Node/fs entry point.
+      const mammoth = await import('mammoth/mammoth.browser')
+      const convertToHtml = mammoth.convertToHtml ?? mammoth.default.convertToHtml
+      const arrayBuffer = await file.arrayBuffer()
+      const { value: html } = await convertToHtml({ arrayBuffer })
+      const { title: importedTitle, body } = docxHtmlToCanonical(html)
+      if (!body.trim()) { setError('Documentul pare gol sau nu a putut fi citit.'); return }
+      if (importedTitle && !title.trim()) setTitle(importedTitle)
+      setContent(body)
+      setLayoutMode('rich')
+      setTab('write')
+      setSuccess('Articol importat din Word. Aspect „structurat" activat — verifică subtitlurile și citatele înainte de corectură.')
+      setTimeout(() => setSuccess(''), 5000)
+    } catch (err) {
+      setError(`Import Word eșuat: ${(err as Error).message}`)
+    } finally {
+      setImporting(false)
+      if (docxRef.current) docxRef.current.value = ''
     }
   }
 
@@ -523,6 +662,37 @@ export default function EditorTokenPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Layout mode — automatic pagination vs. structured (opt-in) */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+          <div className="flex flex-wrap items-center gap-3 justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-400 mb-1.5">Aspect articol</p>
+              <div className="flex bg-zinc-100 dark:bg-zinc-800 rounded-lg p-0.5 w-fit">
+                <button onClick={() => setLayoutMode('auto')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${layoutMode === 'auto' ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}>
+                  <AlignLeft className="w-3.5 h-3.5" /> Paginare automată
+                </button>
+                <button onClick={() => setLayoutMode('rich')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${layoutMode === 'rich' ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}>
+                  <LayoutList className="w-3.5 h-3.5" /> Structurat
+                </button>
+              </div>
+            </div>
+            <div>
+              <input ref={docxRef} type="file" accept=".docx" onChange={handleDocxImport} className="hidden" id="editor-docx-import" />
+              <label htmlFor="editor-docx-import"
+                className={`flex items-center justify-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors ${importing ? 'border-zinc-200 text-zinc-300 cursor-not-allowed' : 'border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:text-zinc-700 hover:border-zinc-400'}`}>
+                {importing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Se importă...</> : <><FileType className="w-3.5 h-3.5" /> Import din Word (.docx)</>}
+              </label>
+            </div>
+          </div>
+          <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">
+            {layoutMode === 'rich'
+              ? 'Structurat: subtitlurile (## / ###), citatele (>), listele (- / 1.) și textul îngroșat (**text**) sunt păstrate în pagina publicată.'
+              : 'Paginare automată: textul este împărțit uniform în paragrafe (comportamentul standard). Subtitlurile și îngroșările nu apar în pagina publicată.'}
+          </p>
         </div>
 
         {/* Tab bar */}
@@ -780,9 +950,22 @@ export default function EditorTokenPage() {
                   Conținut final ({wordCount(finalContent)} cuvinte
                   {corrections.length > 0 && ` — ${corrections.filter(c => c.accepted !== false).length}/${corrections.length} corecturi aplicate`})
                 </p>
-                <div className="max-h-96 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 rounded-lg p-3 border border-zinc-100 dark:border-zinc-800">
-                  <pre className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap font-sans leading-relaxed">{finalContent}</pre>
-                </div>
+                {layoutMode === 'rich' ? (
+                  <div className="max-h-96 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 rounded-lg p-4 border border-zinc-100 dark:border-zinc-800 space-y-3 font-serif text-zinc-800 dark:text-zinc-200">
+                    {tokenizeRichBlocks(finalContent).map((b, i) => {
+                      if (b.type === 'h2') return <h3 key={i} className="text-lg font-bold" dangerouslySetInnerHTML={{ __html: renderInline(b.text, false) }} />
+                      if (b.type === 'h3') return <h4 key={i} className="text-base font-bold" dangerouslySetInnerHTML={{ __html: renderInline(b.text, false) }} />
+                      if (b.type === 'quote') return <blockquote key={i} className="border-l-2 border-red-500 pl-3 italic text-zinc-600 dark:text-zinc-400" dangerouslySetInnerHTML={{ __html: renderInline(b.text, true) }} />
+                      if (b.type === 'ul') return <ul key={i} className="list-disc pl-5 space-y-1">{b.items.map((it, j) => <li key={j} dangerouslySetInnerHTML={{ __html: renderInline(it, false) }} />)}</ul>
+                      if (b.type === 'ol') return <ol key={i} className="list-decimal pl-5 space-y-1">{b.items.map((it, j) => <li key={j} dangerouslySetInnerHTML={{ __html: renderInline(it, false) }} />)}</ol>
+                      return <p key={i} className="text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderInline(b.text, true) }} />
+                    })}
+                  </div>
+                ) : (
+                  <div className="max-h-96 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 rounded-lg p-3 border border-zinc-100 dark:border-zinc-800">
+                    <pre className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap font-sans leading-relaxed">{finalContent}</pre>
+                  </div>
+                )}
               </div>
               {proofResult._meta?.translated && (
                 <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">

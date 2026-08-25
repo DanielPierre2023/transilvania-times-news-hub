@@ -100,6 +100,7 @@ interface Post {
   source_url: string | null
   sources: string[] | null
   word_count: number | null
+  layout_mode: string | null
   authors: AuthorRecord | null
 }
 
@@ -186,7 +187,7 @@ export default async function ArticlePageEN(
       category, subcategory, county, cover_image, cover_image_credit,
       author_name, published_at, updated_at,
       tags_ro, tags_en, is_breaking, source_url,
-      sources, word_count,
+      sources, word_count, layout_mode,
       authors (
         slug, name_ro, name_en, title_ro, title_en,
         bio_ro, bio_en, avatar_url, avatar_style
@@ -369,6 +370,7 @@ export default async function ArticlePageEN(
               timeAgoStr={timeAgoStr}
               defaultLang={defaultLang}
               inlineRelated={inlineRelated}
+              layoutMode={post.layout_mode}
             />
 
             <ShareButtons

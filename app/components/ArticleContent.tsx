@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { Camera, Bot } from 'lucide-react'
 import AuthorByline, { type AuthorData } from './AuthorByline'
 import InlineRelatedBlock, { type InlineRelatedItem } from './InlineRelatedBlock'
+import { tokenizeRichBlocks, renderInline, type Block } from '@/lib/article-blocks'
 
 export type { InlineRelatedItem }
 
@@ -25,7 +26,23 @@ interface ArticleContentProps {
   timeAgoStr: string
   defaultLang: 'ro' | 'en'
   inlineRelated?: InlineRelatedItem[]
+  // Opt-in editorial layout. Only the exact value 'rich' enables the semantic
+  // renderer (## / ### subtitles, > pull-quotes, lists, **bold**); every other
+  // value — 'auto', null, undefined, or anything unexpected — renders exactly
+  // as before. Widened to string so it accepts the DB column type directly.
+  layoutMode?: string | null
 }
+
+// Shared typographic shell for the article body. Identical for both layout
+// modes so 'rich' subtitles/quotes inherit the same serif reading column.
+const PROSE_CLASS =
+  `prose prose-lg max-w-none font-serif text-foreground
+    prose-p:leading-relaxed prose-p:mb-5
+    prose-headings:font-serif prose-headings:font-bold prose-headings:text-foreground
+    prose-a:text-brand-red prose-a:no-underline hover:prose-a:underline
+    prose-strong:font-bold prose-strong:text-foreground
+    prose-blockquote:border-l-brand-red prose-blockquote:text-muted-foreground
+    [&_p]:font-serif [&_p]:text-[17px] [&_p]:leading-[1.8] [&_p]:mb-5 [&_p]:text-justify`
 
 function escapeHtml(s: string): string {
   return s
@@ -38,7 +55,7 @@ function paragraphsFromSentences(text: string): string[] {
   const clean = text.replace(/\s+/g, ' ').trim()
   if (!clean) return []
 
-  const DOT = '\u0001'
+  const DOT = ''
   const guarded = clean
     .replace(/(\d)\.(\d)/g, `$1${DOT}$2`)
     .replace(/\b([A-ZĂÂÎȘȚ])\.\s/g, `$1${DOT} `)
@@ -66,8 +83,15 @@ function extractParagraphs(raw: string): { paragraphs: string[]; preFormattedHtm
 
   const hasBlockHtml = /<(p|h[1-6]|ul|ol|li|blockquote|figure|div)\b/i.test(raw)
   if (hasBlockHtml) {
-    const matches = raw.match(/<p[^>]*>[\s\S]*?<\/p>/gi)
-    if (matches && matches.length > 1) {
+    // Preserve document order and every block type (h2/blockquote/ul/…), not
+    // just <p>. NOTE: no stored article currently contains block HTML — every
+    // body is plain text — so this branch is inert for the existing corpus and
+    // cannot alter the "auto" rendering of any live article. It exists so that
+    // future pre-formatted HTML would render in full rather than losing its
+    // non-<p> blocks.
+    const blockRe = /<(p|h[1-6]|ul|ol|blockquote|figure|div)\b[^>]*>[\s\S]*?<\/\1>/gi
+    const matches = raw.match(blockRe)
+    if (matches && matches.length > 0) {
       return { paragraphs: matches.map(m => m.trim()), preFormattedHtml: true }
     }
     return { paragraphs: [raw.trim()], preFormattedHtml: true }
@@ -95,6 +119,36 @@ function extractParagraphs(raw: string): { paragraphs: string[]; preFormattedHtm
   return { paragraphs: chunks, preFormattedHtml: false }
 }
 
+// Render one rich block to an HTML string (inline marks already applied).
+function RichBlock({ block }: { block: Block }) {
+  switch (block.type) {
+    case 'h2':
+      return <h2 dangerouslySetInnerHTML={{ __html: renderInline(block.text, false) }} />
+    case 'h3':
+      return <h3 dangerouslySetInnerHTML={{ __html: renderInline(block.text, false) }} />
+    case 'quote':
+      return <blockquote dangerouslySetInnerHTML={{ __html: renderInline(block.text, true) }} />
+    case 'ul':
+      return (
+        <ul>
+          {block.items.map((it, i) => (
+            <li key={i} dangerouslySetInnerHTML={{ __html: renderInline(it, false) }} />
+          ))}
+        </ul>
+      )
+    case 'ol':
+      return (
+        <ol>
+          {block.items.map((it, i) => (
+            <li key={i} dangerouslySetInnerHTML={{ __html: renderInline(it, false) }} />
+          ))}
+        </ol>
+      )
+    default:
+      return <p dangerouslySetInnerHTML={{ __html: renderInline(block.text, true) }} />
+  }
+}
+
 export default function ArticleContent({
   titleRo,
   titleEn,
@@ -111,6 +165,7 @@ export default function ArticleContent({
   timeAgoStr,
   defaultLang,
   inlineRelated = [],
+  layoutMode = 'auto',
 }: ArticleContentProps) {
   const router   = useRouter()
   const pathname = usePathname()
@@ -182,15 +237,26 @@ export default function ArticleContent({
       })()
     : rawSummaryLines
 
-  const { paragraphs, preFormattedHtml } = content
-    ? extractParagraphs(content)
-    : { paragraphs: [], preFormattedHtml: false }
+  // -- Body: two mutually exclusive paths -----------------------------------
+  // 'rich'  → semantic blocks from the canonical grammar (opt-in editorial).
+  // else    → the original paragraph-normalisation ("fixed pagination").
+  const isRich = layoutMode === 'rich'
 
-  // One inline-related BLOCK (containing both items side-by-side) at the
-  // halfway point. Only on articles with >=6 paragraphs and >=2 related items.
-  const inlineBlockPosition =
+  const richBlocks: Block[] = isRich && content ? tokenizeRichBlocks(content) : []
+
+  const { paragraphs, preFormattedHtml } = !isRich && content
+    ? extractParagraphs(content)
+    : { paragraphs: [] as string[], preFormattedHtml: false }
+
+  // One inline-related BLOCK (both items side-by-side) at the halfway point.
+  // Only on articles long enough to carry it and with >=2 related items.
+  const autoInlinePosition =
     inlineRelated.length >= 2 && paragraphs.length >= 6
       ? Math.floor(paragraphs.length / 2)
+      : -1
+  const richInlinePosition =
+    inlineRelated.length >= 2 && richBlocks.length >= 6
+      ? Math.floor(richBlocks.length / 2)
       : -1
 
   return (
@@ -275,20 +341,26 @@ export default function ArticleContent({
         </div>
       )}
 
-      {/* Article body — paragraphs with one inline-related block at midpoint */}
-      {paragraphs.length > 0 && (
-        <div
-          className="prose prose-lg max-w-none font-serif text-foreground
-            prose-p:leading-relaxed prose-p:mb-5
-            prose-headings:font-serif prose-headings:font-bold prose-headings:text-foreground
-            prose-a:text-brand-red prose-a:no-underline hover:prose-a:underline
-            prose-strong:font-bold prose-strong:text-foreground
-            prose-blockquote:border-l-brand-red prose-blockquote:text-muted-foreground
-            [&_p]:font-serif [&_p]:text-[17px] [&_p]:leading-[1.8] [&_p]:mb-5 [&_p]:text-justify"
-        >
+      {/* Article body — RICH (opt-in editorial layout) */}
+      {isRich && richBlocks.length > 0 && (
+        <div className={PROSE_CLASS}>
+          {richBlocks.map((block, idx) => (
+            <div key={idx}>
+              {idx === richInlinePosition && (
+                <InlineRelatedBlock articles={inlineRelated.slice(0, 2)} lang={lang} />
+              )}
+              <RichBlock block={block} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Article body — AUTO (unchanged normalisation for pipeline / legacy) */}
+      {!isRich && paragraphs.length > 0 && (
+        <div className={PROSE_CLASS}>
           {paragraphs.map((para, idx) => (
             <div key={idx}>
-              {idx === inlineBlockPosition && (
+              {idx === autoInlinePosition && (
                 <InlineRelatedBlock articles={inlineRelated.slice(0, 2)} lang={lang} />
               )}
               {preFormattedHtml ? (
