@@ -67,20 +67,25 @@ URL inspection → lipește URL-ul → **Request indexing**:
 - /zboruri/cluj/ , /zboruri/targu-mures/ , /zboruri/sibiu/ , /zboruri/companii/
 - /en/zboruri/ , /en/zboruri/cluj/ , /en/zboruri/targu-mures/ , /en/zboruri/sibiu/ , /en/zboruri/companii/
 
-### C. Google News — Publisher Center
+### C. Google News — CORECTAT (25 aug): nu mai există înscriere manuală
 
-1. **publishercenter.google.com** → Add publication → „Transilvania Times",
-   România, română (+ engleză ca secundară).
-2. Verifică proprietatea site-ului (se face prin Search Console — ești deja
-   verificat).
-3. Completează logo (pătrat + dreptunghiular), URL, contact.
-4. La Content → adaugă feed-urile existente: `https://transilvaniatimes.com/sitemap-news.xml`
-   și `https://transilvaniatimes.com/rss.xml`.
-5. Publish. Includerea în News e algoritmică — Google nu garantează, dar cu
-   NewsArticle JSON-LD, sitemap de știri, autori reali și pagini de
-   standarde editoriale (toate există deja), dosarul e complet.
-6. **Cadența contează**: sitemap-news arată ultimul articol pe 23 aug.
-   Verifică de ce nu s-a mai publicat nimic de 2 zile.
+Din 2024, Google a ELIMINAT posibilitatea de a adăuga manual o publicație
+în Publisher Center — paginile de publicație se generează automat, iar
+includerea în Google News este decisă exclusiv algoritmic
+(support.google.com/news/publisher-center/answer/15898024). Nimeni nu se
+mai poate „înscrie" — pentru niciun site.
+
+Ce contează acum (și ce e deja bifat la noi):
+- sitemap de știri valid cu namespace `news:` ✔
+- NewsArticle JSON-LD + BreadcrumbList ✔
+- autori reali cu pagini de autor, /despre, /standarde-editoriale ✔
+- RSS/Atom detectabile ✔  · site indexat în Google ✔
+- badge „sursă preferată" pe articole (google.com/preferences/source) ✔
+
+Singurele pârghii rămase sunt editoriale: **cadență constantă de
+publicare** și conținut original. Atenție: sitemap-news arată ultimul
+articol pe 23 aug — un site de știri care tace zile întregi arată inactiv
+fix pentru sistemele care decid includerea. Verifică pipeline-ul.
 
 ## Ce NU poate garanta nimeni
 
