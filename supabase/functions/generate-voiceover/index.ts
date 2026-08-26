@@ -16,8 +16,11 @@
 //   3. OPENAI (last resort): gpt-4o-mini-tts.
 //
 // Input:  { text, provider?, voice_id?, gemini_voice?, gender?, tone?, language?, voice? }
-//   provider     — 'elevenlabs' | 'gemini' | 'openai' (optional; moved to front of chain)
+//   provider     — 'elevenlabs' | 'minimax' | 'gemini' | 'openai' (optional; moved to front of chain)
 //   voice_id     — ElevenLabs voice (stock or cloned)
+//   minimax_voice— fal/MiniMax voice id (a subscription-free CLONED voice from
+//                  voice-lab clone_fal, or a premade MiniMax voice). With
+//                  provider:'minimax' it is delivered by fal/MiniMax only, no swap.
 //   gemini_voice — Gemini prebuilt voice (Charon, Kore, …) — overrides gender default
 //   gender       — 'm' | 'f' (picks a good default voice per engine when no explicit voice)
 //   tone         — 'stiri' | 'emotional' | 'energic' | 'calm'
@@ -140,7 +143,15 @@ serve(async (req) => {
     const falKey = Deno.env.get('FAL_KEY');
     const geminiKey = Deno.env.get('GEMINI_API_KEY');
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
-    const requested = String(body.provider || '').trim();
+    const requestedRaw = String(body.provider || '').trim();
+    // 'minimax' is the Studio's name for a fal/MiniMax CLONED voice — map it to
+    // the fal_minimax engine that already exists below.
+    const requested = requestedRaw === 'minimax' ? 'fal_minimax' : requestedRaw;
+    const minimaxVoice = String(body.minimax_voice || '').trim();
+    // A cloned MiniMax voice named explicitly (the user's own voice, via fal —
+    // no ElevenLabs) must be delivered by fal/MiniMax or fail with the reason,
+    // never silently swapped for a different (English-accented) voice.
+    const wantsMinimaxClone = (requestedRaw === 'minimax' || requested === 'fal_minimax') && !!minimaxVoice;
 
     type Out = { bytes: Uint8Array; ext: string; contentType: string };
 
@@ -352,6 +363,16 @@ serve(async (req) => {
       openai:         { name: 'openai', run: openaiGen },
     };
 
+    // HARD STOP — a cloned MiniMax voice needs fal. Never fall through to a
+    // different voice: that is the same "wrong person" failure the ElevenLabs
+    // guard below prevents.
+    if (wantsMinimaxClone && !falKey) {
+      return json({
+        error: 'MINIMAX_KEY_MISSING: ai cerut o voce clonată MiniMax (prin fal) dar FAL_KEY nu este setată în secretele proiectului Supabase. '
+             + 'Adaug-o în Supabase → Project Settings → Edge Functions → Secrets, apoi reîncearcă.',
+      }, 400);
+    }
+
     // HARD STOP — no silent accent swap.
     // Asking for a specific ElevenLabs voice_id means asking for a voice that
     // lives in YOUR ElevenLabs account. If the key is missing we must NOT quietly
@@ -396,6 +417,8 @@ serve(async (req) => {
       // DIFFERENT voice — that is what produced the male "George".
       order = ['elevenlabs', 'fal_elevenlabs'];
     }
+    // A cloned MiniMax voice is delivered ONLY by fal/MiniMax — no substitution.
+    if (wantsMinimaxClone) order = ['fal_minimax'];
     // Drop engines whose key is plainly absent (keeps the chain honest).
     order = order.filter(o =>
       o === 'elevenlabs' ? !!elKey :
@@ -418,6 +441,13 @@ serve(async (req) => {
              + (notes.join(' | ') || 'motiv necunoscut')
              + '. NU am inlocuit-o cu alta voce (inainte se intampla asta si primeai vocea masculina "George"). '
              + 'Verifica ELEVENLABS_API_KEY si permisiunile cheii (Voices + Text to Speech).',
+      }, 502);
+    }
+    if (!out && wantsMinimaxClone) {
+      return json({
+        error: 'VOCEA CLONATĂ NU A PUTUT FI FOLOSITĂ: vocea ta MiniMax „' + minimaxVoice + '" a eșuat prin fal — '
+             + (notes.join(' | ') || 'motiv necunoscut')
+             + '. NU am înlocuit-o cu altă voce. Verifică FAL_KEY și creditele fal.',
       }, 502);
     }
     if (!out || out.bytes.byteLength < 500) {

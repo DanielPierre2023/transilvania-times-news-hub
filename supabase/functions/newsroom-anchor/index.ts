@@ -105,7 +105,7 @@ ${coverageEn}`;
           let obj: Record<string, unknown>
           try { obj = JSON.parse(slice) }
           catch { obj = JSON.parse(repairJson(slice)) }   // second chance
-          const stories = (Array.isArray((obj as Record<string, unknown>).stories) ? (obj as Record<string, unknown>).stories as unknown[] : [])
+          const stories = (Array.isArray((obj as Record<string, unknown>).stories) ? (obj as Record<string, unknown>).stories as Record<string, unknown>[] : [])
             .map((st: Record<string, unknown>) => ({ lower_third: String(st.lower_third || '').slice(0, 44), text: String(st.text || '') }))
             .filter((st: { text: string }) => st.text);
           if (!stories.length) return null;
@@ -284,7 +284,11 @@ ${coverageEn}`;
       //   'latentsync' → fal-ai/latentsync     (ByteDance — strong open alternative)
       //   'sadtalker'  → fal-ai/sadtalker      (photo+audio fallback, now with GFPGAN)
       let engine = String(body.engine || '').trim();
-      if (!engine) engine = videoUrl ? 'sync' : 'sadtalker';
+      // Default for a PHOTO-only anchor is now Kling ai-avatar, not SadTalker.
+      // SadTalker warps the face ("highly inaccurate"); Kling drives head motion,
+      // blinks and expression from the audio while preserving the real identity.
+      // SadTalker stays reachable via explicit engine:'sadtalker' (budget path).
+      if (!engine) engine = videoUrl ? 'sync' : 'avatar';
 
       let model = '';
       let payload: Record<string, unknown> = {};

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 
 interface Post { id: string; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null; cover_image: string | null }
-interface ElVoice { voice_id: string; name: string; category: string }
+interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 interface LibAsset { id: string; kind: 'presenter' | 'presenter_video' | 'studio'; name: string; url: string; is_real_person?: boolean; person_name?: string | null }
 interface Avatar { avatar_id: string; avatar_name: string; preview_image_url: string }
 interface Story { lower_third: string; text: string }
@@ -391,14 +391,19 @@ export default function NewsroomPage() {
       // NAMED voices. Route accordingly; an explicit override always wins.
       const ev = elVoice.trim()
       const isVoiceId = /^[A-Za-z0-9]{20}$/.test(ev)
+      // A cloned MiniMax voice selected in the dropdown (your own voice via fal,
+      // no ElevenLabs) takes precedence and is delivered by fal/MiniMax only.
+      const selVoice = elVoices.find(v => v.voice_id === voiceId)
       const body: Record<string, unknown> =
-        ev && isVoiceId
-          ? { text, provider: 'elevenlabs', voice_id: ev, gender: 'f', tone, language: lang }
-          : ev
-            ? { text, provider: 'fal_elevenlabs', el_voice: ev, gender: 'f', tone, language: lang }
-            : elConfigured
-              ? { text, voice_id: voiceId, gender: 'f', tone, language: lang }
-              : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
+        selVoice?.provider === 'minimax'
+          ? { text, provider: 'minimax', minimax_voice: voiceId, gender: 'f', tone, language: lang }
+          : ev && isVoiceId
+            ? { text, provider: 'elevenlabs', voice_id: ev, gender: 'f', tone, language: lang }
+            : ev
+              ? { text, provider: 'fal_elevenlabs', el_voice: ev, gender: 'f', tone, language: lang }
+              : elConfigured
+                ? { text, voice_id: voiceId, gender: 'f', tone, language: lang }
+                : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
       // Pause between stories is engine-specific markup, built server-side so it
       // never appears in the script the user edits.
       body.pause_ms = pauseMs
@@ -480,9 +485,12 @@ export default function NewsroomPage() {
       try {
         // Video-to-video lipsync (sync.so) is the professional path: the clip keeps
         // its real studio, body language and lighting — only the mouth is resynced.
+        // A photo-only anchor now uses Kling ai-avatar (engine 'avatar'), which
+        // drives head motion/expression from the audio while preserving identity —
+        // instead of SadTalker, which warped the face ("highly inaccurate").
         const r = await invokeRaw('newsroom-anchor', anchorVideo
           ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voice, quality }
-          : { action: 'generate_fal', engine: 'sadtalker', image_url: anchorImg, audio_url: voice })
+          : { action: 'generate_fal', engine: 'avatar', image_url: anchorImg, audio_url: voice })
         if (r.error) throw new Error(String(r.error))
         const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
         for (let i = 0; i < 150; i++) {
@@ -2203,7 +2211,7 @@ export default function NewsroomPage() {
             {elConfigured ? (
               <>
                 <select value={voiceId} onChange={e => setVoiceId(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[180px]">
-                  {elVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.category === 'cloned' ? '👤 ' : ''}{v.name}</option>)}
+                  {elVoices.map(v => <option key={v.provider + ':' + v.voice_id} value={v.voice_id}>{v.category === 'cloned' ? '👤 ' : ''}{v.name}{v.provider === 'minimax' ? ' · fal' : ''}</option>)}
                 </select>
                 <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
                   {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}

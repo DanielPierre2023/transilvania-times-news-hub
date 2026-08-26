@@ -34,7 +34,7 @@ type KB = 'none' | 'in' | 'out' | 'left' | 'right'
 type SubPos = 'jos' | 'treime' | 'sus'
 interface Scene { id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB; motion?: 'idle' | 'working' | 'done' }
 interface Cue { start: number; end: number; text: string }
-interface ElVoice { voice_id: string; name: string; category: string }
+interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 
 const ASPECTS: Record<Aspect, [number, number]> = {
   '9:16': [720, 1280], '1:1': [1000, 1000], '4:5': [864, 1080], '16:9': [1280, 720],
@@ -73,6 +73,7 @@ export default function StudioPage() {
   const [scenes, setScenes] = useState<Scene[]>([])
   const [imgPrompt, setImgPrompt] = useState('')
   const [imgAspect, setImgAspect] = useState('4:5')
+  const [refImageUrl, setRefImageUrl] = useState('')   // reference photo -> image-to-image
 
   const [script, setScript] = useState('')
   const [voice] = useState('onyx')
@@ -93,6 +94,8 @@ export default function StudioPage() {
   const [clonePerson, setClonePerson] = useState('')
   const [cloneConsent, setCloneConsent] = useState(false)
   const [cloneSamples, setCloneSamples] = useState<string[]>([])
+  const [cloneEngine, setCloneEngine] = useState<'minimax' | 'elevenlabs'>('minimax')
+  const [providers, setProviders] = useState<{ elevenlabs: boolean; minimax: boolean }>({ elevenlabs: false, minimax: false })
 
   const [cues, setCues] = useState<Cue[]>([])
   const [words, setWords] = useState<{ word: string; start: number; end: number }[]>([])
@@ -164,11 +167,14 @@ export default function StudioPage() {
       try {
         const r = await invokeRaw('voice-lab', { action: 'list' })
         if (!alive) return
+        if (r.providers) setProviders(r.providers as { elevenlabs: boolean; minimax: boolean })
         if (r.configured === true && Array.isArray(r.voices)) {
           const vs = r.voices as ElVoice[]
           setElConfigured(true)
           setElVoices(vs)
           if (vs.length && !elVoiceId) setElVoiceId(vs[0].voice_id)
+          // Default the cloning engine to whichever is available (both kept equal).
+          if (r.providers && !(r.providers as { minimax: boolean }).minimax && (r.providers as { elevenlabs: boolean }).elevenlabs) setCloneEngine('elevenlabs')
         }
       } catch { /* not configured — OpenAI fallback stays active */ }
     })()
@@ -228,10 +234,23 @@ export default function StudioPage() {
     if (!imgPrompt.trim()) { setError('Scrie sau alege un prompt de imagine.'); return }
     setError(''); setBusy('image')
     try {
-      const r = await invoke<{ publicUrl: string }>('generate-cover-image', { raw_prompt: imgPrompt.trim(), aspect: imgAspect })
-      setScenes(s => [...s, { id: uid(), kind: 'image', url: r.publicUrl, name: 'AI · ' + imgAspect, duration: 4, kb: 'in' }])
+      // With a reference photo attached, condition on it (image-to-image via
+      // gpt-image-1) so the result actually reflects the uploaded picture.
+      // Without one, fall back to text-to-image (generate-cover-image).
+      const r = refImageUrl
+        ? await invoke<{ publicUrl: string }>('generate-image-edit', { image_urls: [refImageUrl], prompt: imgPrompt.trim(), aspect: imgAspect })
+        : await invoke<{ publicUrl: string }>('generate-cover-image', { raw_prompt: imgPrompt.trim(), aspect: imgAspect })
+      setScenes(s => [...s, { id: uid(), kind: 'image', url: r.publicUrl, name: (refImageUrl ? 'Editată · ' : 'AI · ') + imgAspect, duration: 4, kb: 'in' }])
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
-  }, [imgPrompt, imgAspect]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgPrompt, imgAspect, refImageUrl]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Upload a reference photo used to CONDITION image generation (image-to-image).
+  async function onRefImage(file?: File) {
+    if (!file) return
+    setError(''); setBusy('refimg')
+    try { setRefImageUrl(await uploadAsset('refs', file)) }
+    catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
 
   async function onUpload(kind: 'image' | 'video', file?: File) {
     if (!file) return
@@ -248,9 +267,14 @@ export default function StudioPage() {
     if (!script.trim()) { setError('Scrie textul pentru voce.'); return }
     setError(''); setBusy('voice')
     try {
-      const body: Record<string, unknown> = elConfigured
-        ? { text: script.trim(), voice_id: elVoiceId, tone, language: lang }
-        : { text: script.trim(), provider: 'gemini', gemini_voice: geminiVoice, tone, language: lang, voice }
+      const sel = elVoices.find(v => v.voice_id === elVoiceId)
+      const body: Record<string, unknown> =
+        sel?.provider === 'minimax'
+          // Your own cloned voice via fal/MiniMax — subscription-free, RO native.
+          ? { text: script.trim(), provider: 'minimax', minimax_voice: elVoiceId, tone, language: lang }
+          : elConfigured && elVoiceId
+            ? { text: script.trim(), voice_id: elVoiceId, tone, language: lang }
+            : { text: script.trim(), provider: 'gemini', gemini_voice: geminiVoice, tone, language: lang, voice }
       const r = await invoke<{ publicUrl: string }>('generate-voiceover', body)
       const d = await audioDuration(r.publicUrl)
       setVoUrl(r.publicUrl); setVoDur(d || Math.ceil(script.length / 14))
@@ -360,15 +384,19 @@ export default function StudioPage() {
   async function doClone() {
     if (!cloneName.trim() || !clonePerson.trim()) { setError('Completează numele vocii și persoana.'); return }
     if (!cloneConsent) { setError('Bifează consimțământul — fără acordul explicit al persoanei nu clonez vocea.'); return }
-    if (cloneSamples.length === 0) { setError('Încarcă cel puțin o mostră audio (30s–3min, curată).'); return }
+    if (cloneSamples.length === 0) { setError('Încarcă cel puțin o mostră audio (min. 10s, curată).'); return }
     setError(''); setBusy('clone')
     try {
-      const r = await invoke<{ voice_id: string }>('voice-lab', {
-        action: 'clone', name: cloneName.trim(), audio_urls: cloneSamples,
+      // Two engines, kept equal: 'minimax' clones via fal (no subscription),
+      // 'elevenlabs' via ElevenLabs IVC. Both persist to studio_voices so the
+      // voice is remembered by the app itself and never "disappears".
+      const cloneAction = cloneEngine === 'minimax' ? 'clone_fal' : 'clone'
+      const r = await invoke<{ voice_id: string; provider?: string }>('voice-lab', {
+        action: cloneAction, name: cloneName.trim(), audio_urls: cloneSamples, language: lang,
         consent: { granted: true, person_name: clonePerson.trim(), granted_by: 'admin' },
       })
-      const nv = { voice_id: r.voice_id, name: cloneName.trim(), category: 'cloned' }
-      setElVoices(v => [nv, ...v]); setElVoiceId(r.voice_id)
+      const nv: ElVoice = { voice_id: r.voice_id, name: cloneName.trim(), category: 'cloned', provider: (r.provider as 'minimax' | 'elevenlabs') || cloneEngine }
+      setElVoices(v => [nv, ...v]); setElConfigured(true); setElVoiceId(r.voice_id)
       setCloneOpen(false); setCloneName(''); setClonePerson(''); setCloneConsent(false); setCloneSamples([])
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
@@ -749,7 +777,20 @@ export default function StudioPage() {
                 {busy === 'upvid' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />} Clip
                 <input type="file" accept="video/*" hidden onChange={e => onUpload('video', e.target.files?.[0])} />
               </label>
+              <label className={'flex items-center gap-1.5 border text-[12px] font-bold px-3 py-1.5 cursor-pointer ' + (refImageUrl ? 'bg-brand-red/15 border-brand-red/60 text-white' : 'bg-[#111] border-white/[0.07] text-white/70 hover:border-white/20')}>
+                {busy === 'refimg' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />} {refImageUrl ? 'Referință ✓' : 'Referință foto'}
+                <input type="file" accept="image/*" hidden onChange={e => onRefImage(e.target.files?.[0])} />
+              </label>
             </div>
+            {refImageUrl && (
+              <div className="flex items-center gap-2 mt-3">
+                <img src={refImageUrl} alt="Referință" className="w-12 h-12 object-cover border border-brand-red/50" />
+                <p className="text-[11px] text-white/50 leading-snug flex-1">
+                  „Generează imagine” va <b>porni de la această poză</b> (image-to-image, identitatea păstrată). Scrie în prompt ce schimbi (fundal, ținută, încadrare).
+                </p>
+                <button onClick={() => setRefImageUrl('')} className="text-white/30 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            )}
           </div>
 
           {/* Timeline */}
@@ -798,7 +839,9 @@ export default function StudioPage() {
             <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1 flex items-center gap-2"><Mic className="w-3.5 h-3.5" /> Voce (voiceover)</p>
               <p className="text-[11px] mb-3" style={{ color: elConfigured ? '#7ec8a3' : '#8fb8d8' }}>
-                {elConfigured ? 'Motor: ElevenLabs · voci naturale RO/EN + clonare' : 'Motor: Gemini · voci naturale RO/EN · gratuit (cheia existentă). Clonarea de voce cere ELEVENLABS_API_KEY.'}
+                {elConfigured
+                  ? `Motoare voce: ${[providers.minimax ? 'fal/MiniMax (fără abonament)' : '', providers.elevenlabs ? 'ElevenLabs (premium)' : ''].filter(Boolean).join(' · ')} · voci naturale RO/EN + clonarea vocii tale`
+                  : 'Motor: Gemini · voci naturale RO/EN · gratuit (cheia existentă). Clonarea vocii cere FAL_KEY (fără abonament) sau ELEVENLABS_API_KEY.'}
               </p>
               <textarea value={script} onChange={e => setScript(e.target.value)} rows={4} placeholder="Textul citit de voce (RO sau EN)…"
                 className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[13px] p-3 resize-y focus:outline-none focus:border-brand-red/60" />
@@ -806,7 +849,7 @@ export default function StudioPage() {
                 {elConfigured ? (
                   <>
                     <select value={elVoiceId} onChange={e => setElVoiceId(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[160px]">
-                      {elVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.category === 'cloned' ? '👤 ' : ''}{v.name}</option>)}
+                      {elVoices.map(v => <option key={v.provider + ':' + v.voice_id} value={v.voice_id}>{v.category === 'cloned' ? '👤 ' : ''}{v.name}{v.provider === 'minimax' ? ' · fal' : ''}</option>)}
                     </select>
                     <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
                       {TONES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
@@ -834,14 +877,21 @@ export default function StudioPage() {
               </div>
               {voUrl && <audio src={voUrl} controls className="w-full mt-3 h-9" />}
 
-              {/* Voice cloning lab */}
-              {elConfigured && (
+              {/* Voice cloning lab — two engines, kept equal */}
+              {(providers.minimax || providers.elevenlabs) && (
                 <div className="mt-4 pt-4 border-t border-white/[0.07]">
                   <button onClick={() => setCloneOpen(o => !o)} className="flex items-center gap-1.5 text-[12px] font-bold text-white/70 hover:text-white">
-                    <UserPlus className="w-3.5 h-3.5" /> Vocile mele · clonează o voce {cloneOpen ? '▴' : '▾'}
+                    <UserPlus className="w-3.5 h-3.5" /> Vocile mele · clonează vocea ta {cloneOpen ? '▴' : '▾'}
                   </button>
                   {cloneOpen && (
                     <div className="mt-3 space-y-2">
+                      {providers.minimax && providers.elevenlabs && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-white/40">Motor:</span>
+                          <button onClick={() => setCloneEngine('minimax')} className={'px-2.5 py-1 text-[11px] border ' + (cloneEngine === 'minimax' ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>fal · fără abonament</button>
+                          <button onClick={() => setCloneEngine('elevenlabs')} className={'px-2.5 py-1 text-[11px] border ' + (cloneEngine === 'elevenlabs' ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>ElevenLabs · premium</button>
+                        </div>
+                      )}
                       <input value={cloneName} onChange={e => setCloneName(e.target.value)} placeholder="Numele vocii (ex. Daniel TT)"
                         className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-3 py-2" />
                       <input value={clonePerson} onChange={e => setClonePerson(e.target.value)} placeholder="A cui este vocea? (persoana reală)"
@@ -855,9 +905,13 @@ export default function StudioPage() {
                         <span><ShieldCheck className="w-3 h-3 inline mr-1" />Confirm că persoana numită mai sus și-a dat <b>acordul explicit</b> pentru clonarea vocii sale. Fără acest acord, clonarea este refuzată.</span>
                       </label>
                       <button onClick={doClone} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
-                        {busy === 'clone' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />} Clonează vocea
+                        {busy === 'clone' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />} Clonează vocea{cloneEngine === 'minimax' ? ' (fal)' : ' (ElevenLabs)'}
                       </button>
-                      <p className="text-[10.5px] text-white/30">1–3 mostre curate, fără muzică de fundal, total 1–3 minute. Vocea apare apoi în listă cu 👤.</p>
+                      <p className="text-[10.5px] text-white/30">
+                        {cloneEngine === 'minimax'
+                          ? 'O mostră curată de min. 10 secunde (fără muzică de fundal). Fără abonament — se plătește per folosire din creditele fal. Vocea se salvează în contul tău și apare în listă cu 👤 · fal.'
+                          : '1–3 mostre curate, fără muzică de fundal, total 1–3 minute. Necesită plan ElevenLabs. Vocea apare în listă cu 👤.'}
+                      </p>
                     </div>
                   )}
                 </div>
