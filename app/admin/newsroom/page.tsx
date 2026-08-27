@@ -33,20 +33,6 @@ interface PastBulletin { id: string; created_at: string; story_titles: string[] 
 // Strip diacritics/punctuation for fuzzy cue↔story matching.
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
 
-// ── Brand pronunciation: spoken vs written ──────────────────────────────────
-// Romanian TTS engines read "Times" the Romanian way ("ti-mes"). The text SENT
-// TO THE ENGINE gets a phonetic respelling of the English pronunciation; the
-// script on screen, the captions, the lower-thirds and the SRT keep the
-// correct spelling. Order matters: the domain is rewritten before the bare
-// brand name so ".com" is spoken as "punct com".
-const spokenText = (t: string) => t
-  .replace(/transilvaniatimes\s*\.\s*com/gi, 'Transilvania Taims punct com')
-  .replace(/transilvaniatimes/gi, 'Transilvania Taims')
-  .replace(/transilvania\s+times/gi, 'Transilvania Taims')
-// Whisper hears "Taims" in the audio and may transcribe it phonetically — the
-// captions must show the correct spelling again.
-const fixSpelling = (s: string) => s.replace(/\b(taims|tajms|taimz|thaims)\b/gi, 'Times')
-
 const TONES = [
   { v: 'stiri', label: 'Știri · autoritar' },
   { v: 'calm', label: 'Calm · documentar' },
@@ -128,22 +114,7 @@ export default function NewsroomPage() {
   const [anchorVideo, setAnchorVideo] = useState('')  // presenter VIDEO clip -> pro lipsync
   const [libVideoName, setLibVideoName] = useState('')
   const [libError, setLibError] = useState('')
-  const [monitorSide, setMonitorSide] = useState<'left' | 'right' | 'off' | 'green'>('right')
-  // Directed presenter track: when the voiceover outlasts the presenter clip,
-  // re-edit the clip to the voice length (cuts at story boundaries, alternating
-  // punch-in) BEFORE lipsync — so the engine never loops the footage and the
-  // anchor's gestures never visibly repeat.
-  const [trackMode, setTrackMode] = useState(true)
-  // Filmed outro (the anchor stands and leaves) appended after the signoff.
-  const [outroVideo, setOutroVideo] = useState('')
-  // Optional second camera (same anchor, different angle) — the directed track
-  // cuts to it every third shot, like a control room switching cameras.
-  const [anchorVideo2, setAnchorVideo2] = useState('')
-  // Cinematic intro clip (AI-generated or licensed opener); '' = the built-in
-  // procedural intro. The brand lockup + sting are layered on top either way.
-  const [introVideo, setIntroVideo] = useState('')
-  // Actual intro length of the LAST composed bulletin — the SRT offset.
-  const [introDurUsed, setIntroDurUsed] = useState(4.2)
+  const [monitorSide, setMonitorSide] = useState<'left' | 'right' | 'off'>('right')
   // Presenter placement over a studio (greenscreen mode): scale, position and a
   // "desk line" — the studio strip below it is re-drawn IN FRONT of the presenter,
   // so a bust sits naturally BEHIND the studio's desk instead of floating on it.
@@ -326,41 +297,6 @@ export default function NewsroomPage() {
     } catch (e) { setError('Clip prezentator: ' + (e as Error).message) } finally { setBusy('') }
   }
 
-  // One-click cinematic AI intro: a 16:9 still (gpt-image/FLUX) pushed into
-  // motion by Kling — generated ONCE, saved in the clip library, reused in
-  // every bulletin. Costs a few tens of cents, shown on the button; the
-  // compositor layers the TT logo slam + sting on top at render time.
-  async function genIntroClip() {
-    setError(''); setBusy('genintro')
-    try {
-      const still = await invokeRaw('generate-cover-image', {
-        raw_prompt: 'Breathtaking cinematic aerial establishing shot over Transylvania at dusk: rolling Carpathian ridges in blue-hour haze, a historic Transylvanian citadel town glowing warm below, dramatic layered clouds catching the last crimson light, atmospheric depth, epic broadcast-news opener mood, ultra photorealistic, anamorphic feel. No text, no logo, no watermark.',
-        aspect: '16:9',
-      })
-      if (still.error) throw new Error(String(still.error))
-      const stillUrl = String(still.publicUrl || '')
-      if (!stillUrl) throw new Error('Imaginea de intro a eșuat.')
-      const r = await invokeRaw('generate-motion', {
-        action: 'create', image_url: stillUrl, duration: '5',
-        prompt: 'Slow majestic aerial push-in over the landscape, clouds drifting, city lights twinkling, cinematic and steady, no cuts, no text. Preserve the composition and color grade.',
-      })
-      if (r.error) throw new Error(String(r.error))
-      const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
-      for (let i = 0; i < 120; i++) {
-        await sleep(5000)
-        const st = await invokeRaw('generate-motion', { action: 'poll', status_url: statusUrl, response_url: responseUrl })
-        if (st.error) throw new Error(String(st.error))
-        if (String(st.status) === 'COMPLETED' && st.publicUrl) {
-          const url = String(st.publicUrl)
-          await saveGeneratedToLibrary(url, 'presenter_video', 'Intro TT (AI)')
-          setIntroVideo(url)
-          return
-        }
-      }
-      throw new Error('Kling nu a terminat în 10 minute — reîncearcă.')
-    } catch (e) { setError('Intro: ' + (e as Error).message) } finally { setBusy('') }
-  }
-
   // Prompt-based STUDIO backdrop (16:9) via the existing image generator.
   async function genStudioFromPrompt() {
     const p = studioPrompt.trim()
@@ -448,11 +384,8 @@ export default function NewsroomPage() {
   }
 
   async function genVoice(scriptParam?: string): Promise<string | null> {
-    const written = (scriptParam ?? script).trim()
-    if (!written) { setError('Generează sau scrie scriptul mai întâi.'); return null }
-    // The engine speaks the phonetic form of the brand ("Taims"); everything
-    // shown on screen keeps the correct English spelling.
-    const text = spokenText(written)
+    const text = (scriptParam ?? script).trim()
+    if (!text) { setError('Generează sau scrie scriptul mai întâi.'); return null }
     setError(''); setBusy('voice')
     try {
       // Voice routing. The ACCENT problem: Gemini's voices (Aoede/Zephyr/…) are
@@ -500,7 +433,6 @@ export default function NewsroomPage() {
         ? (LABEL[prov] || prov) + (gv ? ` · ${gv}` : '') + (r.note ? ` · ${String(r.note)}` : '')
         : '')
       setVoUrl(url)
-      setCues([]); setWords([])   // a new voice invalidates any previous alignment
       return url || null
     } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
   }
@@ -549,266 +481,6 @@ export default function NewsroomPage() {
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
 
-  // Shared Whisper alignment (segments + word timings) for captions, story
-  // timing and the directed presenter track. Runs once per voiceover; a new
-  // voice clears the cache (see genVoice).
-  async function ensureAlignment(voiceUrl: string): Promise<{ cueList: Cue[]; wordList: Word[] }> {
-    let cueList = cues, wordList = words
-    if ((cueList.length === 0 || wordList.length === 0) && voiceUrl) {
-      try {
-        const timeout = new Promise<Record<string, unknown>>((_r, rej) => setTimeout(() => rej(new Error('subtitle timeout')), 60000))
-        const r = await Promise.race([invokeRaw('align-subtitles', { audio_url: voiceUrl, language: lang }), timeout])
-        if (Array.isArray(r.segments)) { cueList = (r.segments as Cue[]).map(c => ({ ...c, text: fixSpelling(c.text) })); setCues(cueList) }
-        if (Array.isArray(r.words)) { wordList = (r.words as Word[]).map(w => ({ ...w, word: fixSpelling(w.word) })); setWords(wordList) }
-      } catch { /* alignment optional — timings fall back to proportional */ }
-    }
-    return { cueList, wordList }
-  }
-
-  function mediaDuration(url: string, kind: 'audio' | 'video'): Promise<number> {
-    return new Promise(res => {
-      const el = document.createElement(kind)
-      let done = false
-      const finish = (v: number) => { if (!done) { done = true; res(v) } }
-      const timer = setTimeout(() => finish(0), 10000)
-      el.preload = 'metadata'
-      el.onloadedmetadata = () => { clearTimeout(timer); finish(Number.isFinite(el.duration) ? el.duration : 0) }
-      el.onerror = () => { clearTimeout(timer); finish(0) }
-      el.src = url
-    })
-  }
-
-  // ── DIRECTED PRESENTER TRACK ────────────────────────────────────────────
-  // A short filmed clip cannot carry a long bulletin: the lipsync engine loops
-  // it, and the anchor's gestures repeat visibly every clip-length. Real TV
-  // solves this in the control room — it CUTS at story boundaries and
-  // alternates wide/tight camera framings. This builder does exactly that: it
-  // re-edits the clip into a SILENT video precisely as long as the voiceover
-  // (a cut at each story start, long stories subdivided, alternating punch-in,
-  // varied source offsets so consecutive shots never open on the same
-  // gesture), records it in the browser and uploads it as the lipsync input.
-  // Free — the only cost is a real-time render (about the bulletin's length).
-  async function buildPresenterTrack(voiceUrl: string, audioDur: number): Promise<string | null> {
-    try {
-      setVideoStatus('pistă regizată — pregătesc')
-      const loadClip = async (url: string): Promise<HTMLVideoElement | null> => {
-        try {
-          const el = document.createElement('video')
-          el.crossOrigin = 'anonymous'; el.muted = true; el.playsInline = true; el.preload = 'auto'; el.src = url
-          await new Promise<void>((res, rej) => { const t = setTimeout(() => rej(new Error('timeout')), 12000); el.onloadeddata = () => { clearTimeout(t); res() }; el.onerror = () => { clearTimeout(t); rej(new Error('clip')) } })
-          return el
-        } catch { return null }
-      }
-      const vv = await loadClip(anchorVideo)
-      if (!vv) return null
-      const clipDur = Number.isFinite(vv.duration) ? vv.duration : 0
-      if (clipDur < 4) return null
-      // Optional camera 2 — same anchor from another angle; skipped silently
-      // if it fails to load or is too short.
-      let vv2: HTMLVideoElement | null = null
-      if (anchorVideo2 && anchorVideo2 !== anchorVideo) {
-        vv2 = await loadClip(anchorVideo2)
-        if (vv2 && (!Number.isFinite(vv2.duration) || vv2.duration < 3)) vv2 = null
-      }
-
-      // ── GESTURE SCAN ────────────────────────────────────────────────────
-      // Redub keeps the source body language, so hand gestures recorded for a
-      // DIFFERENT speech land at the wrong moments and read as fake. Measure
-      // the clip's hand-motion energy (frame differencing on the lower-middle
-      // region) and keep only the CALM stretches — hands at rest, natural head
-      // movement — as the footage pool. If the clip has no usable calm
-      // stretch, fall back to the whole clip (old behaviour).
-      setVideoStatus('analizez gesturile clipului')
-      const scanCalm = async (el: HTMLVideoElement, dur: number): Promise<{ a: number; b: number }[]> => {
-        try {
-          const SW = 160, SH = 90, STEP = 0.25
-          const sc2 = document.createElement('canvas'); sc2.width = SW; sc2.height = SH
-          const sx2 = sc2.getContext('2d', { willReadFrequently: true })!
-          const energies: number[] = []
-          let prev: Uint8ClampedArray | null = null
-          for (let tt = 0; tt < dur - 0.05; tt += STEP) {
-            await new Promise<void>(res => {
-              const tm = setTimeout(res, 350)
-              el.onseeked = () => { clearTimeout(tm); res() }
-              try { el.currentTime = tt } catch { clearTimeout(tm); res() }
-            })
-            sx2.drawImage(el, 0, 0, SW, SH)
-            const d = sx2.getImageData(0, Math.round(SH * 0.55), SW, SH - Math.round(SH * 0.55)).data
-            if (prev) {
-              let s = 0, npx = 0
-              const x0 = Math.round(SW * 0.25) * 4, x1 = Math.round(SW * 0.70) * 4
-              for (let i = 0; i < d.length; i += 4) {
-                const col = i % (SW * 4)
-                if (col < x0 || col > x1) continue
-                s += Math.abs(d[i] - prev[i]); npx++
-              }
-              energies.push(s / Math.max(1, npx))
-            }
-            prev = d.slice() as unknown as Uint8ClampedArray
-          }
-          el.onseeked = null
-          if (energies.length < 8) return []
-          const sorted = [...energies].sort((a, b) => a - b)
-          const med = sorted[Math.floor(sorted.length / 2)] || 1
-          const th = med * 0.85
-          const wins: { a: number; b: number }[] = []
-          let st: number | null = null
-          for (let i = 0; i < energies.length; i++) {
-            if (energies[i] < th) { if (st === null) st = i }
-            else { if (st !== null && (i - st) * STEP >= 2.5) wins.push({ a: st * STEP + 0.2, b: i * STEP - 0.2 }); st = null }
-          }
-          if (st !== null && (energies.length - st) * STEP >= 2.5) wins.push({ a: st * STEP + 0.2, b: energies.length * STEP - 0.2 })
-          return wins.filter(w => w.b - w.a >= 2.2)
-        } catch { return [] }
-      }
-      type SrcInfo = { el: HTMLVideoElement; dur: number; pool: { a: number; b: number }[]; maxSpan: number }
-      const mkSrc = async (el: HTMLVideoElement): Promise<SrcInfo> => {
-        const dur = el.duration
-        const calm = await scanCalm(el, dur)
-        const calmTotal = calm.reduce((s, w) => s + (w.b - w.a), 0)
-        const pool = calmTotal >= 2.2 ? calm : [{ a: 0, b: dur }]
-        const maxWin = Math.max(...pool.map(w => w.b - w.a))
-        return { el, dur, pool, maxSpan: Math.max(2.0, Math.min(13, dur - 1.0, maxWin - 0.3)) }
-      }
-      const sources: SrcInfo[] = [await mkSrc(vv)]
-      if (vv2) sources.push(await mkSrc(vv2))
-
-      // Cut points: every story start (word-aligned to the voiceover), then
-      // long spans subdivided so no span exceeds what the clip carries unlooped.
-      const { cueList, wordList } = await ensureAlignment(voiceUrl)
-      const storyStarts = storyTimes(audioDur, cueList, wordList).map(s => s.start)
-      const cuts: number[] = [0]
-      for (const s of storyStarts) if (s > cuts[cuts.length - 1] + 4 && s < audioDur - 3) cuts.push(s)
-      // Shot plan: story boundaries are hard cuts; long stories are subdivided
-      // to each camera's capacity; with a second camera, every third shot cuts
-      // to it — control-room grammar with real angle variety.
-      const plan: { at: number; cam: number }[] = []
-      for (let i = 0; i < cuts.length; i++) {
-        const a = cuts[i], b = i + 1 < cuts.length ? cuts[i + 1] : audioDur
-        let pPos = a
-        for (;;) {
-          const cam = sources.length > 1 && plan.length % 3 === 2 ? 1 : 0
-          const cap = sources[cam].maxSpan
-          plan.push({ at: pPos, cam })
-          if (b - pPos <= cap + 0.6) break
-          pPos += cap - 0.4 + ((plan.length % 3) * 0.3)
-          if (pPos > b - 1.5) break
-        }
-      }
-      type Span = { at: number; end: number; cam: number; off: number; zoom: number }
-      const ZOOMS = [1, 1.18, 1.08]
-      const spans: Span[] = plan.map((pp, i) => {
-        const s = sources[pp.cam]
-        const end = i + 1 < plan.length ? plan[i + 1].at : audioDur
-        const len = Math.min(end - pp.at, s.dur - 0.3)
-        // pick a calm window that fits this span; rotate windows, vary the
-        // start inside the window so consecutive shots never open identically
-        const fits = s.pool.filter(w => w.b - w.a >= len + 0.2)
-        const w = fits.length ? fits[i % fits.length] : s.pool.reduce((m, x) => (x.b - x.a > m.b - m.a ? x : m))
-        const room = Math.max(0.05, (w.b - w.a) - Math.min(len, w.b - w.a) - 0.1)
-        return { at: pp.at, end, cam: pp.cam, off: w.a + ((i * 2.7) % room), zoom: ZOOMS[i % 3] }
-      })
-
-      const W2 = 1280, H2 = 720
-      const cv = document.createElement('canvas'); cv.width = W2; cv.height = H2
-      const cx2 = cv.getContext('2d')!
-      const stream = cv.captureStream(25)
-      let mime = 'video/mp4'
-      if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp9'
-      if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm'
-      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_500_000 })
-      const chunks: BlobPart[] = []
-      rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
-      const recDone = new Promise<Blob>(res => { rec.onstop = () => res(new Blob(chunks, { type: mime })) })
-
-      const draw = (sp: Span) => {
-        const el = sources[sp.cam].el
-        const vw = el.videoWidth || 16, vh = el.videoHeight || 9
-        const cr = W2 / H2, vr = vw / vh
-        let sw: number, sh: number
-        if (vr > cr) { sh = vh; sw = vh * cr } else { sw = vw; sh = vw / cr }
-        sw /= sp.zoom; sh /= sp.zoom
-        // tight shots frame on the anchor
-        let sxp = sp.zoom > 1 ? vw * 0.40 - sw * 0.45 : (vw - sw) / 2
-        let syp = sp.zoom > 1 ? vh * 0.37 - sh * 0.38 : (vh - sh) / 2
-        sxp = Math.max(0, Math.min(vw - sw, sxp)); syp = Math.max(0, Math.min(vh - sh, syp))
-        cx2.drawImage(el, sxp, syp, sw, sh, 0, 0, W2, H2)
-      }
-      let cur = 0
-      const activate = (i: number) => {
-        const sp = spans[i]
-        sources.forEach((s, ci) => { if (ci !== sp.cam) s.el.pause() })
-        const el = sources[sp.cam].el
-        try { el.currentTime = sp.off } catch { /* keep playing */ }
-        el.play().catch(() => {})
-        // pre-seek the other camera toward its next shot while it is idle
-        const nx = spans[i + 1]
-        if (nx && nx.cam !== sp.cam) { try { sources[nx.cam].el.currentTime = nx.off } catch { /* ignore */ } }
-      }
-
-      rec.start(200)
-      activate(0)
-      let t0 = performance.now()
-      // A hidden/minimized tab freezes requestAnimationFrame, which once
-      // produced a 1-frame track (and a fal 500). Pause the recording and the
-      // clock while hidden, resume and re-seek when the tab comes back — so
-      // switching tabs merely pauses the montage instead of ruining it.
-      let hiddenAt = 0
-      const onVis = () => {
-        if (document.hidden) {
-          hiddenAt = performance.now()
-          try { rec.pause() } catch { /* not started */ }
-          sources.forEach(s => s.el.pause())
-        } else if (hiddenAt) {
-          t0 += performance.now() - hiddenAt
-          hiddenAt = 0
-          const t = (performance.now() - t0) / 1000
-          const sp = spans[cur]
-          const sEl = sources[sp.cam].el
-          try { sEl.currentTime = Math.min(sources[sp.cam].dur - 0.05, sp.off + Math.max(0, t - sp.at)) } catch { /* keep frame */ }
-          sEl.play().catch(() => {})
-          try { rec.resume() } catch { /* ignore */ }
-        }
-      }
-      document.addEventListener('visibilitychange', onVis)
-      try {
-        await new Promise<void>(resolve => {
-          const loop = () => {
-            if (hiddenAt) { requestAnimationFrame(loop); return }   // paused
-            const t = (performance.now() - t0) / 1000
-            while (cur + 1 < spans.length && t >= spans[cur + 1].at) { cur++; activate(cur) }
-            draw(spans[cur])
-            setVideoStatus(`pistă regizată ${Math.min(99, Math.round((t / audioDur) * 100))}%`)
-            if (t >= audioDur) { resolve(); return }
-            requestAnimationFrame(loop)
-          }
-          loop()
-        })
-      } finally {
-        document.removeEventListener('visibilitychange', onVis)
-      }
-      rec.stop()
-      const blob = await recDone
-      sources.forEach(s => s.el.pause())
-      // Integrity gate: a healthy track runs ~4.5 Mbit/s; anything under
-      // ~0.4 Mbit/s means frames were lost (hidden tab, GPU stall). Never send
-      // a broken file to the paid lipsync engine — fail here, with the cause.
-      const minBytes = Math.max(300_000, Math.round(audioDur * 50_000))
-      if (blob.size < minBytes) {
-        throw new Error(`Montajul pistei a ieșit gol (${Math.round(blob.size / 1024)} KB pentru ${Math.round(audioDur)}s) — de obicei fila a fost ascunsă sau minimizată în timpul randării. Ține fila vizibilă cât apare „pistă regizată N%” și apasă din nou.`)
-      }
-      setVideoStatus('pistă regizată — încarc')
-      const ext = mime.includes('mp4') ? 'mp4' : 'webm'
-      const path = `newsroom/presenter-track-${Date.now()}.${ext}`
-      const { error: upErr } = await supabase.storage.from('studio-assets').upload(path, blob, { contentType: mime, upsert: false })
-      if (upErr) return null
-      return supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
-    } catch (e) {
-      if (String((e as Error).message || '').startsWith('Montajul')) throw e
-      return null
-    }
-  }
-
   async function genVideo(voParam?: string): Promise<string | null> {
     const voice = voParam || voUrl
     if (!voice) { setError('Generează vocea mai întâi (pasul 3).'); return null }
@@ -824,37 +496,8 @@ export default function NewsroomPage() {
         // A photo-only anchor now uses Kling ai-avatar (engine 'avatar'), which
         // drives head motion/expression from the audio while preserving identity —
         // instead of SadTalker, which warped the face ("highly inaccurate").
-        //
-        // LOOP GUARD + DIRECTED TRACK: when the voiceover is LONGER than the
-        // presenter clip, the engine would loop the footage and the anchor's
-        // gestures would repeat visibly every clip-length. With the directed
-        // track ON, the clip is first re-edited to the exact voice length
-        // (cuts at story boundaries, alternating tight shot — control-room
-        // grammar). With it OFF, we refuse to render a silently-looping
-        // bulletin and say why.
-        let lipsyncSrc = anchorVideo
-        if (anchorVideo) {
-          const audioDur = await mediaDuration(voice, 'audio')
-          const clipDur = await mediaDuration(anchorVideo, 'video')
-          if (audioDur > 0 && clipDur > 0 && audioDur > clipDur + 0.75) {
-            if (trackMode) {
-              let built: string | null = null
-              try { built = await buildPresenterTrack(voice, audioDur) }
-              catch (te) { setError((te as Error).message); setVideoStatus(''); return null }
-              if (!built) {
-                setError('Pista regizată nu a putut fi construită (browserul a refuzat înregistrarea canvasului). Reîncearcă în Chrome — sau folosește un clip de prezentator cel puțin cât vocea.')
-                setVideoStatus(''); return null
-              }
-              lipsyncSrc = built
-            } else {
-              setError(`Vocea (~${Math.round(audioDur)}s) este mai lungă decât clipul de prezentator (~${Math.round(clipDur)}s): motorul ar bucla clipul, iar mișcările prezentatorului s-ar repeta vizibil la fiecare ${Math.round(clipDur)}s. Bifează „Pistă regizată" la pasul 5 — sau folosește un clip mai lung.`)
-              setVideoStatus(''); return null
-            }
-          }
-          setVideoStatus('se trimite')
-        }
         const r = await invokeRaw('newsroom-anchor', anchorVideo
-          ? { action: 'generate_fal', engine: 'sync', video_url: lipsyncSrc, audio_url: voice, quality }
+          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voice, quality }
           : { action: 'generate_fal', engine: 'avatar', image_url: anchorImg, audio_url: voice })
         if (r.error) throw new Error(String(r.error))
         const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
@@ -975,11 +618,7 @@ export default function NewsroomPage() {
         if (typeof d.anchorImg === 'string') setAnchorImg(d.anchorImg)
         if (typeof d.studioBg === 'string') setStudioBg(d.studioBg)
         if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
-        if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off' || d.monitorSide === 'green') setMonitorSide(d.monitorSide)
-        if (typeof d.trackMode === 'boolean') setTrackMode(d.trackMode)
-        if (typeof d.outroVideo === 'string') setOutroVideo(d.outroVideo)
-        if (typeof d.introVideo === 'string') setIntroVideo(d.introVideo)
-        if (typeof d.anchorVideo2 === 'string') setAnchorVideo2(d.anchorVideo2)
+        if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
         if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
         // Only restore a NON-EMPTY saved voice: an empty string saved before this
         // field existed would otherwise wipe the preset Romanian voice on load.
@@ -1008,10 +647,10 @@ export default function NewsroomPage() {
       localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
         anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, pauseMs,
         presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl,
-        subsOn, tickerOn, capMode, trackMode, outroVideo, introVideo, anchorVideo2,
+        subsOn, tickerOn, capMode,
       }))
     } catch { /* ignore */ }
-  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, pauseMs, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl, subsOn, tickerOn, capMode, trackMode, outroVideo, introVideo, anchorVideo2])
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, pauseMs, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl, subsOn, tickerOn, capMode])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
   const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement; ar: number } | null>(null)
@@ -1105,7 +744,6 @@ export default function NewsroomPage() {
     return {
       anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
       presScale, presX, presY, deskLine, bedOn, bedLevel, lang, target, capMode, subsOn, tickerOn,
-      trackMode, outroVideo, introVideo, anchorVideo2,
     }
   }
   function applyPresetPayload(d: Record<string, unknown>) {
@@ -1113,11 +751,7 @@ export default function NewsroomPage() {
     if (typeof d.anchorImg === 'string') setAnchorImg(d.anchorImg)
     if (typeof d.studioBg === 'string') setStudioBg(d.studioBg)
     if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
-    if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off' || d.monitorSide === 'green') setMonitorSide(d.monitorSide)
-    if (typeof d.trackMode === 'boolean') setTrackMode(d.trackMode)
-    if (typeof d.outroVideo === 'string') setOutroVideo(d.outroVideo)
-    if (typeof d.introVideo === 'string') setIntroVideo(d.introVideo)
-    if (typeof d.anchorVideo2 === 'string') setAnchorVideo2(d.anchorVideo2)
+    if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
     if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
     if (typeof d.elVoice === 'string' && d.elVoice.trim()) setElVoice(d.elVoice)
     if (typeof d.quality === 'string') setQuality(d.quality as 'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium')
@@ -1402,38 +1036,19 @@ export default function NewsroomPage() {
       await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error('Nu am putut încărca clipul (CORS?).')) })
       const dur = Math.min(300, Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 60)
 
-      // Cinematic intro clip: replaces the procedural open; brand lockup +
-      // sting are drawn/scheduled on top, timed to the clip's length.
-      let iv: HTMLVideoElement | null = null
-      let introDur = INTRO
-      if (introVideo) {
+      // Captions from the voiceover (once) — segments + word timings.
+      let cueList = cues
+      let wordList = words
+      if (subsOn && (cueList.length === 0 || (capMode === 'karaoke' && wordList.length === 0)) && voiceUrl) {
         try {
-          const el = document.createElement('video')
-          el.crossOrigin = 'anonymous'; el.muted = true; el.playsInline = true; el.preload = 'auto'; el.src = introVideo
-          await new Promise<void>((res, rej) => { const tm = setTimeout(() => rej(new Error('timeout')), 8000); el.onloadeddata = () => { clearTimeout(tm); res() }; el.onerror = () => { clearTimeout(tm); rej(new Error('intro')) } })
-          const d = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0
-          if (d >= 2) { iv = el; introDur = Math.min(8, d) }
-        } catch { iv = null; introDur = INTRO }
+          setCompStage('aliniez subtitrările…')
+          // Cap the transcription wait — captions are optional, never block the render.
+          const timeout = new Promise<Record<string, unknown>>((_r, rej) => setTimeout(() => rej(new Error('subtitle timeout')), 60000))
+          const r = await Promise.race([invokeRaw('align-subtitles', { audio_url: voiceUrl, language: lang }), timeout])
+          if (Array.isArray(r.segments)) { cueList = r.segments as Cue[]; setCues(cueList) }
+          if (Array.isArray(r.words)) { wordList = r.words as Word[]; setWords(wordList) }
+        } catch { /* captions optional — proceed without them */ }
       }
-      setIntroDurUsed(introDur)
-
-      // Filmed outro: the anchor stands and leaves the studio, then the endcard.
-      let ov: HTMLVideoElement | null = null
-      let outroClipDur = 0
-      if (outroVideo) {
-        try {
-          const el = document.createElement('video')
-          el.crossOrigin = 'anonymous'; el.muted = true; el.playsInline = true; el.preload = 'auto'; el.src = outroVideo
-          await new Promise<void>((res, rej) => { const tm = setTimeout(() => rej(new Error('timeout')), 8000); el.onloadeddata = () => { clearTimeout(tm); res() }; el.onerror = () => { clearTimeout(tm); rej(new Error('outro')) } })
-          ov = el
-          outroClipDur = Math.min(8, Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0)
-        } catch { ov = null; outroClipDur = 0 }
-      }
-
-      // Captions + word timings from the voiceover (once) — shared with the
-      // directed track builder, so story cuts and lower-thirds land together.
-      setCompStage('aliniez subtitrările…')
-      const { cueList, wordList } = await ensureAlignment(voiceUrl)
       // Karaoke groups: chunks of ≤4 words / ≤26 chars, timed word-by-word.
       const karaoke: { start: number; end: number; ws: Word[] }[] = []
       if (capMode === 'karaoke' && wordList.length) {
@@ -1473,7 +1088,7 @@ export default function NewsroomPage() {
       const canvas = canvasRef.current!
       canvas.width = W; canvas.height = H
       const ctx = canvas.getContext('2d')!
-      const total = introDur + dur + outroClipDur + OUTRO
+      const total = INTRO + dur + OUTRO
       const dateStr = new Date().toLocaleDateString(lang === 'ro' ? 'ro-RO' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
       const clockBaseMs = Date.now()   // live-advancing clock baked into the ticker
       let studioImg: HTMLImageElement | null = null
@@ -1496,17 +1111,16 @@ export default function NewsroomPage() {
       const stingBus = ac.createGain(); stingBus.gain.value = 0.9
       stingBus.connect(dest); stingBus.connect(ac.destination)
       const noiseBuf = (d: number) => { const n = Math.floor(ac.sampleRate * d); const b = ac.createBuffer(1, n, ac.sampleRate); const ch = b.getChannelData(0); for (let i = 0; i < n; i++) ch[i] = Math.random() * 2 - 1; return b }
-      const scheduleIntroSting = (t0: number, sd: number) => {
-        // slam lands 1.65s before the intro ends (2.55 on the classic 4.2s open)
-        const slam = t0 + Math.max(1.6, sd - 1.65)
+      const scheduleIntroSting = (t0: number) => {
+        const slam = t0 + 2.55   // aligns with the logo slam in drawIntro
         ;[55, 110].forEach((f, i) => {
           const o = ac.createOscillator(); o.type = i ? 'sine' : 'triangle'; o.frequency.value = f
           const g = ac.createGain(); const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320
-          g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.11, slam - 0.35)
-          g.gain.setValueAtTime(0.11, t0 + sd - 0.8); g.gain.linearRampToValueAtTime(0, t0 + sd)
-          o.connect(lp); lp.connect(g); g.connect(stingBus); o.start(t0); o.stop(t0 + sd + 0.1)
+          g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.11, t0 + 2.2)
+          g.gain.setValueAtTime(0.11, t0 + 3.4); g.gain.linearRampToValueAtTime(0, t0 + 4.2)
+          o.connect(lp); lp.connect(g); g.connect(stingBus); o.start(t0); o.stop(t0 + 4.3)
         })
-        ;[[0.12 * sd, 0.8], [0.36 * sd, 0.8]].forEach(([st, du]) => {
+        ;[[0.5, 0.8], [1.5, 0.8]].forEach(([st, du]) => {
           const s = ac.createBufferSource(); s.buffer = noiseBuf(du)
           const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8
           bp.frequency.setValueAtTime(300, t0 + st); bp.frequency.exponentialRampToValueAtTime(3500, t0 + st + du)
@@ -1515,11 +1129,11 @@ export default function NewsroomPage() {
           s.connect(bp); bp.connect(g); g.connect(stingBus); s.start(t0 + st); s.stop(t0 + st + du)
         })
         { const o = ac.createOscillator(); o.type = 'sawtooth'
-          o.frequency.setValueAtTime(90, slam - 1.45); o.frequency.exponentialRampToValueAtTime(900, slam)
+          o.frequency.setValueAtTime(90, t0 + 1.1); o.frequency.exponentialRampToValueAtTime(900, slam)
           const g = ac.createGain(); const lp = ac.createBiquadFilter(); lp.type = 'lowpass'
-          lp.frequency.setValueAtTime(400, slam - 1.45); lp.frequency.exponentialRampToValueAtTime(6000, slam)
-          g.gain.setValueAtTime(0.0001, slam - 1.45); g.gain.exponentialRampToValueAtTime(0.13, slam - 0.02); g.gain.linearRampToValueAtTime(0, slam + 0.12)
-          o.connect(lp); lp.connect(g); g.connect(stingBus); o.start(slam - 1.45); o.stop(slam + 0.2) }
+          lp.frequency.setValueAtTime(400, t0 + 1.1); lp.frequency.exponentialRampToValueAtTime(6000, slam)
+          g.gain.setValueAtTime(0.0001, t0 + 1.1); g.gain.exponentialRampToValueAtTime(0.13, slam - 0.02); g.gain.linearRampToValueAtTime(0, slam + 0.12)
+          o.connect(lp); lp.connect(g); g.connect(stingBus); o.start(t0 + 1.1); o.stop(slam + 0.2) }
         { const o = ac.createOscillator(); o.type = 'sine'
           o.frequency.setValueAtTime(120, slam); o.frequency.exponentialRampToValueAtTime(45, slam + 0.5)
           const g = ac.createGain(); g.gain.setValueAtTime(0.9, slam); g.gain.exponentialRampToValueAtTime(0.001, slam + 0.7)
@@ -1611,68 +1225,43 @@ export default function NewsroomPage() {
         ;(ctx as unknown as { letterSpacing: string }).letterSpacing = '0px'; ctx.restore()
       }
 
-      // ── GREEN-MONITOR FILL ────────────────────────────────────────────────
-      // The presenter clip contains a REAL studio screen filmed in chroma
-      // green. Instead of overlaying a fake monitor, the story's cover image is
-      // keyed INTO that physical screen: green pixels are auto-detected per
-      // frame (the bounding box survives punch-in framing changes) and replaced
-      // with the image; the anchor or anything passing in front of the screen
-      // occludes it naturally, because only green pixels are touched.
-      const brandCard = document.createElement('canvas')
-      {
-        brandCard.width = 640; brandCard.height = 360
-        const b = brandCard.getContext('2d')!
-        const bgG = b.createLinearGradient(0, 0, 0, 360)
-        bgG.addColorStop(0, '#101827'); bgG.addColorStop(1, '#070b12')
-        b.fillStyle = bgG; b.fillRect(0, 0, 640, 360)
-        b.fillStyle = P.crimson; b.fillRect(0, 352, 640, 8)
-        b.textAlign = 'center'; b.textBaseline = 'middle'
-        b.fillStyle = P.cream; b.font = '800 44px Inter, sans-serif'
-        b.fillText('TRANSILVANIA', 320, 148)
-        b.fillStyle = P.crimson; b.font = '700 30px Inter, sans-serif'
-        b.fillText('T I M E S', 320, 198)
-        b.fillStyle = P.gold; b.font = '600 17px Inter, sans-serif'
-        b.fillText('transilvaniatimes.com', 320, 248)
-      }
-      const gfScratch = document.createElement('canvas')
-      const greenFill = (fill: CanvasImageSource, fw: number, fh: number) => {
-        // Operates in place on okv (which holds the current full frame).
-        try {
-          const id = okx.getImageData(0, 0, W, H); const d = id.data
-          let x0 = W, y0 = H, x1 = 0, y1 = 0, hits = 0
-          for (let y = 0; y < H; y += 5) for (let x = 0; x < W; x += 5) {
-            const i2 = (y * W + x) * 4; const r = d[i2], g = d[i2 + 1], b = d[i2 + 2]
-            if (g > 90 && g > r * 1.35 && g > b * 1.35) { hits++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+      const drawContent = (t: number) => {
+        const vt = t - INTRO
+        // 1) anchor layer — aspect-aware. A portrait/square presenter must NEVER
+        // cover-fill a 16:9 frame (it decapitates the presenter and hides the
+        // studio). Portrait sources render as a framed window over the studio.
+        ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
+        const srcAR = (v.videoWidth || 16) / (v.videoHeight || 9)
+        const portraitSrc = srcAR < (W / H) * 0.85
+        if (studioImg) coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
+        if (studioImg && greenscreen) drawAnchorKeyed()
+        else if (portraitSrc) {
+          if (!studioImg) {
+            // no studio chosen → blurred, darkened self-backdrop (broadcast standard)
+            ctx.save(); ctx.filter = 'blur(26px) brightness(0.45)'
+            drawCoverFull(v); ctx.restore(); ctx.filter = 'none'
           }
-          if (hits < 30) return               // screen not visible in this framing
-          x0 = Math.max(0, x0 - 6); y0 = Math.max(0, y0 - 6)
-          x1 = Math.min(W - 1, x1 + 6); y1 = Math.min(H - 1, y1 + 6)
-          const bw = x1 - x0 + 1, bh = y1 - y0 + 1
-          gfScratch.width = bw; gfScratch.height = bh
-          const sctx = gfScratch.getContext('2d')!
-          const fr = fw / fh, br = bw / bh
-          let dw: number, dh: number
-          if (fr > br) { dh = bh; dw = bh * fr } else { dw = bw; dh = bw / fr }
-          sctx.fillStyle = '#05070c'; sctx.fillRect(0, 0, bw, bh)
-          sctx.drawImage(fill, (bw - dw) / 2, (bh - dh) / 2, dw, dh)
-          const fid = sctx.getImageData(0, 0, bw, bh).data
-          for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-            const i2 = (y * W + x) * 4
-            const r = d[i2], g = d[i2 + 1], b = d[i2 + 2]
-            const fi = ((y - y0) * bw + (x - x0)) * 4
-            if (g > 90 && g > r * 1.35 && g > b * 1.35) { d[i2] = fid[fi]; d[i2 + 1] = fid[fi + 1]; d[i2 + 2] = fid[fi + 2] }
-            else if (g > 80 && g > r * 1.18 && g > b * 1.18) {
-              // soft edge: half-blend removes the green fringe without a hard rim
-              d[i2] = (r + fid[fi]) >> 1; d[i2 + 1] = ((g >> 1) + fid[fi + 1]) >> 1; d[i2 + 2] = (b + fid[fi + 2]) >> 1
-            }
+          // presenter window: height set by the placement scale, position by sliders
+          const wh = H * presScale, ww = wh * srcAR
+          const wx = W * presX - ww / 2
+          const wy = H - wh + H * presY
+          ctx.save()
+          ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 10
+          ctx.fillStyle = '#0a0d14'; rr(ctx, wx - 6, wy - 6, ww + 12, wh + 12, 14); ctx.fill()
+          ctx.restore()
+          ctx.save(); rr(ctx, wx, wy, ww, wh, 10); ctx.clip()
+          ctx.drawImage(v, wx, wy, ww, wh)
+          ctx.restore()
+          ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1
+          rr(ctx, wx - 6, wy - 6, ww + 12, wh + 12, 14); ctx.stroke()
+          // desk occlusion works here too
+          if (studioImg && deskLine < 0.99) {
+            ctx.save(); ctx.beginPath(); ctx.rect(0, H * deskLine, W, H * (1 - deskLine)); ctx.clip()
+            coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
+            ctx.restore()
           }
-          okx.putImageData(id, 0, 0)
-        } catch { /* tainted canvas — leave the frame as filmed */ }
-      }
-
-      // Shared broadcast chrome — scrims, brand bar, AI badge, ticker — drawn
-      // on every live frame (bulletin content AND the filmed outro).
-      const drawChrome = (t: number) => {
+        }
+        else drawCoverFull(v)
         // 2) cinematic scrims + corner vignette so overlays read over any studio
         const scrimH = H * 0.42
         const scB = ctx.createLinearGradient(0, H - scrimH, 0, H)
@@ -1684,6 +1273,47 @@ export default function NewsroomPage() {
         const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.max(W, H) * 0.75)
         vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.28)')
         ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H)
+
+        // 2b) in-studio monitor — the current story's article image on a framed
+        // screen beside the presenter, with bezel, glare, and per-story crossfade
+        if (monitorSide !== 'off' && monitorImgs.length) {
+          const curIdx = Math.max(0, thirds.reduce((k, th, j) => (vt >= th.start ? j : k), 0))
+          const mImg = monitorImgs[curIdx]
+          if (mImg) {
+            const mw = isWide ? W * 0.285 : W * 0.42
+            const mh = mw * 9 / 16
+            const mx = monitorSide === 'left' ? marginX : W - marginX - mw
+            const my = band + (isWide ? 38 : 30)
+            const fade = Math.min(1, (vt - (thirds[curIdx]?.start || 0)) / 0.5)
+            ctx.save(); ctx.globalAlpha = 0.55 + 0.45 * fade
+            // drop shadow + bezel
+            ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10
+            ctx.fillStyle = '#0a0d14'; rr(ctx, mx - 8, my - 8, mw + 16, mh + 16, 12); ctx.fill()
+            ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
+            ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1
+            rr(ctx, mx - 8, my - 8, mw + 16, mh + 16, 12); ctx.stroke()
+            // screen
+            ctx.save(); rr(ctx, mx, my, mw, mh, 6); ctx.clip()
+            ctx.fillStyle = '#05070c'; ctx.fillRect(mx, my, mw, mh)
+            const ir = (mImg.naturalWidth || 16) / (mImg.naturalHeight || 9), sr = mw / mh
+            let dw2: number, dh2: number
+            if (ir > sr) { dh2 = mh; dw2 = mh * ir } else { dw2 = mw; dh2 = mw / ir }
+            ctx.drawImage(mImg, mx + (mw - dw2) / 2, my + (mh - dh2) / 2, dw2, dh2)
+            // subtle moving glare so the screen reads as live glass
+            ctx.globalCompositeOperation = 'lighter'
+            const gx = mx + ((t * 0.05) % 1.4 - 0.2) * mw
+            const gl = ctx.createLinearGradient(gx, my, gx + mw * 0.35, my + mh)
+            gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(0.5, 'rgba(255,255,255,0.06)'); gl.addColorStop(1, 'rgba(255,255,255,0)')
+            ctx.fillStyle = gl; ctx.fillRect(mx, my, mw, mh)
+            ctx.restore()
+            // crimson underline + station tag
+            ctx.fillStyle = P.crimson; ctx.fillRect(mx - 8, my + mh + 8, mw + 16, 3)
+            ctx.fillStyle = 'rgba(251,244,228,0.75)'; ctx.textAlign = monitorSide === 'left' ? 'left' : 'right'
+            ctx.textBaseline = 'alphabetic'; ctx.font = `700 ${isWide ? 11 : 10}px Inter, sans-serif`
+            spaced('TT · IMAGINEA ȘTIRII', `700 ${isWide ? 11 : 10}px Inter, sans-serif`, monitorSide === 'left' ? mx - 8 : mx + mw + 8 - 1, my + mh + 26, 1.5)
+            ctx.restore(); ctx.textAlign = 'left'
+          }
+        }
 
         // 3) top brand bar — glass, logo mark, letter-spaced wordmark, date + AI tag
         const bg = ctx.createLinearGradient(0, 0, 0, band)
@@ -1721,7 +1351,7 @@ export default function NewsroomPage() {
           const pad = 12 * sc, dot = 7 * sc
           const lw = ctx.measureText(label).width
           const pw = pad + dot + 7 * sc + lw + pad, ph = 24 * sc
-          const px = (monitorSide === 'right' || monitorSide === 'green') ? marginX : W - marginX - pw, py = band + 14
+          const px = monitorSide === 'right' ? marginX : W - marginX - pw, py = band + 14
           glass(px, py, pw, ph, ph / 2)
           const pulse = 0.5 + 0.5 * Math.sin(t * 4)
           ctx.fillStyle = P.crimson; ctx.globalAlpha = 0.5 + 0.5 * pulse
@@ -1774,99 +1404,6 @@ export default function NewsroomPage() {
           ctx.fillStyle = P.cream; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
           ctx.font = `700 ${16 * sc}px Inter, sans-serif`
           ctx.fillText(clockStr, clockX + 34, H - tick / 2)
-        }
-
-      }
-
-      const drawContent = (t: number) => {
-        const vt = t - introDur
-        // 1) anchor layer — aspect-aware. A portrait/square presenter must NEVER
-        // cover-fill a 16:9 frame (it decapitates the presenter and hides the
-        // studio). Portrait sources render as a framed window over the studio.
-        ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
-        const srcAR = (v.videoWidth || 16) / (v.videoHeight || 9)
-        const portraitSrc = srcAR < (W / H) * 0.85
-        if (studioImg) coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
-        if (studioImg && greenscreen) drawAnchorKeyed()
-        else if (portraitSrc) {
-          if (!studioImg) {
-            // no studio chosen → blurred, darkened self-backdrop (broadcast standard)
-            ctx.save(); ctx.filter = 'blur(26px) brightness(0.45)'
-            drawCoverFull(v); ctx.restore(); ctx.filter = 'none'
-          }
-          // presenter window: height set by the placement scale, position by sliders
-          const wh = H * presScale, ww = wh * srcAR
-          const wx = W * presX - ww / 2
-          const wy = H - wh + H * presY
-          ctx.save()
-          ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 10
-          ctx.fillStyle = '#0a0d14'; rr(ctx, wx - 6, wy - 6, ww + 12, wh + 12, 14); ctx.fill()
-          ctx.restore()
-          ctx.save(); rr(ctx, wx, wy, ww, wh, 10); ctx.clip()
-          ctx.drawImage(v, wx, wy, ww, wh)
-          ctx.restore()
-          ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1
-          rr(ctx, wx - 6, wy - 6, ww + 12, wh + 12, 14); ctx.stroke()
-          // desk occlusion works here too
-          if (studioImg && deskLine < 0.99) {
-            ctx.save(); ctx.beginPath(); ctx.rect(0, H * deskLine, W, H * (1 - deskLine)); ctx.clip()
-            coverDraw(ctx, studioImg, studioImg.naturalWidth || 16, studioImg.naturalHeight || 9)
-            ctx.restore()
-          }
-        }
-        else if (monitorSide === 'green') {
-          // full-frame filmed studio; the story's image keyed into its green screen
-          const curIdx = Math.max(0, thirds.reduce((k, th, j) => (vt >= th.start ? j : k), 0))
-          okx.clearRect(0, 0, W, H)
-          coverDraw(okx, v, v.videoWidth || 16, v.videoHeight || 9)
-          const mImg = monitorImgs[curIdx]
-          if (mImg) greenFill(mImg, mImg.naturalWidth || 16, mImg.naturalHeight || 9)
-          else greenFill(brandCard, brandCard.width, brandCard.height)
-          ctx.drawImage(okv, 0, 0)
-        }
-        else drawCoverFull(v)
-        // 2-5) shared broadcast chrome (scrims, brand bar, AI badge, ticker)
-        drawChrome(t)
-
-        // 2b) in-studio monitor — the current story's article image on a framed
-        // screen beside the presenter, with bezel, glare, and per-story crossfade
-        if ((monitorSide === 'left' || monitorSide === 'right') && monitorImgs.length) {
-          const curIdx = Math.max(0, thirds.reduce((k, th, j) => (vt >= th.start ? j : k), 0))
-          const mImg = monitorImgs[curIdx]
-          if (mImg) {
-            const mw = isWide ? W * 0.285 : W * 0.42
-            const mh = mw * 9 / 16
-            const mx = monitorSide === 'left' ? marginX : W - marginX - mw
-            const my = band + (isWide ? 38 : 30)
-            const fade = Math.min(1, (vt - (thirds[curIdx]?.start || 0)) / 0.5)
-            ctx.save(); ctx.globalAlpha = 0.55 + 0.45 * fade
-            // drop shadow + bezel
-            ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10
-            ctx.fillStyle = '#0a0d14'; rr(ctx, mx - 8, my - 8, mw + 16, mh + 16, 12); ctx.fill()
-            ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
-            ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1
-            rr(ctx, mx - 8, my - 8, mw + 16, mh + 16, 12); ctx.stroke()
-            // screen
-            ctx.save(); rr(ctx, mx, my, mw, mh, 6); ctx.clip()
-            ctx.fillStyle = '#05070c'; ctx.fillRect(mx, my, mw, mh)
-            const ir = (mImg.naturalWidth || 16) / (mImg.naturalHeight || 9), sr = mw / mh
-            let dw2: number, dh2: number
-            if (ir > sr) { dh2 = mh; dw2 = mh * ir } else { dw2 = mw; dh2 = mw / ir }
-            ctx.drawImage(mImg, mx + (mw - dw2) / 2, my + (mh - dh2) / 2, dw2, dh2)
-            // subtle moving glare so the screen reads as live glass
-            ctx.globalCompositeOperation = 'lighter'
-            const gx = mx + ((t * 0.05) % 1.4 - 0.2) * mw
-            const gl = ctx.createLinearGradient(gx, my, gx + mw * 0.35, my + mh)
-            gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(0.5, 'rgba(255,255,255,0.06)'); gl.addColorStop(1, 'rgba(255,255,255,0)')
-            ctx.fillStyle = gl; ctx.fillRect(mx, my, mw, mh)
-            ctx.restore()
-            // crimson underline + station tag
-            ctx.fillStyle = P.crimson; ctx.fillRect(mx - 8, my + mh + 8, mw + 16, 3)
-            ctx.fillStyle = 'rgba(251,244,228,0.75)'; ctx.textAlign = monitorSide === 'left' ? 'left' : 'right'
-            ctx.textBaseline = 'alphabetic'; ctx.font = `700 ${isWide ? 11 : 10}px Inter, sans-serif`
-            spaced('TT · IMAGINEA ȘTIRII', `700 ${isWide ? 11 : 10}px Inter, sans-serif`, monitorSide === 'left' ? mx - 8 : mx + mw + 8 - 1, my + mh + 26, 1.5)
-            ctx.restore(); ctx.textAlign = 'left'
-          }
         }
 
         // 6) lower-third — crimson kicker tab over a glass headline bar, wipe-in.
@@ -2023,76 +1560,6 @@ export default function NewsroomPage() {
           }
         }
       }
-      // Cinematic clip intro: the footage carries the drama; the brand lockup
-      // slams in near the end exactly like the procedural open, so the bulletin
-      // keeps one visual identity whichever intro is used.
-      const drawIntroClip = (t: number) => {
-        const slamRel = Math.max(1.6, introDur - 1.65)
-        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H)
-        if (iv) coverDraw(ctx, iv, iv.videoWidth || 16, iv.videoHeight || 9)
-        // cinematic grade: soft scrim + vignette so the lockup reads anywhere
-        const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75)
-        vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.5)')
-        ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H)
-        // brand lockup (same lockup as the endcard) — rises at the slam
-        const aIn = easeOutN(segN(t, slamRel - 0.15, slamRel + 0.35))
-        if (aIn > 0.01) {
-          const dim = segN(t, slamRel - 0.15, slamRel + 0.5)
-          ctx.fillStyle = `rgba(0,0,0,${0.35 * dim})`; ctx.fillRect(0, 0, W, H)
-          ctx.save(); ctx.globalAlpha = aIn; ctx.translate(0, (1 - aIn) * 26)
-          const cx = W / 2, cyc = H * 0.44
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-          const big = isWide ? 64 : 54
-          ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 5
-          ctx.fillStyle = P.cream; ctx.font = `800 ${big}px Inter, sans-serif`
-          letterSpacedC(ctx, 'TRANSILVANIA', big * 0.06, cx, cyc)
-          ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
-          const small = big * 0.42
-          ctx.font = `600 ${small}px Inter, sans-serif`
-          const tw2 = measureSpacedC(ctx, 'T I M E S', small * 0.06)
-          const gap2 = tw2 / 2 + small * 0.9, ruleW2 = isWide ? W * 0.10 : W * 0.14
-          const rowY = cyc + big * 0.56
-          ctx.fillStyle = P.crimson
-          ctx.fillRect(cx - gap2 - ruleW2, rowY - small * 0.06, ruleW2, small * 0.12)
-          ctx.fillRect(cx + gap2, rowY - small * 0.06, ruleW2, small * 0.12)
-          ctx.fillStyle = P.cream; letterSpacedC(ctx, 'T I M E S', small * 0.06, cx, rowY)
-          const tagA = segN(t, slamRel + 0.35, slamRel + 0.75)
-          if (tagA > 0) {
-            ctx.globalAlpha = aIn * tagA; ctx.fillStyle = P.gold
-            ctx.font = `600 ${isWide ? 17 : 16}px Inter, sans-serif`
-            ctx.fillText(lang === 'ro' ? 'ȘTIRILE ARDEALULUI' : 'NEWS FROM TRANSYLVANIA', cx, cyc + big * 1.06)
-          }
-          ctx.restore()
-        }
-        // slam flash + open-from-black (mirrors the procedural open)
-        if (t >= slamRel - 0.02 && t < slamRel + 0.3) {
-          const fl = Math.max(0, 1 - segN(t, slamRel, slamRel + 0.28))
-          ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = fl * 0.45
-          ctx.fillStyle = '#ffdfe6'; ctx.fillRect(0, 0, W, H); ctx.restore()
-        }
-        const openBlack = 1 - segN(t, 0, 0.4)
-        if (openBlack > 0) { ctx.globalAlpha = openBlack; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }
-        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
-      }
-
-      // Filmed outro: the anchor wraps up and leaves the studio. The chrome
-      // stays on air (real broadcasts hold the ticker through the goodbye);
-      // captions and lower-thirds are gone; the studio screen shows the brand.
-      const drawOutroLive = (t: number) => {
-        ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
-        if (ov) {
-          if (monitorSide === 'green') {
-            okx.clearRect(0, 0, W, H)
-            coverDraw(okx, ov, ov.videoWidth || 16, ov.videoHeight || 9)
-            greenFill(brandCard, brandCard.width, brandCard.height)
-            ctx.drawImage(okv, 0, 0)
-          } else {
-            coverDraw(ctx, ov, ov.videoWidth || 16, ov.videoHeight || 9)
-          }
-        }
-        drawChrome(t)
-      }
-
       // Cinematic broadcast open: dark stage → light streaks → forming wireframe
       // globe with a Transylvania beacon → logo slam + shimmer → tagline bar.
       const introParticles = seedIntroParticles(W, H)
@@ -2249,7 +1716,7 @@ export default function NewsroomPage() {
         ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
       }
       const drawOutro = (t: number) => {
-        const a = Math.min(1, (t - introDur - dur - outroClipDur) / 0.5)
+        const a = Math.min(1, (t - INTRO - dur) / 0.5)
         const e = 1 - Math.pow(1 - a, 3)
         // cinematic navy stage (echoes the intro) with a crimson core glow
         ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H)
@@ -2298,14 +1765,14 @@ export default function NewsroomPage() {
       rec.start(200)
       await ac.resume().catch(() => {})   // ensure the clock runs during the (silent-video) intro
       const acT0 = ac.currentTime + 0.1
-      scheduleIntroSting(acT0, introDur)
+      scheduleIntroSting(acT0)
       // News bed — a discreet broadcast underscore while the presenter talks:
       // warm low pad (A2+E3) + the classic newsroom pulse, ~14 dB under the
       // voice, fading in after the intro and dipping through the endcard.
       if (bedOn) {
         const bed = ac.createGain(); bed.gain.value = 0
         bed.connect(dest); bed.connect(ac.destination)
-        const bT0 = acT0 + introDur, bEnd = bT0 + dur + outroClipDur
+        const bT0 = acT0 + INTRO, bEnd = bT0 + dur
         bed.gain.setValueAtTime(0, bT0)
         bed.gain.linearRampToValueAtTime(bedLevel, bT0 + 1.4)
         bed.gain.setValueAtTime(bedLevel, Math.max(bT0 + 1.4, bEnd - 1.0))
@@ -2353,25 +1820,15 @@ export default function NewsroomPage() {
       }
       const t0 = performance.now()
       let started = false
-      let ovStarted = false
-      let ivStarted = false
       await new Promise<void>(resolve => {
         const loop = () => {
           const t = (performance.now() - t0) / 1000
           setCompPct(Math.min(99, Math.round((t / total) * 100)))
-          if (t < introDur) {
-            if (iv) {
-              if (!ivStarted) { ivStarted = true; iv.play().catch(() => {}) }
-              drawIntroClip(t)
-            } else drawIntro(t)
-          }
-          else if (t < introDur + dur) {
-            if (!started) { started = true; iv?.pause(); ac.resume(); v.play().catch(() => {}) }
+          if (t < INTRO) drawIntro(t)
+          else if (t < INTRO + dur) {
+            if (!started) { started = true; ac.resume(); v.play().catch(() => {}) }
             drawContent(t)
-          } else if (t < introDur + dur + outroClipDur) {
-            if (!ovStarted) { ovStarted = true; v.pause(); ov?.play().catch(() => {}) }
-            drawOutroLive(t)
-          } else { v.pause(); ov?.pause(); drawOutro(t) }
+          } else { v.pause(); drawOutro(t) }
           if (t >= total) { resolve(); return }
           requestAnimationFrame(loop)
         }
@@ -2419,7 +1876,7 @@ export default function NewsroomPage() {
     if (!cues.length) { setError('Nu există subtitrări încă — compune buletinul cu subtitrări active.'); return }
     const pad = (n: number, l = 2) => String(n).padStart(l, '0')
     const st = (t: number) => `${pad(Math.floor(t / 3600))}:${pad(Math.floor((t % 3600) / 60))}:${pad(Math.floor(t % 60))},${pad(Math.floor((t % 1) * 1000), 3)}`
-    const srt = cues.map((c, i) => `${i + 1}\n${st(c.start + introDurUsed)} --> ${st(c.end + introDurUsed)}\n${c.text.trim()}`).join('\n\n')
+    const srt = cues.map((c, i) => `${i + 1}\n${st(c.start + INTRO)} --> ${st(c.end + INTRO)}\n${c.text.trim()}`).join('\n\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([srt], { type: 'text/plain' }))
     a.download = 'buletin.srt'; a.click(); URL.revokeObjectURL(a.href)
@@ -2925,37 +2382,6 @@ export default function NewsroomPage() {
                   </button>
                   {anchorVideo && <span className="text-[11px] text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> clip selectat — se folosește lipsync video (sync.so)</span>}
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11.5px] text-white/55">Camera 2 (unghi alternativ, opțional — la fiecare a 3-a tăietură):</span>
-                  <select value={anchorVideo2} onChange={e => setAnchorVideo2(e.target.value)}
-                    className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[220px]">
-                    <option value="">fără</option>
-                    {libVideos.map(a => <option key={'c2' + a.id} value={a.url}>{a.name}</option>)}
-                  </select>
-                  {anchorVideo2 && anchorVideo2 === anchorVideo && <span className="text-[10.5px] text-amber-300/80">⚠ e același clip cu camera 1 — alege alt unghi</span>}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11.5px] text-white/55">Clip intro (deschidere cinematică):</span>
-                  <select value={introVideo} onChange={e => setIntroVideo(e.target.value)}
-                    className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[220px]">
-                    <option value="">intro clasic (animat, gratuit)</option>
-                    {libVideos.map(a => <option key={'i' + a.id} value={a.url}>{a.name}</option>)}
-                  </select>
-                  <button onClick={genIntroClip} disabled={!!busy} title="Generează O SINGURĂ DATĂ un opener cinematic (imagine + Kling 5s); se salvează în bibliotecă și se refolosește la fiecare buletin."
-                    className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[11.5px] font-bold px-2.5 py-1.5 hover:border-brand-red/60 disabled:opacity-40">
-                    {busy === 'genintro' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează intro AI (~$0.30, o dată)
-                  </button>
-                  {introVideo && <span className="text-[10.5px] text-green-400/80">logo-ul TT și sunetul de deschidere se pun automat peste clip</span>}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11.5px] text-white/55">Clip outro (finalul emisiei — prezentatorul se ridică și pleacă):</span>
-                  <select value={outroVideo} onChange={e => setOutroVideo(e.target.value)}
-                    className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[220px]">
-                    <option value="">fără</option>
-                    {libVideos.map(a => <option key={'o' + a.id} value={a.url}>{a.name}</option>)}
-                  </select>
-                  {outroVideo && <span className="text-[10.5px] text-green-400/80">se redă după semnătura de final, înaintea endcard-ului — cu ticker și branding active</span>}
-                </div>
               </div>
             )}
 
@@ -3106,12 +2532,6 @@ export default function NewsroomPage() {
               Toate acestea sunt motoare de <b>redub</b>: schimbă doar gura pe clipul tău. Niciunul nu inventează
               gesturi — naturalețea vine din clipul-sursă. Plătești în plus doar pentru acuratețea fonemelor.
             </p>
-            {anchorVideo && (
-              <label className="flex items-start gap-2 text-[11.5px] text-white/60 cursor-pointer mt-2 leading-snug">
-                <input type="checkbox" checked={trackMode} onChange={e => setTrackMode(e.target.checked)} className="mt-0.5" />
-                <span><b>Pistă regizată</b> (recomandat) — dacă vocea e mai lungă decât clipul, clipul e re-montat pe lungimea vocii <b>înainte</b> de lipsync: tăietură la fiecare știre + cadru strâns alternat, ca o regie TV reală — și folosește DOAR porțiunile calme ale clipului (mâinile liniștite, detectate automat), ca gesturile să nu contrazică vocea. Fără bucle, fără gesturi repetate. Montajul rulează gratuit în browser, în timp real (~durata buletinului) — nu schimba fila cât apare „pistă regizată N%”.</span>
-              </label>
-            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap mb-3">
             {(['16:9', '9:16'] as const).map(o => (
@@ -3170,11 +2590,10 @@ export default function NewsroomPage() {
             </label>
             <label className="flex items-center gap-1.5 text-[11.5px] text-white/55">
               monitor imagine știre:
-              <select value={monitorSide} onChange={e => setMonitorSide(e.target.value as 'left' | 'right' | 'off' | 'green')}
+              <select value={monitorSide} onChange={e => setMonitorSide(e.target.value as 'left' | 'right' | 'off')}
                 className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1">
-                <option value="right">dreapta (suprapus)</option>
-                <option value="left">stânga (suprapus)</option>
-                <option value="green">ecranul verde din clip</option>
+                <option value="right">dreapta</option>
+                <option value="left">stânga</option>
                 <option value="off">fără</option>
               </select>
             </label>
