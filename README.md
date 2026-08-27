@@ -185,3 +185,41 @@ curl.exe -sI https://transilvaniatimes.com/ | findstr /i "media-src"
 * restore-presenters.sql in this folder re-links the presenter/clip rows that
   were lost. All the underlying files are still in storage. Run it only if you
   want the old assets back — if you are switching to stock footage, skip it.
+
+---------------------------------------------------------------------------
+## CORRECTION — BUG 2 needed next.config.ts, NOT netlify.toml
+---------------------------------------------------------------------------
+
+The first round patched only netlify.toml. It deployed successfully
+(main@8ca80e3) and the live CSP did NOT change. Reason, stated in your own
+code at next.config.ts:27-32:
+
+    "The same policy exists in netlify.toml, but those headers don't reliably
+     reach Next.js-rendered (SSR/ISR) responses — only static/CDN ones — so the
+     CSP was effectively not applied on most real page responses."
+
+next.config.ts sets the CSP at the Next.js layer, and that response wins for
+every page the Next server handler renders — which is all of /admin/*.
+So netlify.toml is the wrong file for this. It is now fixed in BOTH, which is
+harmless and keeps the two in sync, exactly as the comment intends.
+
+FILE: next.config.ts   (this is the one that actually takes effect)
+
+Added to the csp array inside async headers():
+
+    media-src  'self' data: blob: https://...supabase.co https://v3.fal.media https://fal.media
+    worker-src 'self' blob:
+    child-src  'self' blob:
+    connect-src ... added data: blob: https://queue.fal.run https://fal.run https://v3.fal.media https://fal.media
+    script-src  ... added https://fundingchoicesmessages.google.com
+
+Verified: npx tsc --noEmit passes (exit 0).
+
+DEPLOY: copy next.config.ts to the repo root, commit, push.
+
+VERIFY (PowerShell), after the build finishes:
+
+    curl.exe -sI https://transilvaniatimes.com/ | findstr /i "media-src"
+
+A line printed = live. Then Ctrl+F5 on /admin/newsroom and the bulletin player
+should show video instead of blank.
