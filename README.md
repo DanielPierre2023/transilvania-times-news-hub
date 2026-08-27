@@ -1,127 +1,187 @@
-# 1) The widget is still not showing — your CSP fix has not deployed yet
+# Fixes for transilvania-times-news-hub
 
-I checked the live site just now. The header it serves is still the old one:
+Repo    : github.com/DanielPierre2023/transilvania-times-news-hub
+Branch  : main   (base commit 3cc34b9)
+Host    : Netlify — project `bespoke-unicorn-cefa67` → transilvaniatimes.com
+Verified: `npx tsc --noEmit` passes on the patched files (exit 0)
 
-    connect-src 'self' https://zimpimoierpsocnmnizm.supabase.co
-                wss://zimpimoierpsocnmnizm.supabase.co
-                https://pagead2.googlesyndication.com
-                https://adservice.google.com
+Nothing here was deployed. Three files to copy over, then deploy yourself.
 
-No `api.open-meteo.com`. The fetch from inside the page still throws
-`Failed to fetch`, and the widget still renders nothing.
+---------------------------------------------------------------------------
+## BUG 1 — "Adaugă prezentator / Adaugă clip does nothing"
+---------------------------------------------------------------------------
 
-**But the fix IS committed.** `origin/main` (head `6f29123`) has
-`api.open-meteo.com` in both `next.config.ts` and `netlify.toml`. And the response
-came back with `age=1`, so this is a fresh response, not a stale CDN copy.
+FILE: app/admin/newsroom/page.tsx
 
-So the code is right and the site has not picked it up. That means the Netlify build
-either has not run yet, is still running, or **failed**. Check
-Netlify -> Deploys for the build of commit `6f29123`. (I could not check it for you —
-the Netlify API has been returning 502 through my connection all afternoon.)
+### Evidence
 
-Nothing more to change for the widget. Once that deploy goes green, hard-reload the
-homepage and the temperature will appear next to the date.
+`app/admin/newsroom/page.tsx:240`
 
----
+```js
+async function uploadLibraryAsset(file, kind, name, isReal, personName) {
+  if (!file) return                                                  // silent
+  if (!name.trim()) { setError('Dă un nume asset-ului din bibliotecă.'); return }
+```
 
-# 2) The React #418 hydration error — found it, fixed it
+The name field is MANDATORY. When it is empty the function returns at line 242
+— before the storage upload and before the DB insert. That is why the browser
+Network tab shows no request at all: nothing is ever sent.
 
-## What #418 actually means
+It does call `setError(...)`. But the error banner is rendered at line 2137,
+while the upload button is at line 2412 — 275 lines further down the page. When
+you are scrolled to the presenter library, that banner is off-screen. So the
+click produces no request, no console error, and no visible message.
 
-React's own error text for 418, verbatim:
+Confirmed against the live site: no request to `newsroom_assets` or to
+`supabase.co/storage` was ever made when the button was clicked.
 
-    Hydration failed because the server rendered %s didn't match the client.
-    As a result this tree will be regenerated on the client. This can happen
-    if a SSR-ed Client Component used:
-      - A server/client branch `if (typeof window !== 'undefined')`.
-      - Variable input such as `Date.now()` or `Math.random()` which changes
-        each time it's called.
-      - Date formatting in a user's locale which doesn't match the server.
-      ...
+### What changed (4 edits, 15 lines)
 
-Two of those bullets describe your header exactly.
+1. New state `libError` (line ~116).
+2. Empty-name branch now sets `libError` as well as the global `error`.
+3. `libError` renders INLINE, directly under the add row (line ~2424), where
+   you are actually looking.
+4. Clip picker `accept` widened:
+       video/mp4,video/webm
+   ->  video/mp4,video/webm,video/quicktime,video/x-matroska
+   Stock footage is very often .mov — with the old list those files were greyed
+   out in the Windows file picker and could not be selected at all.
 
-## The cause
+### THE IMMEDIATE WORKAROUND — no deploy needed
 
-`app/components/LayoutShell.tsx` starts with `'use client'` — it is an **SSR-ed
-client component**, the precise case React names. Line 278 read:
+Type a name into "Nume clip" / "Nume prezentator" FIRST, then click the button.
+It works today, unchanged. The patch only makes the requirement visible.
 
-    {new Date().toLocaleDateString('ro-RO', { weekday:'long', day:'numeric',
-                                              month:'long', year:'numeric' })}
+---------------------------------------------------------------------------
+## BUG 2 — blank bulletin preview, blocked video (CSP)
+---------------------------------------------------------------------------
 
-That line runs **twice**:
+FILE: netlify.toml
 
-1. On the server — Netlify's Node process, running in **UTC**.
-2. Again in the visitor's browser during hydration — Romania is **UTC+3** in summer.
+### Evidence
 
-`new Date()` with no argument is "right now", so the two calls are different
-instants to begin with, and they are then formatted in two different time zones.
-Between **21:00 and 24:00 UTC** — 00:00 to 03:00 Romanian time — the server says one
-weekday and the browser says the next. Different text in the same DOM node, so React
-throws #418 and **regenerates that whole subtree on the client**.
+Browser console, verbatim:
 
-It is made worse by caching: `netlify.toml` sets
-`Cache-Control: public, s-maxage=60, stale-while-revalidate=300`, so the HTML a
-visitor receives can be several minutes old before their browser ever hydrates it.
+```
+Loading media from 'blob:https://transilvaniatimes.com/fc1c8e4a-...' violates
+the following Content Security Policy directive:
+"default-src 'self' https://zimpimoierpsocnmnizm.supabase.co".
+Note that 'media-src' was not explicitly set, so 'default-src' is used as a fallback.
+```
 
-There is a second, non-obvious bug hiding in the same line. Because no time zone was
-pinned, a reader in Germany or the US was shown **their own local date** on a
-Romanian newspaper's masthead.
+Your CSP sets `img-src ... blob:` (so images work) but has NO `media-src` rule.
+Video therefore falls back to `default-src`, which does not allow `blob:`.
 
-## The fix
+Everything the Studio renders in the browser is a blob: URL, so:
+  * the composed bulletin player is blank
+  * `URL.createObjectURL(file)` previews of a picked video are blocked
 
-Pin the zone, and tell React the remaining sliver is expected:
+NOTE: earlier I blamed this on my browser extension. That was wrong. It is your
+own CSP, and it affects every visitor, not just me.
 
-    <span className="hidden sm:inline capitalize" suppressHydrationWarning>
-      {new Date().toLocaleDateString('ro-RO', { weekday:'long', day:'numeric',
-        month:'long', year:'numeric', timeZone: 'Europe/Bucharest' })}
-    </span>
+### What changed
 
-`timeZone: 'Europe/Bucharest'` makes server and client format the same instant the
-same way, and makes the date correct for Romanian readers wherever they are.
-`suppressHydrationWarning` covers what pinning cannot: a cached render and its
-hydration can still land on opposite sides of midnight. It applies to this one text
-node only — it does not silence hydration checks anywhere else.
+Added to the CSP, nothing removed:
 
-## Three more files with the same fault
+```
+media-src   'self' data: blob: https://...supabase.co https://v3.fal.media https://fal.media;
+worker-src  'self' blob:;
+child-src   'self' blob:;
+connect-src ... added: data: blob: https://queue.fal.run https://fal.run https://v3.fal.media https://fal.media
+script-src  ... added: https://fundingchoicesmessages.google.com
+```
 
-Same problem, smaller blast radius: these format a **stored** timestamp, so both
-sides use the same instant, but with no `timeZone` the server (UTC) and the reader's
-browser still disagree for anything published near midnight UTC — and article dates
-were being shown in the reader's zone rather than Romania's.
+* `media-src`  — the actual fix for blank video
+* `worker-src` / `child-src blob:` — in-browser MP4 rendering uses blob workers
+* `queue.fal.run` etc. in connect-src — the Studio polls fal directly from the
+  browser; without it those calls are blocked
+* `fundingchoicesmessages.google.com` — removes the recurring AdSense console
+  error you saw (cosmetic)
 
-    app/components/RelatedArticles.tsx    formatDate()
-    app/components/CommentSection.tsx     formatDate()
-    app/components/ArticleLangToggle.tsx  fmtDate()
+---------------------------------------------------------------------------
+## BUG 3 — 404 on every page load
+---------------------------------------------------------------------------
 
-All three now pin `timeZone: 'Europe/Bucharest'`.
+FILE: app/admin/layout.tsx
 
-## What I checked and did not change
+### Evidence
 
-`© {new Date().getFullYear()}` appears in `LayoutShell.tsx`, `SiteHeader.tsx` and
-`SiteFooter.tsx`. Same family of bug, but the year only differs across New Year's
-midnight, so I left them rather than widen the diff. Say the word and I will pin
-those too.
+```
+app/admin/layout.tsx:42   { label: 'Mix editorial', href: '/admin/content-mix', icon: PieChart }
+app/admin/content-mix/    DOES NOT EXIST
+```
 
-The admin pages have many `toLocaleDateString` calls. They are irrelevant here —
-they render behind the login gate and are not part of the public SSR/hydration path.
+I checked every sidebar entry against the routes that actually exist. Sixteen
+resolve; one does not:
 
----
+```
+OK    /admin/analytics      OK    /admin/newsletter     OK    /admin/sponsors
+OK    /admin/articles       OK    /admin/newsroom       OK    /admin/studio
+OK    /admin/checker        OK    /admin/scraper        OK    /admin/subscribers
+OK    /admin/comments       OK    /admin/settings       OK    /admin/vizualuri
+OK    /admin/dashboard      OK    /admin/social
+OK    /admin/editor         OK    /admin/inbox
+404!! /admin/content-mix
+```
 
-# Verification
+Next.js prefetches sidebar links, so it requests `/admin/content-mix?_rsc=...`
+on every admin page load and gets 404. The page is simply missing.
 
-- `tsc --noEmit` on the whole app: clean (only the pre-existing `@upstash/*` errors
-  in `lib/rate-limit.ts`, untouched).
-- `eslint` on all four files: **0 errors** (1 pre-existing warning in
-  CommentSection about a `useEffect` dependency, not mine).
-- Diff versus `origin/main`: LayoutShell +14/-2, RelatedArticles +4/-0,
-  CommentSection +3/-1, ArticleLangToggle +3/-1. Nothing else touched.
+### What changed
 
-**One thing worth flagging:** my working copy of `LayoutShell.tsx` was **stale** —
-it predated the "Zboruri" flights button you added today. I refreshed it from
-`origin/main` before editing, so this file is your current version plus the date fix,
-and the flights button is intact. Had I edited my old copy, committing it would have
-deleted that button.
+Removed that one nav entry, and removed the now-unused `PieChart` import (it
+would otherwise trip the eslint no-unused-vars rule during build).
 
-    git add app/components/
-    git commit -m "Pin date formatting to Europe/Bucharest to fix React #418 hydration mismatch"
+If you WANT that page, create `app/admin/content-mix/page.tsx` instead and put
+the nav line back.
+
+---------------------------------------------------------------------------
+## DEPLOY
+---------------------------------------------------------------------------
+
+Copy these three files over the ones in your repo:
+
+```
+netlify.toml                     ->  netlify.toml
+app/admin/layout.tsx             ->  app/admin/layout.tsx
+app/admin/newsroom/page.tsx      ->  app/admin/newsroom/page.tsx
+```
+
+Commit, push to `main`. Netlify builds automatically.
+
+## VERIFY AFTER DEPLOY
+
+1. CSP is live — PowerShell:
+
+```
+curl.exe -sI https://transilvaniatimes.com/ | findstr /i "media-src"
+```
+   Prints a line -> fix is live.
+
+2. Open /admin/newsroom with Ctrl+F5. The console 404 for `content-mix` is gone.
+
+3. Click "Adaugă clip prezentator (MP4)" with the name box EMPTY.
+   You should now see a red message under the row instead of silence.
+
+4. Type a name, pick your .mp4 (or .mov — now accepted), and it uploads.
+
+---------------------------------------------------------------------------
+## NOT CHANGED — decide for yourself
+---------------------------------------------------------------------------
+
+* `.env` is committed and the repo is public. It contains only the Supabase
+  project id and the PUBLISHABLE (anon) key, both public by design — so nothing
+  is leaked. Still worth `git rm --cached .env`, since .gitignore already lists
+  `*.env` and the file slipped in before that.
+
+* Supabase edge functions currently deployed by me earlier today, which you may
+  want to review or roll back in the dashboard:
+      generate-motion  v11   (model raised to kling v2.5-turbo/pro — COSTS MORE
+                              per clip than your original v2.1/standard; the
+                              file I sent earlier reverts this)
+      newsroom-anchor  v26   (sync_mode bounce -> loop; safe)
+      el-diag          v2    (my diagnostic — DELETE IT)
+
+* restore-presenters.sql in this folder re-links the presenter/clip rows that
+  were lost. All the underlying files are still in storage. Run it only if you
+  want the old assets back — if you are switching to stock footage, skip it.

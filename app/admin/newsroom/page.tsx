@@ -113,6 +113,7 @@ export default function NewsroomPage() {
   const [libVideos, setLibVideos] = useState<LibAsset[]>([])
   const [anchorVideo, setAnchorVideo] = useState('')  // presenter VIDEO clip -> pro lipsync
   const [libVideoName, setLibVideoName] = useState('')
+  const [libError, setLibError] = useState('')
   const [monitorSide, setMonitorSide] = useState<'left' | 'right' | 'off'>('right')
   // Presenter placement over a studio (greenscreen mode): scale, position and a
   // "desk line" — the studio strip below it is re-drawn IN FRONT of the presenter,
@@ -239,9 +240,16 @@ export default function NewsroomPage() {
   }
   async function uploadLibraryAsset(file: File | undefined, kind: 'presenter' | 'presenter_video' | 'studio', name: string, isReal = false, personName = '') {
     if (!file) return
-    if (!name.trim()) { setError('Dă un nume asset-ului din bibliotecă.'); return }
+    if (!name.trim()) {
+      // The global error banner renders ~250 lines above this control, so on a
+      // scrolled page it is off-screen and the click looks like it did nothing.
+      // Surface it where the user is actually looking, and scroll the banner in.
+      setError('Dă un nume asset-ului din bibliotecă.')
+      setLibError('Completează întâi câmpul de nume, apoi alege fișierul.')
+      return
+    }
     if (kind === 'presenter' && isReal && !personName.trim()) { setError('Pentru o persoană reală, completează numele și bifează consimțământul.'); return }
-    setError(''); setBusy('lib')
+    setError(''); setLibError(''); setBusy('lib')
     try {
       const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
       const path = `library/${kind}s/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
@@ -2366,7 +2374,7 @@ export default function NewsroomPage() {
                     className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-44" />
                   <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-1.5 cursor-pointer hover:border-white/20 w-fit">
                     {busy === 'lib' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Adaugă clip prezentator (MP4)
-                    <input type="file" accept="video/mp4,video/webm" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'presenter_video', libVideoName); e.currentTarget.value = '' }} />
+                    <input type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'presenter_video', libVideoName); e.currentTarget.value = '' }} />
                   </label>
                   <button onClick={genPresenterClip} disabled={!!busy || !anchorImg} title={anchorImg ? 'Animă portretul selectat într-un clip idle de 10s (Kling)' : 'Alege întâi un portret mai jos'}
                     className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-1.5 hover:bg-red-700 disabled:opacity-40">
@@ -2413,6 +2421,7 @@ export default function NewsroomPage() {
                     <input type="file" accept="image/*" hidden onChange={e => { uploadLibraryAsset(e.target.files?.[0], 'presenter', libPresName, libPresReal, libPresPerson); e.currentTarget.value = '' }} />
                   </label>
                 </div>
+                {libError && <p className="text-[11.5px] text-brand-red">{libError}</p>}
                 <div className="flex items-center gap-2 flex-wrap">
                   <select value={presenterGender} onChange={e => setPresenterGender(e.target.value as 'f' | 'm')} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
                     <option value="f">♀ Prezentatoare</option>
