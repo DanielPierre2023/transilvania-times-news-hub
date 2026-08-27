@@ -608,30 +608,64 @@ export default function NewsroomPage() {
 
       rec.start(200)
       seekTo(spans[0]); vv.play().catch(() => {})
-      const t0 = performance.now()
+      let t0 = performance.now()
       let cur = 0
-      await new Promise<void>(resolve => {
-        const loop = () => {
+      // A hidden/minimized tab freezes requestAnimationFrame, which once
+      // produced a 1-frame track (and a fal 500). Pause the recording and the
+      // clock while hidden, resume and re-seek when the tab comes back — so
+      // switching tabs merely pauses the montage instead of ruining it.
+      let hiddenAt = 0
+      const onVis = () => {
+        if (document.hidden) {
+          hiddenAt = performance.now()
+          try { rec.pause() } catch { /* not started */ }
+          vv.pause()
+        } else if (hiddenAt) {
+          t0 += performance.now() - hiddenAt
+          hiddenAt = 0
           const t = (performance.now() - t0) / 1000
-          while (cur + 1 < spans.length && t >= spans[cur + 1].at) { cur++; seekTo(spans[cur]) }
-          draw(spans[cur])
-          setVideoStatus(`pistă regizată ${Math.min(99, Math.round((t / audioDur) * 100))}%`)
-          if (t >= audioDur) { resolve(); return }
-          requestAnimationFrame(loop)
+          const sp = spans[cur]
+          try { vv.currentTime = Math.min(clipDur - 0.05, sp.off + Math.max(0, t - sp.at)) } catch { /* keep frame */ }
+          try { rec.resume() } catch { /* ignore */ }
         }
-        loop()
-      })
+      }
+      document.addEventListener('visibilitychange', onVis)
+      try {
+        await new Promise<void>(resolve => {
+          const loop = () => {
+            if (hiddenAt) { requestAnimationFrame(loop); return }   // paused
+            const t = (performance.now() - t0) / 1000
+            while (cur + 1 < spans.length && t >= spans[cur + 1].at) { cur++; seekTo(spans[cur]) }
+            draw(spans[cur])
+            setVideoStatus(`pistă regizată ${Math.min(99, Math.round((t / audioDur) * 100))}%`)
+            if (t >= audioDur) { resolve(); return }
+            requestAnimationFrame(loop)
+          }
+          loop()
+        })
+      } finally {
+        document.removeEventListener('visibilitychange', onVis)
+      }
       rec.stop()
       const blob = await recDone
       vv.pause()
-      if (blob.size < 50000) return null
+      // Integrity gate: a healthy track runs ~4.5 Mbit/s; anything under
+      // ~0.4 Mbit/s means frames were lost (hidden tab, GPU stall). Never send
+      // a broken file to the paid lipsync engine — fail here, with the cause.
+      const minBytes = Math.max(300_000, Math.round(audioDur * 50_000))
+      if (blob.size < minBytes) {
+        throw new Error(`Montajul pistei a ieșit gol (${Math.round(blob.size / 1024)} KB pentru ${Math.round(audioDur)}s) — de obicei fila a fost ascunsă sau minimizată în timpul randării. Ține fila vizibilă cât apare „pistă regizată N%” și apasă din nou.`)
+      }
       setVideoStatus('pistă regizată — încarc')
       const ext = mime.includes('mp4') ? 'mp4' : 'webm'
       const path = `newsroom/presenter-track-${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage.from('studio-assets').upload(path, blob, { contentType: mime, upsert: false })
       if (upErr) return null
       return supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
-    } catch { return null }
+    } catch (e) {
+      if (String((e as Error).message || '').startsWith('Montajul')) throw e
+      return null
+    }
   }
 
   async function genVideo(voParam?: string): Promise<string | null> {
@@ -663,7 +697,9 @@ export default function NewsroomPage() {
           const clipDur = await mediaDuration(anchorVideo, 'video')
           if (audioDur > 0 && clipDur > 0 && audioDur > clipDur + 0.75) {
             if (trackMode) {
-              const built = await buildPresenterTrack(voice, audioDur)
+              let built: string | null = null
+              try { built = await buildPresenterTrack(voice, audioDur) }
+              catch (te) { setError((te as Error).message); setVideoStatus(''); return null }
               if (!built) {
                 setError('Pista regizată nu a putut fi construită (browserul a refuzat înregistrarea canvasului). Reîncearcă în Chrome — sau folosește un clip de prezentator cel puțin cât vocea.')
                 setVideoStatus(''); return null
