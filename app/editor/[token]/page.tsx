@@ -363,6 +363,11 @@ export default function EditorTokenPage() {
       try {
         const { data, error: fnErr } = await supabase.functions.invoke('tt-proof-article', {
           body: {
+            // Sent so the edge function can authorise this guest editor.
+            // tt-proof-article and generate-cover-image are now gated; without
+            // this line every guest editor gets a 401. `token` is the route
+            // param validated on mount by validate_editor_token().
+            editor_token: token,
             phase: 'metadata',
             text: plain, title: title || undefined,
             author_name: auth?.author_name || 'Redacția',
@@ -410,6 +415,7 @@ export default function EditorTokenPage() {
       // Phase 1 — correction
       const { data, error: fnErr } = await supabase.functions.invoke('tt-proof-article', {
         body: {
+          editor_token: token,   // authorises this guest editor — see note above
           phase: 'correct',
           text: content, title: title || undefined,
           author_name: auth?.author_name || 'Redacția',
@@ -433,6 +439,7 @@ export default function EditorTokenPage() {
       try {
         const { data: metaData, error: metaErr } = await supabase.functions.invoke('tt-proof-article', {
           body: {
+            editor_token: token,   // authorises this guest editor
             phase: 'metadata',
             text: data.corrected_content || content,
             title: title || undefined,
@@ -582,7 +589,7 @@ export default function EditorTokenPage() {
       // processor was deployed over it, so calling it ran a rewrite batch
       // instead of making an image, and returned no publicUrl.
       const { data: res, error: genErr } = await supabase.functions.invoke('generate-cover-image', {
-        body: { title: imgTitle, summary: proofResult?.excerpt_ro || '', category }
+        body: { editor_token: token, title: imgTitle, summary: proofResult?.excerpt_ro || '', category }
       })
       if (genErr) throw new Error(genErr.message)
       if (res?.publicUrl) {
