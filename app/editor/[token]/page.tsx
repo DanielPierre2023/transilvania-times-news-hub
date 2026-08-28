@@ -384,7 +384,10 @@ export default function EditorTokenPage() {
         if (translate) {
           try {
             const { data: tr, error: trErr } = await supabase.functions.invoke('tt-translate-html', {
-              body: { html: content, source_lang: language, target_lang: language === 'ro' ? 'en' : 'ro' },
+              // editor_token authorises this guest editor — tt-translate-html is
+              // gated the same way as tt-proof-article. Without it, guest
+              // editors get 401 instead of a translation.
+              body: { editor_token: token, html: content, source_lang: language, target_lang: language === 'ro' ? 'en' : 'ro' },
             })
             if (!trErr && tr?.ok && tr?.html) {
               const sanitizeHtml = (await import('sanitize-html')).default
