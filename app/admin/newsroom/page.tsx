@@ -986,6 +986,8 @@ export default function NewsroomPage() {
     }
 
     const out: { start: number; title: string; category?: string | null; cover?: string | null }[] = []
+    // Which selected article does each written story actually belong to?
+    const postIdx = matchStoriesToPosts(sections.stories, selectedPosts, lang === 'ro' ? 'ro' : 'en')
     let acc = sections.greeting ? wc[0] : 0
     let prevIdx = 0      // no story may anchor before this word index
     let prevStart = 0    // …nor before this timestamp
@@ -1016,10 +1018,65 @@ export default function NewsroomPage() {
       // Monotonic + in-bounds: a story can never start before the previous one.
       start = Math.min(Math.max(start, i === 0 ? 0 : prevStart + 0.8), Math.max(0, dur - 0.5))
       prevStart = start
-      out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: selectedPosts[i]?.category, cover: selectedPosts[i]?.cover_image })
+      const src = postIdx[i] >= 0 ? selectedPosts[postIdx[i]] : undefined
+      out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: src?.category, cover: src?.cover_image })
       acc += wc[(sections.greeting ? 1 : 0) + i]
     })
     return out
+  }
+
+  // ── ARTICLE ↔ STORY MATCHING ──────────────────────────────────────────────
+  // FIXED 29 Aug 2026, from a real bulletin: the monitor showed the Ecouri photo
+  // at the end, the Csoma Botond photo stayed up too long, and the essay had no
+  // picture at all.
+  //
+  // Cause: the cover was attached BY POSITION — `selectedPosts[i]` for story i.
+  // That is only correct if the model returns exactly as many stories as there
+  // are selected articles, in the same order. It does not always: it reorders,
+  // and it sometimes merges two items. From the first divergence onward every
+  // picture belongs to a different story.
+  //
+  // Now each script story is matched back to its source article by CONTENT.
+  // Romanian inflects heavily — a headline says "obosit/fericit" where the
+  // spoken line says "oboseala/nefericire" — so significant title words are
+  // compared on a 4-character stem. Two distinct title words must land, and at
+  // least a third of them, before a match is accepted.
+  const NORM_MATCH = (s: string) => (s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  const MATCH_STOP = new Set(['pentru','despre','dintre','asupra','printre','acest','aceasta',
+    'aceste','care','este','sunt','fost','face','avea','dupa','pana','intre','fara','catre',
+    'doar','mult','mai','din','sau','nou','noua','cine','ceea','unui','unei','the','and','with',
+    'from','that','this','have','been','will','more','what','when'])
+
+  function matchStoriesToPosts(
+    stories: { lower_third?: string; text?: string }[],
+    postsIn: Post[],
+    lng: 'ro' | 'en',
+  ): number[] {
+    const used = new Set<number>()
+    const pass1 = stories.map(st => {
+      const hay = NORM_MATCH(`${st.lower_third || ''} ${st.text || ''}`)
+      let best = -1, bestScore = 0, bestHits = 0
+      postsIn.forEach((p, k) => {
+        if (used.has(k)) return
+        const title = NORM_MATCH((lng === 'ro' ? p.title_ro : p.title_en) || p.title_ro || p.title_en || '')
+        const words = [...new Set(title.split(' ').filter(w => w.length >= 4 && !MATCH_STOP.has(w)))]
+        if (!words.length) return
+        let hits = 0
+        for (const w of words) if (hay.includes(w.slice(0, 4))) hits++
+        const score = hits / words.length
+        if (score > bestScore) { bestScore = score; best = k; bestHits = hits }
+      })
+      if (best >= 0 && bestScore >= 0.34 && bestHits >= 2) { used.add(best); return best }
+      return -1
+    })
+    // If NOTHING matched, the script was probably not written from these
+    // articles (a hand-written bulletin). Keep the old positional behaviour
+    // rather than stripping every picture. If even ONE story matched, trust the
+    // matching and leave the rest blank — a wrong photo is worse than none.
+    if (pass1.some(idx => idx >= 0)) return pass1
+    return stories.map((_, i) => (postsIn[i] ? i : -1))
   }
 
   // Loudness: measure the voiceover's RMS and compute the gain that brings it
