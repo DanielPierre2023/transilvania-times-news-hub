@@ -1160,6 +1160,13 @@ export default function NewsroomPage() {
       const isWide = orient === '16:9'
       const band = isWide ? 64 : 72
       const tick = isWide ? 54 : 62
+      // Lower-third geometry, HOISTED here (was declared inside drawContent).
+      // drawCoverFull needs it to reserve space when HEADLINE_OUTSIDE is on, and
+      // a const declared further down is not in scope inside a function defined
+      // above it — it would throw at render time, not at compile time.
+      const ltH = isWide ? 100 : 116
+      const gapT = isWide ? 22 : 26
+      const tabH = isWide ? 32 : 36
       // ══ Refined broadcast graphics package ══════════════════════════════
       // Full-bleed anchor; glass overlays with hairline bevels layered on top.
       const marginX = isWide ? 46 : 28
@@ -1169,26 +1176,81 @@ export default function NewsroomPage() {
         hair: 'rgba(255,255,255,0.14)', hairDim: 'rgba(255,255,255,0.06)',
       }
       const sc = isWide ? 1 : (W / 1080) * 1.0            // caption/label scale
-      // ── HEADROOM GUARD ──────────────────────────────────────────────────
-      // The top band (logo + edition + date) is OPAQUE and is drawn over the
-      // anchor layer. A plate framed tight to the top therefore loses the top
-      // of the presenter's head behind it — she looks decapitated, which is
-      // exactly what a real gallery never allows.
+      // ── ANCHOR SAFE FRAME ───────────────────────────────────────────────
+      // The band (logo/edition/date), the ticker and the headline bar are all
+      // OPAQUE and are painted over the anchor layer. Full-bleed video runs
+      // underneath them, so a plate framed tight to the top loses the top of
+      // the presenter's head.
       //
-      // Fix: push the anchor plate down by the height of the band. The strip
-      // that disappears off the bottom of the canvas is desk, not face, and
-      // the empty strip it leaves at the top is hidden behind the band itself.
+      // Shifting the plate down does not help. The head sits a fixed fraction
+      // from the TOP OF THE PICTURE — about 2% on the current plate — so moving
+      // the picture moves the head with it. Measured on a delivered bulletin:
+      // band ended at 8.5% of frame, hair started at 9.0%. Three pixels.
       //
-      // 1.0 = shift by exactly the band height. Lower it toward 0 to keep more
-      // desk; raise it above 1 for extra clearance. 0 restores the old
-      // behaviour exactly.
-      const ANCHOR_TOP_SAFE = 1.0
+      // So the picture is fitted INSIDE a safe box instead, and the furniture is
+      // laid out around it. Nothing is drawn over the studio.
+      //
+      //   HEADLINE_OUTSIDE = false  picture 1040x586, 81% of frame width.
+      //                             Band and ticker sit outside it; the headline
+      //                             bar crosses the bottom of the picture, over
+      //                             the desk — which is what bulletins do.
+      //   HEADLINE_OUTSIDE = true   picture 766x432, 60% of frame width.
+      //                             Nothing whatsoever overlaps the studio, but
+      //                             the presenter is 26% smaller.
+      //
+      //   ANCHOR_FIT = 'cover'      the old full-bleed behaviour, one word back.
+      //
+      // SURROUND: 'blur' uses a blurred darkened copy of the plate, so the
+      // border reads as depth rather than as black bars. 'brand' uses a flat
+      // near-black with the house crimson hairline. If you later generate a
+      // proper studio backdrop, set 'brand' and swap the fill for the image.
+      const ANCHOR_FIT: 'contain' | 'cover' = 'contain'
+      const HEADLINE_OUTSIDE = false
+      const SURROUND: 'blur' | 'brand' = 'blur'
+      const SAFE_PAD = isWide ? 8 : 10
+
       const drawCoverFull = (vv: HTMLVideoElement) => {
         const vw = vv.videoWidth || 16, vh = vv.videoHeight || 9
         const vr = vw / vh, cr = W / H
-        let dw: number, dh: number
-        if (vr > cr) { dh = H; dw = H * vr } else { dw = W; dh = W / vr }
-        ctx.drawImage(vv, (W - dw) / 2, (H - dh) / 2 + band * ANCHOR_TOP_SAFE, dw, dh)
+
+        if (ANCHOR_FIT === 'cover') {
+          let dw: number, dh: number
+          if (vr > cr) { dh = H; dw = H * vr } else { dw = W; dh = W / vr }
+          ctx.drawImage(vv, (W - dw) / 2, (H - dh) / 2, dw, dh)
+          return
+        }
+
+        // Surround first — it fills the whole frame and the picture lands on it.
+        if (SURROUND === 'blur') {
+          ctx.save()
+          ctx.filter = 'blur(30px) brightness(0.34)'
+          let bw: number, bh: number
+          if (vr > cr) { bh = H * 1.14; bw = bh * vr } else { bw = W * 1.14; bh = bw / vr }
+          ctx.drawImage(vv, (W - bw) / 2, (H - bh) / 2, bw, bh)
+          ctx.restore(); ctx.filter = 'none'
+        } else {
+          const bg = ctx.createLinearGradient(0, 0, 0, H)
+          bg.addColorStop(0, '#0b0e15'); bg.addColorStop(1, '#05070c')
+          ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H)
+        }
+
+        // Reserve whatever furniture must stay clear of the picture.
+        const bottomReserve = HEADLINE_OUTSIDE ? tick + gapT + ltH + tabH : tick
+        const boxTop = band + SAFE_PAD
+        const boxBottom = H - bottomReserve - SAFE_PAD
+        const boxH = Math.max(1, boxBottom - boxTop)
+        const scale = Math.min(W / vw, boxH / vh)
+        const dw = vw * scale, dh = vh * scale
+        const dx = (W - dw) / 2, dy = boxTop + (boxH - dh) / 2
+
+        ctx.save()
+        ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 10
+        ctx.fillStyle = '#0a0d14'; ctx.fillRect(dx - 3, dy - 3, dw + 6, dh + 6)
+        ctx.restore()
+        ctx.drawImage(vv, dx, dy, dw, dh)
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1
+        ctx.strokeRect(dx - 0.5, dy - 0.5, dw + 1, dh + 1)
+        ctx.fillStyle = P.crimson; ctx.fillRect(dx, dy + dh, dw, 2)
       }
       // studio backdrop compositing + optional greenscreen key on the anchor
       const okv = document.createElement('canvas'); okv.width = W; okv.height = H
@@ -1428,11 +1490,9 @@ export default function NewsroomPage() {
         // Geometry stays OUTSIDE the guard — the captions block below anchors to
         // tabY, so it must exist even when no lower-third is drawn.
         const idx = cur ? thirds.indexOf(cur) + 1 : 1
-        const ltH = isWide ? 100 : 116
-        const gapT = isWide ? 22 : 26
-        const ltY = H - tick - gapT - ltH
+        const ltY = H - tick - gapT - ltH   // ltH/gapT hoisted to the top of the render block
         const barX = marginX, barW = W - marginX * 2
-        const tabH = isWide ? 32 : 36, tabY = ltY - tabH + 3
+        const tabY = ltY - tabH + 3   // tabH hoisted to the top of the render block
         const hasStory = !!(cur && (cur.title || '').trim())
         if (hasStory) {
         const ap = Math.max(0, Math.min(1, (vt - (cur?.start || 0)) / 0.5))
