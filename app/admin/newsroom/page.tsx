@@ -1169,12 +1169,26 @@ export default function NewsroomPage() {
         hair: 'rgba(255,255,255,0.14)', hairDim: 'rgba(255,255,255,0.06)',
       }
       const sc = isWide ? 1 : (W / 1080) * 1.0            // caption/label scale
+      // ── HEADROOM GUARD ──────────────────────────────────────────────────
+      // The top band (logo + edition + date) is OPAQUE and is drawn over the
+      // anchor layer. A plate framed tight to the top therefore loses the top
+      // of the presenter's head behind it — she looks decapitated, which is
+      // exactly what a real gallery never allows.
+      //
+      // Fix: push the anchor plate down by the height of the band. The strip
+      // that disappears off the bottom of the canvas is desk, not face, and
+      // the empty strip it leaves at the top is hidden behind the band itself.
+      //
+      // 1.0 = shift by exactly the band height. Lower it toward 0 to keep more
+      // desk; raise it above 1 for extra clearance. 0 restores the old
+      // behaviour exactly.
+      const ANCHOR_TOP_SAFE = 1.0
       const drawCoverFull = (vv: HTMLVideoElement) => {
         const vw = vv.videoWidth || 16, vh = vv.videoHeight || 9
         const vr = vw / vh, cr = W / H
         let dw: number, dh: number
         if (vr > cr) { dh = H; dw = H * vr } else { dw = W; dh = W / vr }
-        ctx.drawImage(vv, (W - dw) / 2, (H - dh) / 2, dw, dh)
+        ctx.drawImage(vv, (W - dw) / 2, (H - dh) / 2 + band * ANCHOR_TOP_SAFE, dw, dh)
       }
       // studio backdrop compositing + optional greenscreen key on the anchor
       const okv = document.createElement('canvas'); okv.width = W; okv.height = H
