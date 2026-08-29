@@ -910,8 +910,18 @@ export default function NewsroomPage() {
     setError('')
     try {
       setAutoStage('script')
-      // Fresh news selected → write from the news. Otherwise keep the manual text.
-      const text = sel.size > 0 ? await genScript() : manualScript
+      // CHANGED 29 Aug 2026 — THE SCRIPT BOX IS THE SOURCE OF TRUTH.
+      //
+      // It used to read: `sel.size > 0 ? await genScript() : manualScript`.
+      // That meant: if ANY article was ticked, Autopilot silently rewrote the
+      // script and threw away whatever you had edited. You only got to keep
+      // your own text by unticking every story — which nobody would guess.
+      //
+      // Now: if there is text in the box, it is used, full stop. An empty box
+      // means "write me one". To get a fresh script over the top of an old
+      // one, press "Scrie scriptul din știrile selectate" at step 2, or clear
+      // the box first. Both are explicit; neither destroys your work silently.
+      const text = manualScript ? manualScript : await genScript()
       if (!text) throw new Error('scriptul a eșuat')
       setAutoStage('voice')
       const voice = await genVoice(text); if (!voice) throw new Error('vocea a eșuat')
@@ -2349,6 +2359,12 @@ export default function NewsroomPage() {
           <textarea value={script} onChange={e => setScript(e.target.value)} rows={8} placeholder="Scriptul apare aici — editează-l liber înainte de voce…"
             className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[13px] p-3 resize-y focus:outline-none focus:border-brand-red/60" />
           {scriptModel && <p className="text-[10.5px] text-white/30 mt-1.5">scris de {scriptModel} · editabil integral</p>}
+          {script.trim() && (
+            <p className="text-[10.5px] text-amber-300/70 mt-1">
+              Textul de mai sus va fi folosit ca atare. „Generează buletinul” nu îl mai rescrie —
+              apasă „Scrie scriptul din știrile selectate” dacă vrei unul nou.
+            </p>
+          )}
         </Step>
 
         <Step n={3} icon={Mic} title="Vocea" done={stepDone[3]}>
