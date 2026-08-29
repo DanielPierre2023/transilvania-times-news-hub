@@ -32,7 +32,25 @@ import {
 type Aspect = '9:16' | '1:1' | '4:5' | '16:9'
 type KB = 'none' | 'in' | 'out' | 'left' | 'right'
 type SubPos = 'jos' | 'treime' | 'sus'
-interface Scene { id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB; motion?: 'idle' | 'working' | 'done' }
+interface Scene { id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB; motion?: 'idle' | 'working' | 'done'; sync?: 'idle' | 'working' | 'done' }
+
+// ── KLING ENGINE OPTIONS ────────────────────────────────────────────────────
+// The same API the kling.ai website drives. Studio used three fields of it.
+// Prices are audio-off, read from fal's model pages on 29 Aug 2026.
+type MotionModel = { key: string; label: string; usdPerSecond: number; maxSeconds: number; endFrame: boolean }
+const MOTION_MODELS: MotionModel[] = [
+  { key: 'o3-standard', label: 'o3 standard · $0.084/s', usdPerSecond: 0.084, maxSeconds: 15, endFrame: true },
+  { key: 'o3-pro',      label: 'o3 pro · $0.112/s',      usdPerSecond: 0.112, maxSeconds: 15, endFrame: true },
+  { key: 'v2.1',        label: '2.1 vechi · $0.05/s',    usdPerSecond: 0.05,  maxSeconds: 10, endFrame: false },
+]
+const SYNC_ENGINES: { key: string; label: string }[] = [
+  { key: 'latentsync', label: 'LatentSync · ~$0.20' },
+  { key: 'sync-1.9',   label: 'sync 1.9 · $0.70/min' },
+  { key: 'sync-v2',    label: 'sync v2 · $3.00/min' },
+]
+// Kept out of every clip unless you ask for it. Text and logos hallucinated
+// into a marketing clip are the single most common reason to reshoot.
+const MOTION_NEGATIVE = 'text, watermark, logo, subtitles, caption, extra fingers, deformed hands, warped face, identity change, cut, shot change, morphing background'
 interface Cue { start: number; end: number; text: string }
 interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 
@@ -56,11 +74,60 @@ const TONES: { v: string; label: string }[] = [
   { v: 'calm', label: 'Calm · documentar' },
 ]
 const SUB_POS: Record<SubPos, number> = { jos: 0.88, treime: 0.76, sus: 0.14 }
-const IMG_PRESETS: { label: string; aspect: string; prompt: string }[] = [
-  { label: 'Ardeal cinematic', aspect: '4:5', prompt: 'Cinematic golden-hour photograph of the Transylvanian landscape — rolling Apuseni hills, a lone medieval Saxon church tower, morning mist, autumn tones. Warm parchment-and-crimson color grade, film grain, editorial newspaper aesthetic. No text.' },
-  { label: 'Diaspora — dor de casă', aspect: '4:5', prompt: 'Emotional documentary photo: a young Romanian looking out a train window at dusk, warm reflection on glass, distant Transylvanian mountains. Melancholic, hopeful, cinematic, parchment-crimson grade, film grain. No text.' },
-  { label: 'Oraș ardelean', aspect: '1:1', prompt: 'Street-level photograph of a Transylvanian city — historic square, pastel facades, everyday people, late afternoon light. Photojournalistic, warm cream-crimson editorial grade, film grain. No text.' },
-  { label: 'Newsroom brand', aspect: '16:9', prompt: 'Warm editorial still life: a folded classic broadsheet newspaper on an oak desk, brass lamp glow, coffee, cream paper and crimson masthead accent. Cozy, trustworthy, cinematic, film grain. No readable text.' },
+// ── BIBLIOTECĂ DE PROMPTURI ─────────────────────────────────────────────────
+// Rewritten 29 Aug 2026. The four presets that used to live here were one
+// sentence each — a stock-photo brief. These are written the way the Ioana
+// prompts were written for Kling, because those are the ones that produced
+// usable frames: name the lens and the aperture, name where the light comes
+// from and how hard it is, say what texture must survive, and RESERVE THE
+// SPACE the text will later sit in.
+//
+// Three groups:
+//   marketing  promo scenes for the paper's own social clips
+//   anchors    the six presenters, ready to Animează + Lipsync
+//   studios    the four empty sets
+//
+// The anchor prompts carry three lessons that were paid for in credits:
+//   1. HEADROOM. The top of the head sits about one eighth down the frame.
+//      Framed tighter, the on-air graphics band cuts the head off, and no
+//      amount of compositing recovers it.
+//   2. FACE SIZE. Roughly 40% of frame height. The lip-sync engine works at
+//      256x256 internally; a smaller face is upsampled into a soft mouth.
+//   3. MOUTH CLOSED. The A/B test settled it: a redub engine does better work
+//      on a still mouth than on one already speaking different words.
+//
+// The identity paragraph inside each anchor prompt is repeated VERBATIM. That
+// text, plus a reference image, is what keeps the same face across generations.
+// Do not paraphrase it and do not "improve" it.
+type LibCat = 'marketing' | 'anchors' | 'studios'
+const LIB_CATS: { key: LibCat; label: string }[] = [
+  { key: 'marketing', label: 'Marketing' },
+  { key: 'anchors', label: 'Prezentatori' },
+  { key: 'studios', label: 'Platouri' },
+]
+const IMG_PRESETS: { cat: LibCat; label: string; aspect: string; prompt: string }[] = [
+  { cat: 'marketing', label: "Ardeal cinematic", aspect: "4:5", prompt: "Photorealistic landscape photograph of the Apuseni hills at first light, shot on a full-frame camera with an 85mm lens at f/5.6 from a low ridge, tripod, eye level. Layered ridgelines receding into cool blue haze, a single medieval Saxon church tower catching the first warm light on the middle ridge, thin valley mist below the treeline, hay meadows in the foreground with visible individual stems. Sun just above the far ridge, backlit, long soft shadows running toward camera, a faint lens bloom around the sun but no starburst. The UPPER THIRD of the frame is open sky, deliberately empty, so a headline can sit there. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Natural photographic grain, real atmospheric haze, sharp foreground detail. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Diaspora — dor de casă", aspect: "4:5", prompt: "Emotional documentary photograph, shot from inside a night train on a 35mm lens at f/2, handheld, available light only. A Romanian woman in her late twenties in a plain coat, seen three-quarters from behind and slightly above, forehead almost touching the window glass, looking out. Her reflection is visible in the glass, warm from the carriage lamp; beyond it the dark Transylvanian hills and scattered village lights streak past in a slow blur. Focus on the reflection, the landscape soft. Warm tungsten interior against cold blue exterior — the whole picture lives in that one contrast. Left third of the frame is dark window, kept clear for text. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Real skin texture, a little grain in the shadows, no beauty retouching. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Oraș ardelean", aspect: "1:1", prompt: "Street photograph of a Transylvanian town square in late afternoon, 35mm lens at f/4, chest height, one step back from the action. Pastel baroque facades in ochre, dusty rose and pale green, a tram wire crossing the sky, an old man carrying bread, two teenagers on the steps of a fountain, a woman crossing with a shopping bag — everyone mid-movement, nobody posed, nobody looking at the camera. Low sun raking across the facades from camera right, long shadows across the cobbles, one bright pool of light in the middle distance. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Photojournalistic, slightly imperfect framing, motion blur on one walking figure, visible grain. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Newsroom brand", aspect: "16:9", prompt: "Warm editorial still life on a dark oak desk, 50mm macro at f/2.8, three-quarter overhead, tripod. A folded broadsheet newspaper with a cream paper stock and a deep-crimson masthead band, the fold and fibre of the paper clearly visible; a brass desk lamp just out of frame casting a warm pool from camera left; a white ceramic cup of black coffee with steam catching the light; a pair of reading glasses folded on the paper; a fountain pen. Everything else falls into soft shadow. Shallow depth of field: the masthead band sharp, the far edge of the desk soft. RIGHT HALF of the frame is empty desk in shadow, reserved for a headline. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Real paper texture, dust visible in the lamp beam, honest grain. No readable text anywhere on the newspaper. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Breaking — urgență", aspect: "9:16", prompt: "Photojournalistic night scene, 35mm lens at f/2, handheld, shot from behind a low barrier. Wet asphalt reflecting blue and amber emergency lights, the silhouettes of two figures in high-visibility jackets in the middle distance, rain in the air catching the beams, a blurred vehicle light trail across the foreground. No faces identifiable, no number plates, no insignia. Cold blue key from the left, warm amber from the right, deep blacks. The UPPER HALF is dark sky and rain, held clear for a headline. Tense but restrained — a serious newspaper, not a tabloid. Real grain, some motion blur, no clean digital look. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Reportaj de teren", aspect: "4:5", prompt: "Documentary photograph of a journalist working, 50mm at f/2.8, eye level, one pace away, available light. A woman in her thirties in a plain jacket, notebook open in one hand, pen in the other, mid-sentence, listening rather than talking, half-turned away from camera toward someone out of frame. Behind her, an out-of-focus Romanian small-town street. Overcast soft light, no direct sun, low contrast. The picture is about attention, not glamour: no styling, hair a little untidy, real hands, a worn notebook. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Visible skin texture, honest grain. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Portret de comunitate", aspect: "4:5", prompt: "Environmental portrait, 85mm at f/2, eye level, tripod, natural window light from camera left at 45 degrees. An older Transylvanian craftsman or farmer in working clothes, seated, hands resting in his lap and clearly visible — weathered, specific, the hands as much the subject as the face. He looks directly into the lens, calm, neither smiling nor stern. Behind him his own workplace, softly out of focus and two stops darker. Every line and pore rendered honestly. No beauty retouching, no skin smoothing, no dramatic vignette. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Real photographic grain. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Economie și muncă", aspect: "16:9", prompt: "Industrial documentary photograph, 24mm at f/5.6, chest height, tripod, mixed available light. The interior of a working Romanian factory or workshop: a machine operator small in a large frame, sodium and daylight mixing, dust in the air, worn concrete floor, a wall of tools. Human scale against industrial scale — the person is the smallest thing in frame but the eye finds them. The LEFT THIRD is deliberately open floor, reserved for text. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Honest colour, no teal-orange, visible grain. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Sport local", aspect: "9:16", prompt: "Sports documentary photograph, 135mm at f/2.8, low angle from the touchline, 1/1000 shutter, floodlit evening. An amateur Romanian footballer mid-stride on a worn municipal pitch, grass and water kicked up, breath visible in cold air, the small crowd behind a chain-link fence thrown completely out of focus into bokeh. Hard floodlight from above and behind creating a rim on the shoulders, the face in softer fill. UPPER QUARTER of the frame is dark sky, held for a headline. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Frozen motion, real sweat, real mud, grain in the shadows. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Cultură și patrimoniu", aspect: "1:1", prompt: "Interior architectural photograph, 24mm tilt-shift at f/8, tripod, long exposure on available light only. The inside of a Transylvanian fortified church or wooden church: hand-hewn beams, whitewashed walls, one shaft of daylight from a high window falling across the floor, worn wooden pews, painted iconography soft in the shadow. Verticals perfectly straight. Deep shadow detail, highlights held. Nobody in frame. Space at the bottom of the frame, on the floor in shadow, reserved for text. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. Real dust in the light shaft, fine grain. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Card promo / abonament", aspect: "1:1", prompt: "Clean editorial product photograph, 50mm at f/8, flat overhead, soft even light from a large diffused source, no hard shadows. A single folded newspaper in cream stock with a deep-crimson masthead band, laid on a warm parchment-coloured surface, slightly off-centre to the LEFT. The entire RIGHT HALF is empty parchment surface — this is the space an offer will be typeset into, and it must stay completely clean. Subtle paper fibre and a soft natural shadow under the fold give it weight. Transilvania Times editorial grade: warm parchment and cream, one deep-crimson accent, gentle film grain, no HDR look, no over-saturation, blacks left slightly open. No props, no coffee, no clutter. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'marketing', label: "Selfie vertical / reel", aspect: "9:16", prompt: "Photorealistic vertical selfie photograph taken on a modern phone front camera at arm's length, slightly above eye level, handheld, natural window light. A Romanian woman in her mid-twenties in a plain top, sitting at a kitchen table at home, looking straight into the lens mid-sentence, warm and unpolished, a little asymmetric. Behind her a real lived-in kitchen thrown gently out of focus. FRAMING, EXACTLY: head and shoulders. The top of her head sits about one eighth of the way down the frame — clear space above it. Her face fills roughly forty percent of the frame height. Mouth closed and relaxed. Phone-camera look: slightly wide, mild lens distortion, natural skin with visible pores and no beauty filter. No text, no logos, no watermark, no captions, no on-screen graphics." },
+  { cat: 'anchors', label: "Ioana Mureșan · Matinal", aspect: '16:9', prompt: "Photorealistic portrait of a FICTIONAL Romanian television news presenter who does not exist and must not resemble any real person. Seated at the anchor desk of a bright modern news studio with a full-height glass wall onto the Cheile Turzii gorge at sunrise, light oak slat panelling, a low white stone anchor desk with a warm brass edge strip and one deep-crimson base line.\n\nA woman of twenty-nine with warm honey-blonde hair falling just past the shoulder in a soft blunt cut, a centre parting, fine straight eyebrows, hazel eyes, a small straight nose and a wide mouth; light natural broadcast make-up with a matte finish, a faint constellation of freckles across the bridge of the nose; wearing a sage-green single-breasted blazer over a cream silk shell, one small gold stud in each ear, no necklace.\n\nFRAMING, EXACTLY: a broadcast medium close-up. The top of the head sits about ONE EIGHTH of the way down the frame — there must be clear empty space above the hair, because the on-air graphics band covers the top of the picture. The lower edge cuts at mid-chest. The face occupies roughly forty percent of the frame height. Eyes on the upper-third line. Seated at the anchor desk, framed slightly LEFT of centre, square to the lens, chin level. The RIGHT HALF of the frame stays clean and uncluttered, reserved for the news picture.\n\nShot on a full-frame camera, 85mm lens at f/2.8, eye level, LOCKED OFF on a tripod — no handheld, no drift. Background studio visible but thrown well out of focus, about two stops darker than the face. Soft warm key from camera left at 40 degrees, broad fill, gentle rim from camera right separating hair and shoulder from the background. No hard shadow anywhere on the lower face, jaw or neck. Hands out of frame or resting flat and low on the desk, never near the face. Hair fully clear of the mouth, jaw and eyes. No microphone, no earpiece cable, no lanyard. MOUTH CLOSED and relaxed, lips together but soft, jaw unclenched. Gaze straight into the lens. Visible skin texture and pores, fine flyaway hairs, real photographic grain — NOT retouched, NOT airbrushed. Sharp focus on the eyes and mouth. No text, no logos, no on-screen graphics." },
+  { cat: 'anchors', label: "Ana Bercea · Seara", aspect: '16:9', prompt: "Photorealistic portrait of a FICTIONAL Romanian television news presenter who does not exist and must not resemble any real person. Seated at the anchor desk of a flagship evening news studio at blue hour with a curved panoramic window over Turda at night, dark walnut panelling, a monolithic smoked-glass anchor desk with a thin crimson light strip along its leading edge.\n\nA woman of thirty-five with dark chestnut hair drawn back into a low, precise chignon with no loose strands at the face, defined but unarched brows, deep brown eyes, high cheekbones and a defined jaw; polished evening broadcast make-up, matte, with a muted berry lip; wearing a structured navy blazer with a narrow notch lapel over a black high-neck top, a single small crimson enamel pin on the left lapel, no earrings.\n\nFRAMING, EXACTLY: a broadcast medium close-up. The top of the head sits about ONE EIGHTH of the way down the frame — there must be clear empty space above the hair, because the on-air graphics band covers the top of the picture. The lower edge cuts at mid-chest. The face occupies roughly forty percent of the frame height. Eyes on the upper-third line. Seated at the anchor desk, framed slightly LEFT of centre, square to the lens, chin level. The RIGHT HALF of the frame stays clean and uncluttered, reserved for the news picture.\n\nShot on a full-frame camera, 85mm lens at f/2.8, eye level, LOCKED OFF on a tripod — no handheld, no drift. Background studio visible but thrown well out of focus, about two stops darker than the face. Soft warm key from camera left at 40 degrees, broad fill, gentle rim from camera right separating hair and shoulder from the background. No hard shadow anywhere on the lower face, jaw or neck. Hands out of frame or resting flat and low on the desk, never near the face. Hair fully clear of the mouth, jaw and eyes. No microphone, no earpiece cable, no lanyard. MOUTH CLOSED and relaxed, lips together but soft, jaw unclenched. Gaze straight into the lens. Visible skin texture and pores, fine flyaway hairs, real photographic grain — NOT retouched, NOT airbrushed. Sharp focus on the eyes and mouth. No text, no logos, no on-screen graphics." },
+  { cat: 'anchors', label: "Carmen Lupaș · weekend", aspect: '16:9', prompt: "Photorealistic portrait of a FICTIONAL Romanian television news presenter who does not exist and must not resemble any real person. Seated at the anchor desk of a modern news studio in late golden light with a glass wall onto the Cheile Turzii gorge, warm amber limestone beyond, light oak slat panelling and a white stone anchor desk.\n\nA woman of forty-two with dark brown hair in a sharp chin-length bob, a deep side parting, a visible streak of natural silver at the left temple, strong level brows, grey-green eyes and fine lines at the outer corners that read as experience rather than age; restrained matte make-up, a neutral lip; wearing a charcoal wool blazer with a fine notch lapel over a white poplin shirt open at the collar, no visible jewellery.\n\nFRAMING, EXACTLY: a broadcast medium close-up. The top of the head sits about ONE EIGHTH of the way down the frame — there must be clear empty space above the hair, because the on-air graphics band covers the top of the picture. The lower edge cuts at mid-chest. The face occupies roughly forty percent of the frame height. Eyes on the upper-third line. Seated at the anchor desk, framed slightly LEFT of centre, square to the lens, chin level. The RIGHT HALF of the frame stays clean and uncluttered, reserved for the news picture.\n\nShot on a full-frame camera, 85mm lens at f/2.8, eye level, LOCKED OFF on a tripod — no handheld, no drift. Background studio visible but thrown well out of focus, about two stops darker than the face. Soft warm key from camera left at 40 degrees, broad fill, gentle rim from camera right separating hair and shoulder from the background. No hard shadow anywhere on the lower face, jaw or neck. Hands out of frame or resting flat and low on the desk, never near the face. Hair fully clear of the mouth, jaw and eyes. No microphone, no earpiece cable, no lanyard. MOUTH CLOSED and relaxed, lips together but soft, jaw unclenched. Gaze straight into the lens. Visible skin texture and pores, fine flyaway hairs, real photographic grain — NOT retouched, NOT airbrushed. Sharp focus on the eyes and mouth. No text, no logos, no on-screen graphics." },
+  { cat: 'anchors', label: "Radu Crișan · Matinal", aspect: '16:9', prompt: "Photorealistic portrait of a FICTIONAL Romanian television news presenter who does not exist and must not resemble any real person. Seated at the anchor desk of a bright modern news studio with a full-height glass wall onto the Cheile Turzii gorge at sunrise, light oak slat panelling, a low white stone anchor desk with a warm brass edge strip and one deep-crimson base line.\n\nA man of thirty-three with dark brown hair cut short and neatly swept back from a high forehead, a closely trimmed dark beard following the jaw line with the upper lip kept short and clear of the mouth, dark brown eyes, straight nose, an open and even-featured face; matte broadcast grooming with no shine on the forehead; wearing a mid-blue wool suit jacket over a white shirt with the collar open and no tie.\n\nFRAMING, EXACTLY: a broadcast medium close-up. The top of the head sits about ONE EIGHTH of the way down the frame — there must be clear empty space above the hair, because the on-air graphics band covers the top of the picture. The lower edge cuts at mid-chest. The face occupies roughly forty percent of the frame height. Eyes on the upper-third line. Seated at the anchor desk, framed slightly LEFT of centre, square to the lens, chin level. The RIGHT HALF of the frame stays clean and uncluttered, reserved for the news picture.\n\nShot on a full-frame camera, 85mm lens at f/2.8, eye level, LOCKED OFF on a tripod — no handheld, no drift. Background studio visible but thrown well out of focus, about two stops darker than the face. Soft warm key from camera left at 40 degrees, broad fill, gentle rim from camera right separating hair and shoulder from the background. No hard shadow anywhere on the lower face, jaw or neck. Hands out of frame or resting flat and low on the desk, never near the face. Hair fully clear of the mouth, jaw and eyes. No microphone, no earpiece cable, no lanyard. MOUTH CLOSED and relaxed, lips together but soft, jaw unclenched. Gaze straight into the lens. Visible skin texture and pores, fine flyaway hairs, real photographic grain — NOT retouched, NOT airbrushed. Sharp focus on the eyes and mouth. No text, no logos, no on-screen graphics." },
+  { cat: 'anchors', label: "Tudor Almășan · Seara", aspect: '16:9', prompt: "Photorealistic portrait of a FICTIONAL Romanian television news presenter who does not exist and must not resemble any real person. Seated at the anchor desk of a flagship evening news studio at blue hour with a curved panoramic window over Turda at night, dark walnut panelling, a monolithic smoked-glass anchor desk with a thin crimson light strip along its leading edge.\n\nA man of forty-five, clean shaven, with thick salt-and-pepper hair cut short and combed to one side, heavier level brows, deep-set grey eyes, a broad forehead and a strong square jaw with a defined jaw line; matte grooming, no forehead shine; wearing a charcoal single-breasted suit over a white shirt and a narrow deep-crimson tie in a small knot.\n\nFRAMING, EXACTLY: a broadcast medium close-up. The top of the head sits about ONE EIGHTH of the way down the frame — there must be clear empty space above the hair, because the on-air graphics band covers the top of the picture. The lower edge cuts at mid-chest. The face occupies roughly forty percent of the frame height. Eyes on the upper-third line. Seated at the anchor desk, framed slightly LEFT of centre, square to the lens, chin level. The RIGHT HALF of the frame stays clean and uncluttered, reserved for the news picture.\n\nShot on a full-frame camera, 85mm lens at f/2.8, eye level, LOCKED OFF on a tripod — no handheld, no drift. Background studio visible but thrown well out of focus, about two stops darker than the face. Soft warm key from camera left at 40 degrees, broad fill, gentle rim from camera right separating hair and shoulder from the background. No hard shadow anywhere on the lower face, jaw or neck. Hands out of frame or resting flat and low on the desk, never near the face. Hair fully clear of the mouth, jaw and eyes. No microphone, no earpiece cable, no lanyard. MOUTH CLOSED and relaxed, lips together but soft, jaw unclenched. Gaze straight into the lens. Visible skin texture and pores, fine flyaway hairs, real photographic grain — NOT retouched, NOT airbrushed. Sharp focus on the eyes and mouth. No text, no logos, no on-screen graphics." },
+  { cat: 'anchors', label: "Vlad Oltean · sport", aspect: '16:9', prompt: "Photorealistic portrait of a FICTIONAL Romanian television news presenter who does not exist and must not resemble any real person. Seated at the anchor desk of a modern news studio in late golden light with a glass wall onto the Cheile Turzii gorge, warm amber limestone beyond, light oak slat panelling and a white stone anchor desk.\n\nA man of twenty-eight, clean shaven, with short dark hair cut close at the sides and slightly longer on top, straight dark brows, dark eyes, a narrow face and a defined but slim jaw; matte grooming; wearing a slate-grey unstructured blazer over a plain dark crew-neck, no tie, no visible jewellery.\n\nFRAMING, EXACTLY: a broadcast medium close-up. The top of the head sits about ONE EIGHTH of the way down the frame — there must be clear empty space above the hair, because the on-air graphics band covers the top of the picture. The lower edge cuts at mid-chest. The face occupies roughly forty percent of the frame height. Eyes on the upper-third line. Seated at the anchor desk, framed slightly LEFT of centre, square to the lens, chin level. The RIGHT HALF of the frame stays clean and uncluttered, reserved for the news picture.\n\nShot on a full-frame camera, 85mm lens at f/2.8, eye level, LOCKED OFF on a tripod — no handheld, no drift. Background studio visible but thrown well out of focus, about two stops darker than the face. Soft warm key from camera left at 40 degrees, broad fill, gentle rim from camera right separating hair and shoulder from the background. No hard shadow anywhere on the lower face, jaw or neck. Hands out of frame or resting flat and low on the desk, never near the face. Hair fully clear of the mouth, jaw and eyes. No microphone, no earpiece cable, no lanyard. MOUTH CLOSED and relaxed, lips together but soft, jaw unclenched. Gaze straight into the lens. Visible skin texture and pores, fine flyaway hairs, real photographic grain — NOT retouched, NOT airbrushed. Sharp focus on the eyes and mouth. No text, no logos, no on-screen graphics." },
+  { cat: 'studios', label: "Platou · Cheile Turzii zori", aspect: "16:9", prompt: "Photorealistic wide photograph of an EMPTY modern television news studio at first light, full-frame cinema camera, 35mm at f/4, eye level, locked off on a tripod. A low white stone anchor desk sits slightly LEFT of centre, its front face lit by a thin warm brass strip; the surface matte, not reflective. Behind it a full-height glass wall opens onto the Cheile Turzii gorge at sunrise: pale limestone cliffs catching the first gold, thin mist lying along the valley floor, a band of cool blue sky above the rim. The gorge is soft focus and about two stops darker than the desk, so it reads as depth rather than competing. Light oak vertical slat panelling on the left, brushed brass reveals, a single deep-crimson strip along the base of the desk, matte pale concrete floor. Soft warm key from camera left at 40 degrees, broad and diffused, cool ambient fill from the glass. No hard shadows. The RIGHT THIRD is deliberately clean and empty — no furniture, no props — reserved for graphics. Natural photographic grain. No people, no text, no logos, no screens showing content." },
+  { cat: 'studios', label: "Platou · Turda noaptea", aspect: "16:9", prompt: "Photorealistic wide photograph of an EMPTY flagship evening news studio at blue hour, 35mm at f/4, eye level, locked off. A monolithic smoked-glass anchor desk slightly LEFT of centre, a thin crimson light strip along its leading edge — the only saturated colour in the room. Behind it a vast curved panoramic window over Turda at night: the warm-lit town hall clock tower, terracotta rooftops descending toward the river, scattered street lamps, the dark line of the hills against a deep indigo sky with the last cold light in the west. The city is soft bokeh, two and a half stops darker than the desk. Dark walnut panelling, blackened steel reveals, a polished dark floor with a low controlled sheen and no mirror reflections. Cool practical uplights wash the side walls. Soft warm key from camera left at 40 degrees, gentle cool rim from camera right, broad diffused fill, no hard shadows. The RIGHT THIRD stays clean and empty for graphics. Cinematic, photographic grain. No people, no text, no logos, no screens showing content." },
+  { cat: 'studios', label: "Platou · Cheile Turzii, aur", aspect: "16:9", prompt: "Photorealistic wide photograph of an EMPTY modern news studio in late afternoon, 35mm at f/4, eye level, locked off. The same set as the dawn studio: low white stone anchor desk slightly LEFT of centre with a warm brass edge strip, full-height glass wall behind. Through the glass the Cheile Turzii gorge in low golden light — limestone walls warm amber, long shadows reaching across the valley floor, a few birds high against a clear sky. Background two stops under the desk, soft focus. Light oak vertical slat panelling, brushed brass reveals, one deep-crimson base strip, matte pale concrete floor. Warm low key from camera left at 35 degrees carrying the golden-hour quality into the room, broad diffused fill, no hard shadows. RIGHT THIRD clean and empty for graphics. Photographic grain, natural colour, sharp foreground. No people, no text, no logos, no screens showing content." },
+  { cat: 'studios', label: "Platou · Turda, doi prezentatori", aspect: "16:9", prompt: "Photorealistic wide photograph of an EMPTY flagship evening news studio at blue hour, 28mm at f/4.5, eye level, locked off, framed wider than a single — the full desk and both side walls in frame. A long monolithic smoked-glass anchor desk runs across the lower third with a thin crimson light strip along its leading edge, wide enough for TWO presenter positions. Behind it the curved panoramic window over Turda at night: warm-lit clock tower, terracotta rooftops, street lamps, hills against deep indigo. City in soft bokeh, two and a half stops down. Dark walnut panelling, blackened steel reveals, polished dark floor with low controlled sheen. Cool practical uplights on the side walls. Soft warm key from camera left, cool rim from camera right, broad diffused fill, no hard shadows. Cinematic, photographic grain, sharp foreground. No people, no text, no logos, no screens showing content." },
 ]
 
 const uid = () => Math.random().toString(36).slice(2, 10)
@@ -78,6 +145,10 @@ export default function StudioPage() {
   const [script, setScript] = useState('')
   const [voice] = useState('onyx')
   const [geminiVoice, setGeminiVoice] = useState('Charon')
+  const [libCat, setLibCat] = useState<LibCat>('marketing')
+  const [motionModel, setMotionModel] = useState('o3-standard')
+  const [motionLoop, setMotionLoop] = useState(true)   // start frame == end frame
+  const [syncEngine, setSyncEngine] = useState('latentsync')
   const [voUrl, setVoUrl] = useState('')
   const [voDur, setVoDur] = useState(0)
 
@@ -408,7 +479,20 @@ export default function StudioPage() {
     setError('')
     setScenes(s => s.map(x => x.id === id ? { ...x, motion: 'working' } : x))
     try {
-      const created = await invokeRaw('generate-motion', { action: 'create', image_url: sc.url, duration: String(Math.min(10, Math.max(5, sc.duration))) === '10' ? '10' : '5' })
+      const mm = MOTION_MODELS.find(m => m.key === motionModel) || MOTION_MODELS[0]
+      const seconds = Math.max(3, Math.min(mm.maxSeconds, Math.round(sc.duration) || 5))
+      const created = await invokeRaw('generate-motion', {
+        action: 'create',
+        image_url: sc.url,
+        model: mm.key,
+        duration: seconds,
+        // THE LOOP. Same still in the start and end slot, so the clip returns to
+        // its opening pose and can repeat with no visible seam. This is the one
+        // thing that forced you onto kling.ai; it is a single field.
+        ...(motionLoop && mm.endFrame ? { end_image_url: sc.url } : {}),
+        negative_prompt: MOTION_NEGATIVE,
+        generate_audio: false,
+      })
       if (created.configured === false) throw new Error(String(created.message || 'FAL_KEY lipsește.'))
       if (created.error) throw new Error(String(created.error))
       const statusUrl = String(created.status_url || ''), responseUrl = String(created.response_url || '')
@@ -430,6 +514,55 @@ export default function StudioPage() {
     } catch (e) {
       setError('Animare: ' + (e as Error).message)
       setScenes(s => s.map(x => x.id === id ? { ...x, motion: 'idle' } : x))
+    }
+  }
+
+  // ── LIPSYNC ───────────────────────────────────────────────────────────────
+  // Studio already makes the clip and the voiceover; nothing joined them, which
+  // is why a talking-head clip had to be built somewhere else. This is that
+  // step. It replaces the scene's video with a version whose mouth matches the
+  // generated voice.
+  //
+  // Two things decide whether the result is good, and neither is the engine:
+  //   • the FACE must be large in frame. LatentSync works at 256x256 inside, so
+  //     a face smaller than that gets upsampled into a soft mouth. A selfie or a
+  //     medium close-up is fine; a wide shot is not.
+  //   • the clip should be at least as long as the voiceover, or it repeats.
+  async function lipsyncScene(id: string) {
+    const sc = scenes.find(s => s.id === id)
+    if (!sc || sc.kind !== 'video') return
+    if (!voUrl) { setError('Generează întâi vocea — lipsync-ul are nevoie de audio.'); return }
+    setError('')
+    setScenes(s => s.map(x => x.id === id ? { ...x, sync: 'working' } : x))
+    try {
+      const created = await invokeRaw('generate-motion', {
+        action: 'lipsync',
+        video_url: sc.url,
+        audio_url: voUrl,
+        engine: syncEngine,
+        seconds: Math.round(voDur || sc.duration || 10),
+      })
+      if (created.configured === false) throw new Error(String(created.message || 'FAL_KEY lipsește.'))
+      if (created.error) throw new Error(String(created.error))
+      const statusUrl = String(created.status_url || ''), responseUrl = String(created.response_url || '')
+      if (!statusUrl) throw new Error('fal nu a returnat status_url')
+      for (let i = 0; i < 90; i++) {
+        await sleep(4000)
+        const st = await invokeRaw('generate-motion', { action: 'poll', status_url: statusUrl, response_url: responseUrl })
+        if (st.error) throw new Error(String(st.error))
+        if (st.status === 'COMPLETED' && st.publicUrl) {
+          const url = String(st.publicUrl)
+          const v = await loadVideo(url)
+          setScenes(s => s.map(x => x.id === id
+            ? { ...x, url, name: '🗣 ' + x.name.replace(/^[🎞🗣] /, ''), duration: Math.min(180, Math.max(1, v.duration || x.duration)), sync: 'done' }
+            : x))
+          return
+        }
+      }
+      throw new Error('Lipsync-ul durează neobișnuit de mult — reîncearcă.')
+    } catch (e) {
+      setError('Lipsync: ' + (e as Error).message)
+      setScenes(s => s.map(x => x.id === id ? { ...x, sync: 'idle' } : x))
     }
   }
 
@@ -755,11 +888,31 @@ export default function StudioPage() {
           <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
             <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-3 flex items-center gap-2"><ImagePlus className="w-3.5 h-3.5" /> Bibliotecă · scene</p>
             <div className="flex flex-wrap gap-2 mb-3">
-              {IMG_PRESETS.map(p => (
-                <button key={p.label} onClick={() => { setImgPrompt(p.prompt); setImgAspect(p.aspect) }}
-                  className="px-3 py-1.5 text-[11px] bg-[#111] border border-white/[0.07] text-white/70 hover:border-brand-red/60">{p.label}</button>
+              {LIB_CATS.map(c => (
+                <button key={c.key} onClick={() => setLibCat(c.key)}
+                  className={'px-3 py-1.5 text-[11px] font-bold border ' + (libCat === c.key
+                    ? 'bg-brand-red text-white border-brand-red'
+                    : 'bg-[#111] text-white/50 border-white/[0.07] hover:border-white/20')}>
+                  {c.label}
+                  <span className="ml-1.5 opacity-50">{IMG_PRESETS.filter(p => p.cat === c.key).length}</span>
+                </button>
               ))}
             </div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {IMG_PRESETS.filter(p => p.cat === libCat).map(p => (
+                <button key={p.label} onClick={() => { setImgPrompt(p.prompt); setImgAspect(p.aspect) }}
+                  title={p.prompt.slice(0, 220) + '…'}
+                  className="px-3 py-1.5 text-[11px] bg-[#111] border border-white/[0.07] text-white/70 hover:border-brand-red/60 text-left">
+                  {p.label}<span className="ml-1.5 text-[10px] text-white/25">{p.aspect}</span>
+                </button>
+              ))}
+            </div>
+            {libCat === 'anchors' && (
+              <p className="text-[10.5px] text-white/35 -mt-1 mb-2 leading-relaxed">
+                Generează portretul → <span className="text-amber-300/80">Animează</span> (cu „buclă" bifat) → <span className="text-sky-300/80">Lipsync</span> peste voce.
+                Cadrarea e deja corectă: spațiu deasupra capului pentru banda grafică, faţa la ~40% din înălţime pentru lipsync, gura închisă.
+              </p>
+            )}
             <textarea value={imgPrompt} onChange={e => setImgPrompt(e.target.value)} rows={3} placeholder="Prompt imagine AI (engleză)…"
               className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[13px] p-3 resize-y focus:outline-none focus:border-brand-red/60" />
             <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -795,7 +948,34 @@ export default function StudioPage() {
 
           {/* Timeline */}
           <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
-            <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-3">Cronologie</p>
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40">Cronologie</p>
+              {/* ── MOTOR VIDEO ────────────────────────────────────────────
+                  The same Kling engine the kling.ai site runs, driven from
+                  here. `buclă` sends the source still as BOTH the start and
+                  the end frame, so the clip returns to its opening pose and
+                  repeats with no visible seam — the reason this used to have
+                  to be done on kling.ai. */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wider text-white/25">motor</span>
+                <select value={motionModel} onChange={e => setMotionModel(e.target.value)}
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {MOTION_MODELS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </select>
+                <label className="flex items-center gap-1 text-[11px] text-white/50 cursor-pointer"
+                  title="Trimite aceeași imagine ca prim ȘI ultim cadru. Clipul se întoarce în poziția de start, deci se poate repeta fără tăietură vizibilă.">
+                  <input type="checkbox" checked={motionLoop} onChange={e => setMotionLoop(e.target.checked)}
+                    className="accent-amber-500" />
+                  buclă
+                </label>
+                <span className="text-white/15">·</span>
+                <span className="text-[10px] uppercase tracking-wider text-white/25">lipsync</span>
+                <select value={syncEngine} onChange={e => setSyncEngine(e.target.value)}
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {SYNC_ENGINES.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </select>
+              </div>
+            </div>
             {scenes.length === 0 && <p className="text-[13px] text-white/30 py-6 text-center">Nicio scenă încă. Generează sau încarcă mai sus.</p>}
             <div className="space-y-2">
               {scenes.map((sc, i) => (
@@ -815,13 +995,32 @@ export default function StudioPage() {
                           <option value="none">static</option><option value="in">zoom in</option><option value="out">zoom out</option><option value="left">pan ←</option><option value="right">pan →</option>
                         </select>
                         <button onClick={() => animateScene(sc.id)} disabled={sc.motion === 'working'}
-                          title="Transformă fotografia într-un clip cu mișcare reală (AI, fal.ai/Kling)"
+                          title="Transformă fotografia într-un clip cu mișcare reală (Kling, prin fal.ai)"
                           className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10 disabled:opacity-60">
                           {sc.motion === 'working' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
                           {sc.motion === 'working' ? 'Animez…' : 'Animează'}
                         </button>
+                        {(() => {
+                          const mm = MOTION_MODELS.find(m => m.key === motionModel) || MOTION_MODELS[0]
+                          const secs = Math.max(3, Math.min(mm.maxSeconds, Math.round(sc.duration) || 5))
+                          return <span className="text-[10px] text-white/30">
+                            {secs}s · ${(mm.usdPerSecond * secs).toFixed(2)}
+                            {motionLoop && mm.endFrame ? ' · buclă' : ''}
+                          </span>
+                        })()}
                       </>}
-                      {sc.kind === 'video' && <span className="text-[11px] text-white/40">clip · {sc.duration.toFixed(1)}s (fără sunet)</span>}
+                      {sc.kind === 'video' && <>
+                        <span className="text-[11px] text-white/40">clip · {sc.duration.toFixed(1)}s (fără sunet)</span>
+                        <button onClick={() => lipsyncScene(sc.id)} disabled={sc.sync === 'working' || !voUrl}
+                          title={voUrl
+                            ? 'Sincronizează buzele cu vocea generată. Merge doar dacă fața e mare în cadru.'
+                            : 'Generează întâi vocea (mai jos) — lipsync-ul are nevoie de audio.'}
+                          className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 border border-sky-500/40 text-sky-300/90 hover:bg-sky-500/10 disabled:opacity-40">
+                          {sc.sync === 'working' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mic className="w-3 h-3" />}
+                          {sc.sync === 'working' ? 'Sincronizez…' : sc.sync === 'done' ? 'Re-sincronizează' : 'Lipsync'}
+                        </button>
+                        {sc.sync === 'done' && <span className="text-[10px] text-emerald-400/70">buze sincronizate</span>}
+                      </>}
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
