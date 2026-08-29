@@ -1161,7 +1161,7 @@ export default function NewsroomPage() {
       const band = isWide ? 64 : 72
       const tick = isWide ? 54 : 62
       // Lower-third geometry, HOISTED here (was declared inside drawContent).
-      // drawCoverFull needs it to reserve space when HEADLINE_OUTSIDE is on, and
+      // drawCoverFull needs it to reserve space when FRAME.headlineOutside is on,
       // a const declared further down is not in scope inside a function defined
       // above it — it would throw at render time, not at compile time.
       const ltH = isWide ? 100 : 116
@@ -1190,30 +1190,43 @@ export default function NewsroomPage() {
       // So the picture is fitted INSIDE a safe box instead, and the furniture is
       // laid out around it. Nothing is drawn over the studio.
       //
-      //   HEADLINE_OUTSIDE = false  picture 1040x586, 81% of frame width.
+      //   headlineOutside: false   picture 1040x586, 81% of frame width.
       //                             Band and ticker sit outside it; the headline
       //                             bar crosses the bottom of the picture, over
       //                             the desk — which is what bulletins do.
-      //   HEADLINE_OUTSIDE = true   picture 766x432, 60% of frame width.
+      //   headlineOutside: true    picture 766x432, 60% of frame width.
       //                             Nothing whatsoever overlaps the studio, but
       //                             the presenter is 26% smaller.
       //
-      //   ANCHOR_FIT = 'cover'      the old full-bleed behaviour, one word back.
+      //   fit: 'cover'             the old full-bleed behaviour, one word back.
       //
-      // SURROUND: 'blur' uses a blurred darkened copy of the plate, so the
+      // surround: 'blur' uses a blurred darkened copy of the plate, so the
       // border reads as depth rather than as black bars. 'brand' uses a flat
       // near-black with the house crimson hairline. If you later generate a
-      // proper studio backdrop, set 'brand' and swap the fill for the image.
-      const ANCHOR_FIT: 'contain' | 'cover' = 'contain'
-      const HEADLINE_OUTSIDE = false
-      const SURROUND: 'blur' | 'brand' = 'blur'
+      // proper studio backdrop, set surround:'brand' and swap the fill for it.
+      // Declared as ONE TYPED OBJECT on purpose, not as separate consts.
+      // `const X: 'contain' | 'cover' = 'contain'` inside a function body is
+      // narrowed by TypeScript to the literal 'contain', and `X === 'cover'`
+      // then fails the build with TS2367 ("no overlap") even though the
+      // annotation says otherwise. Object properties keep their declared union
+      // type, so every switch below stays comparable and you can flip any of
+      // them without breaking the build.
+      const FRAME: {
+        fit: 'contain' | 'cover'
+        surround: 'blur' | 'brand'
+        headlineOutside: boolean
+      } = {
+        fit: 'contain',          // 'cover' = old full-bleed behaviour
+        surround: 'blur',        // 'brand' = flat dark gradient instead
+        headlineOutside: false,  // true = headline bar clears the picture too
+      }
       const SAFE_PAD = isWide ? 8 : 10
 
       const drawCoverFull = (vv: HTMLVideoElement) => {
         const vw = vv.videoWidth || 16, vh = vv.videoHeight || 9
         const vr = vw / vh, cr = W / H
 
-        if (ANCHOR_FIT === 'cover') {
+        if (FRAME.fit === 'cover') {
           let dw: number, dh: number
           if (vr > cr) { dh = H; dw = H * vr } else { dw = W; dh = W / vr }
           ctx.drawImage(vv, (W - dw) / 2, (H - dh) / 2, dw, dh)
@@ -1221,7 +1234,7 @@ export default function NewsroomPage() {
         }
 
         // Surround first — it fills the whole frame and the picture lands on it.
-        if (SURROUND === 'blur') {
+        if (FRAME.surround === 'blur') {
           ctx.save()
           ctx.filter = 'blur(30px) brightness(0.34)'
           let bw: number, bh: number
@@ -1235,7 +1248,7 @@ export default function NewsroomPage() {
         }
 
         // Reserve whatever furniture must stay clear of the picture.
-        const bottomReserve = HEADLINE_OUTSIDE ? tick + gapT + ltH + tabH : tick
+        const bottomReserve = FRAME.headlineOutside ? tick + gapT + ltH + tabH : tick
         const boxTop = band + SAFE_PAD
         const boxBottom = H - bottomReserve - SAFE_PAD
         const boxH = Math.max(1, boxBottom - boxTop)
