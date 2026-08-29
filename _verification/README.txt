@@ -1,8 +1,7 @@
-DO NOT COMMIT THIS FOLDER.
+DO NOT COMMIT THIS FOLDER. Evidence, not repo code.
 
-timeline-tests.js is the evidence, not code for the repo. The repo's vitest
-config only covers src/** (the legacy Vite code) and vitest is not installed,
-so a test file added under lib/ would never run and would only risk the build.
+112 assertions across three suites, all passing.
 
-64 assertions, all passing. Compiled with the project's own tsconfig and run on
-Node 22.
+Suite 2 compares this loudness implementation against ffmpeg's ebur128 —
+a trusted reference — on five generated signals including a 44.1 kHz file
+to prove the filter derivation is not hard-coded to 48 kHz.

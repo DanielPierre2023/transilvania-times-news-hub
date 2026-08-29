@@ -23,6 +23,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+// tt-timeline — real loudness measurement and caption sidecars.
+import { checkCaptions, extractCues, toSRT, toVTT } from '@/lib/timeline/captions'
+import { formatLufs, measureAudioBuffer, planNormalisation } from '@/lib/timeline/loudness'
+import type { LoudnessResult } from '@/lib/timeline/loudness'
+import { migrateLegacyProject } from '@/lib/timeline/migrate'
 import {
   Clapperboard, ImagePlus, Upload, Mic, Captions, Music, Film,
   Sparkles, Loader2, Play, Square, Trash2, ArrowUp, ArrowDown, Download, AlertCircle, Wand2,
@@ -182,6 +187,8 @@ export default function StudioPage() {
 
   const [musicUrl, setMusicUrl] = useState('')
   const [musicVol, setMusicVol] = useState(0.18)
+  // Measured programme loudness of the voiceover (BS.1770 / EBU R128).
+  const [voLoudness, setVoLoudness] = useState<LoudnessResult | null>(null)
 
   const [busy, setBusy] = useState<string>('')       // label of in-flight op
   const [error, setError] = useState('')
@@ -349,11 +356,62 @@ export default function StudioPage() {
       const r = await invoke<{ publicUrl: string }>('generate-voiceover', body)
       const d = await audioDuration(r.publicUrl)
       setVoUrl(r.publicUrl); setVoDur(d || Math.ceil(script.length / 14))
+      void measureVoice(r.publicUrl)
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
 
   // Split a Whisper segment into short display cues (max 2 lines ≈ 42 chars/line)
   // so subtitles never blanket the frame.
+  // Caption QC, recomputed only when something that affects captions changes.
+  const captionQc = useMemo(() => {
+    if (!cues.length) return null
+    const tl = migrateLegacyProject({ aspect, scenes, cues, words, capMode, subPos, subScale, subsOn: true })
+    const extracted = extractCues(tl)
+    return { problems: checkCaptions(extracted, tl.timebase.fps), count: extracted.length }
+  }, [aspect, scenes, cues, words, capMode, subPos, subScale])
+
+  // Measures the voiceover's programme loudness so the number can be shown and
+  // the export gain can be derived from it instead of guessed.
+  async function measureVoice(url: string) {
+    if (!url) { setVoLoudness(null); return }
+    try {
+      const ctx = new AudioContext()
+      const buffer = await decode(ctx, url)
+      setVoLoudness(measureAudioBuffer(buffer))
+      void ctx.close()
+    } catch { setVoLoudness(null) }
+  }
+
+  // Caption sidecars. The cue data always existed; it just never left the
+  // canvas, so no delivery spec asking for subtitles could be met.
+  // A sidecar is independent of whether captions are burned into the picture,
+  // so the burn-in switch is forced on here — otherwise turning off the overlay
+  // would silently stop the .srt from containing anything.
+  function captionTimeline() {
+    const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
+    return migrateLegacyProject({ ...base, subsOn: true })
+  }
+
+  function downloadText(name: string, body: string, mime: string) {
+    const blob = new Blob([body], { type: mime })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = name
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+  }
+
+  function exportCaptions(kind: 'srt' | 'vtt') {
+    try {
+      const tl = captionTimeline()
+      const extracted = extractCues(tl)
+      if (!extracted.length) { setError('Nu există subtitrări de exportat.'); return }
+      const base = (projName.trim() || 'subtitrari').replace(/[^\w-]+/g, '-').toLowerCase()
+      if (kind === 'srt') downloadText(`${base}.srt`, toSRT(extracted, tl.timebase.fps), 'application/x-subrip')
+      else downloadText(`${base}.vtt`, toVTT(extracted, tl.timebase.fps), 'text/vtt')
+    } catch (e) { setError('Exportul subtitrărilor a eșuat: ' + (e as Error).message) }
+  }
+
   function splitCues(segs: Cue[]): Cue[] {
     const MAX = 84 // ~2 lines
     const out: Cue[] = []
@@ -429,7 +487,7 @@ export default function StudioPage() {
       if (typeof d.tone === 'string') setTone(d.tone)
       if (typeof d.elVoiceId === 'string') setElVoiceId(d.elVoiceId)
       if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
-      if (typeof d.voUrl === 'string') setVoUrl(d.voUrl)
+      if (typeof d.voUrl === 'string') { setVoUrl(d.voUrl); void measureVoice(d.voUrl) }
       if (typeof d.voDur === 'number') setVoDur(d.voDur)
       if (Array.isArray(d.cues)) setCues(d.cues as Cue[])
       if (Array.isArray(d.words)) setWords(d.words as { word: string; start: number; end: number }[])
@@ -730,15 +788,21 @@ export default function StudioPage() {
       comp.threshold.value = -6; comp.knee.value = 10; comp.ratio.value = 6
       comp.attack.value = 0.003; comp.release.value = 0.25
       comp.connect(dest)
-      const rmsGain = (b: AudioBuffer) => {
-        const ch = b.getChannelData(0); let sum = 0, n = 0
-        for (let i = 0; i < ch.length; i += 4) { sum += ch[i] * ch[i]; n++ }
-        const rms = Math.sqrt(sum / Math.max(1, n))
-        return rms && Number.isFinite(rms) ? Math.min(4, Math.max(0.5, 0.12 / rms)) : 1
+      // Loudness, measured rather than estimated. The old code averaged RMS and
+      // aimed at an arbitrary 0.12 — RMS is not loudness, it ignores how the ear
+      // weights frequency and counts silence as programme. This measures gated
+      // BS.1770 loudness and moves it to the target, refusing any gain that
+      // would push the peak past the ceiling.
+      const normGain = (b: AudioBuffer) => {
+        try {
+          const plan = planNormalisation(measureAudioBuffer(b), 'social')
+          const g = plan.safeGain
+          return Number.isFinite(g) && g > 0 ? Math.min(4, Math.max(0.25, g)) : 1
+        } catch { return 1 }
       }
       let voSrc: AudioBufferSourceNode | null = null
       let muSrc: AudioBufferSourceNode | null = null
-      if (voUrl) { const b = await decode(ac, voUrl); voSrc = ac.createBufferSource(); voSrc.buffer = b; const g = ac.createGain(); g.gain.value = rmsGain(b); voSrc.connect(g).connect(comp) }
+      if (voUrl) { const b = await decode(ac, voUrl); voSrc = ac.createBufferSource(); voSrc.buffer = b; const g = ac.createGain(); g.gain.value = normGain(b); voSrc.connect(g).connect(comp) }
       if (musicUrl) { const b = await decode(ac, musicUrl); muSrc = ac.createBufferSource(); muSrc.buffer = b; muSrc.loop = true; const g = ac.createGain(); g.gain.value = musicVol; muSrc.connect(g).connect(comp) }
 
       const combined = new MediaStream([...vstream.getVideoTracks(), ...dest.stream.getAudioTracks()])
@@ -1075,6 +1139,26 @@ export default function StudioPage() {
                 </button>
               </div>
               {voUrl && <audio src={voUrl} controls className="w-full mt-3 h-9" />}
+              {voUrl && voLoudness && (() => {
+                const plan = planNormalisation(voLoudness, 'social')
+                const move = plan.gainDb
+                return (
+                  <div className="mt-2 flex items-center gap-2 flex-wrap text-[11px]">
+                    <span className="text-white/40">Sonoritate</span>
+                    <span className="font-mono text-white/80">{formatLufs(voLoudness.integrated)}</span>
+                    <span className="text-white/25">·</span>
+                    <span className="text-white/40">țintă {plan.target} LUFS</span>
+                    <span className={'px-1.5 py-0.5 font-mono ' + (Math.abs(move) <= 1 ? 'bg-emerald-500/15 text-emerald-300/80' : 'bg-amber-500/15 text-amber-300/80')}>
+                      {move >= 0 ? '+' : ''}{move.toFixed(1)} dB la export
+                    </span>
+                    {plan.wouldClip && (
+                      <span className="px-1.5 py-0.5 bg-brand-red/20 text-brand-red">
+                        limitat de vârf ({voLoudness.samplePeakDb.toFixed(1)} dBFS)
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Voice cloning lab — two engines, kept equal */}
               {(providers.minimax || providers.elevenlabs) && (
@@ -1128,6 +1212,35 @@ export default function StudioPage() {
                 </label>
               </div>
               <p className="text-[11px] text-white/30 mt-2">{cues.length ? `${cues.length} replici sincronizate` : 'Generează vocea, apoi „Auto din voce”.'}</p>
+              {captionQc && (() => {
+                const errors = captionQc.problems.filter(x => x.severity === 'error')
+                return (
+                  <>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <button onClick={() => exportCaptions('srt')}
+                        className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[11px] font-bold px-2.5 py-1 hover:border-brand-red/60">
+                        <Download className="w-3 h-3" /> .SRT
+                      </button>
+                      <button onClick={() => exportCaptions('vtt')}
+                        className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[11px] font-bold px-2.5 py-1 hover:border-brand-red/60">
+                        <Download className="w-3 h-3" /> .VTT
+                      </button>
+                      <span className={'text-[11px] px-1.5 py-0.5 ' + (errors.length ? 'bg-brand-red/20 text-brand-red' : 'bg-emerald-500/15 text-emerald-300/80')}>
+                        {errors.length ? `${errors.length} de corectat` : 'trec verificarea'}
+                      </span>
+                    </div>
+                    {errors.length > 0 && (
+                      <ul className="mt-2 space-y-1 max-h-24 overflow-y-auto">
+                        {errors.slice(0, 6).map((x, i) => (
+                          <li key={i} className="text-[10.5px] text-brand-red/80 leading-snug">
+                            #{x.index + 1} — {x.message}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )
+              })()}
               <div className="flex items-center gap-2 mt-3 flex-wrap">
                 <span className="text-[11px] text-white/40">Poziție</span>
                 {(['jos', 'treime', 'sus'] as SubPos[]).map(p => (

@@ -82,3 +82,25 @@ export { isLegacyProject, migrateLegacyProject, withExtraTrack } from './migrate
 
 export type { AudioOp, CompiledFrame, DrawOp, PixelRect } from './compile'
 export { DUCK_GAIN, compileFrame, cutFrames, fitRect, frameRange } from './compile'
+
+export type { CaptionLimits, CaptionOptions, CaptionProblem, Cue } from './captions'
+export {
+  DEFAULT_LIMITS,
+  checkCaptions,
+  conformCues,
+  extractCues,
+  toSRT,
+  toVTT,
+  wrapCaption,
+} from './captions'
+
+export type { AudioBufferLike, LoudnessResult, NormalisationPlan } from './loudness'
+export {
+  CHANNEL_WEIGHTS,
+  LOUDNESS_TARGETS,
+  formatLufs,
+  kWeight,
+  measureAudioBuffer,
+  measureLoudness,
+  planNormalisation,
+} from './loudness'
