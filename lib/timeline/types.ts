@@ -1,0 +1,182 @@
+// lib/timeline/types.ts
+//
+// The Studio project document.
+//
+// One rule governs the shape: anything a client can ask for in a notes round
+// must be expressible as data. "Hold two seconds longer on shot two" is a
+// duration change. "Drop the music under the VO from 0:14" is a keyframe on a
+// gain property. The previous model — a scene list with one duration each —
+// could express neither, which is why there was no way to take notes.
+
+import type { Rational } from './time'
+
+export type Ease = 'hold' | 'linear' | 'easeIn' | 'easeOut' | 'easeInOut'
+
+export interface Keyframe<T> {
+  /** Frames from the start of the CLIP, not the timeline. Clips stay portable. */
+  readonly frame: number
+  readonly value: T
+  /** Interpolation from this key to the next one. */
+  readonly ease: Ease
+}
+
+/** A constant, or a curve. Constants stay cheap and diff cleanly. */
+export type Animatable<T> = T | { readonly keys: readonly Keyframe<T>[] }
+
+export interface Point {
+  readonly x: number
+  readonly y: number
+}
+
+/** Normalised 0..1 against the frame, so a timeline survives a resolution change. */
+export interface NormRect {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+}
+
+export type Fit = 'contain' | 'cover' | 'fill'
+
+export interface TextStyle {
+  readonly family: string
+  /** Fraction of frame height, so type scales with the master. */
+  readonly size: number
+  readonly weight: number
+  readonly color: string
+  readonly align: 'left' | 'center' | 'right'
+  readonly lineHeight: number
+  readonly background?: string
+  readonly padding?: number
+  readonly maxWidth?: number
+}
+
+export interface MediaSource {
+  readonly kind: 'image' | 'video' | 'audio'
+  readonly url: string
+  readonly naturalWidth?: number
+  readonly naturalHeight?: number
+  /** Seconds. Needed to reject a trim past the end of the source. */
+  readonly naturalDuration?: number
+}
+
+export interface CaptionWord {
+  readonly word: string
+  /** Frames from the start of the CLIP. */
+  readonly start: number
+  readonly end: number
+}
+
+export interface TextSource {
+  readonly kind: 'text'
+  readonly text: string
+  readonly style: TextStyle
+  /** Word timings for karaoke captions. Absent means a plain caption. */
+  readonly words?: readonly CaptionWord[]
+}
+
+export interface ShapeSource {
+  readonly kind: 'shape'
+  readonly shape: 'rect' | 'ellipse'
+  readonly fill: string
+}
+
+/** A brand-kit template: a lower third, ticker or end card, bound to parameters. */
+export interface TemplateSource {
+  readonly kind: 'template'
+  readonly template: string
+  readonly params: Readonly<Record<string, string | number | boolean>>
+}
+
+export type Source = MediaSource | TextSource | ShapeSource | TemplateSource
+
+export interface Transform {
+  /** Normalised centre of the clip within the frame. */
+  readonly position: Animatable<Point>
+  readonly scale: Animatable<number>
+  /** Degrees, clockwise. */
+  readonly rotation: Animatable<number>
+  readonly opacity: Animatable<number>
+  /** Normalised crop taken from the SOURCE before fitting. */
+  readonly crop?: NormRect
+}
+
+export interface ClipAudio {
+  /** Linear gain, 1 = unity. Keyframe this and you have manual ducking. */
+  readonly gain: Animatable<number>
+  /** Marks the clip as a ducking TARGET, pulled down under any duckSource. */
+  readonly duckTarget?: boolean
+  /** Marks the clip as the voice that triggers ducking. */
+  readonly duckSource?: boolean
+}
+
+export interface Clip {
+  readonly id: string
+  readonly name: string
+  readonly source: Source
+  /** Frames from the start of the timeline. */
+  readonly start: number
+  /** Frames. Never derived from the source — a trim is a first-class value. */
+  readonly duration: number
+  /** Frames into the source media. Zero for stills, text and shapes. */
+  readonly sourceIn: number
+  readonly transform: Transform
+  readonly fit: Fit
+  readonly audio?: ClipAudio
+  /** Frames of opacity ramp at each end. */
+  readonly fadeIn: number
+  readonly fadeOut: number
+  readonly enabled: boolean
+}
+
+export type TrackKind = 'video' | 'audio'
+
+export interface Track {
+  readonly id: string
+  readonly kind: TrackKind
+  readonly name: string
+  /** Higher draws later, i.e. on top. Audio tracks sum regardless. */
+  readonly z: number
+  readonly enabled: boolean
+  readonly locked: boolean
+  readonly clips: readonly Clip[]
+}
+
+/** A timecoded note. Tier 1 approvals hang off these. */
+export interface Marker {
+  readonly id: string
+  readonly frame: number
+  readonly text: string
+  readonly author?: string
+  readonly resolved?: boolean
+}
+
+export interface Timebase {
+  readonly fps: Rational
+  readonly width: number
+  readonly height: number
+  readonly sampleRate: number
+}
+
+export type LoudnessTarget = 'broadcast' | 'social' | 'none'
+
+export interface DeliverySpec {
+  /** −23 LUFS for broadcast, −16 for social, none to leave levels alone. */
+  readonly loudness: LoudnessTarget
+  readonly codec: 'h264' | 'prores422'
+  readonly captions: readonly ('burn' | 'srt' | 'vtt')[]
+}
+
+export interface Timeline {
+  readonly version: 1
+  readonly id: string
+  readonly name: string
+  readonly timebase: Timebase
+  /** Frames. Authoritative — the render is exactly this long. */
+  readonly duration: number
+  readonly tracks: readonly Track[]
+  readonly markers: readonly Marker[]
+  readonly delivery: DeliverySpec
+  readonly createdAt: string
+  readonly updatedAt: string
+}
