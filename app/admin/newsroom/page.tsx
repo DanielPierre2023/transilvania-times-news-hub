@@ -189,7 +189,11 @@ export default function NewsroomPage() {
       const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
       const { data } = await supabase
         .from('blog_posts')
-        .select('id, title_ro, title_en, summary_ro, summary_en, published_at, category, cover_image')
+        // author_name + the joined authors row: the SAME resolution the public
+        // article page uses (app/blog/[slug]/page.tsx) — authors.name_ro first,
+        // blog_posts.author_name as fallback. Added 29 Aug 2026 so the bulletin
+        // can credit the writer of each piece.
+        .select('id, title_ro, title_en, summary_ro, summary_en, published_at, category, cover_image, author_name, authors ( name_ro, name_en )')
         .eq('status', 'published')
         .gte('published_at', since)
         .order('published_at', { ascending: false })
@@ -341,10 +345,20 @@ export default function NewsroomPage() {
     if (chosen.length === 0) { setError('Selectează cel puțin o știre.'); return null }
     setError(''); setBusy('script')
     try {
-      const articles = chosen.map(p => ({
-        title: (lang === 'ro' ? p.title_ro : p.title_en) || p.title_ro || p.title_en || '',
-        summary: (lang === 'ro' ? p.summary_ro : p.summary_en) || '',
-      }))
+      const articles = chosen.map(p => {
+        // Same precedence as the public page: the linked author record wins,
+        // then the free-text author_name column. Empty when the post has
+        // neither — the script prompt is told not to invent a name.
+        const a = (p as unknown as { authors?: { name_ro?: string; name_en?: string } | null }).authors
+        const authorName =
+          (lang === 'ro' ? a?.name_ro : a?.name_en) || a?.name_ro || a?.name_en ||
+          (p as unknown as { author_name?: string | null }).author_name || ''
+        return {
+          title: (lang === 'ro' ? p.title_ro : p.title_en) || p.title_ro || p.title_en || '',
+          summary: (lang === 'ro' ? p.summary_ro : p.summary_en) || '',
+          author: String(authorName || '').trim(),
+        }
+      })
       const r = await invokeRaw('newsroom-anchor', { action: 'script', language: lang, target_seconds: target, edition: edition || undefined, articles })
       if (r.error) throw new Error(String(r.error))
       const text = String(r.script || '')
