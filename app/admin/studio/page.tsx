@@ -909,7 +909,7 @@ export default function StudioPage() {
             </div>
             {libCat === 'anchors' && (
               <p className="text-[10.5px] text-white/35 -mt-1 mb-2 leading-relaxed">
-                Generează portretul → <span className="text-amber-300/80">Animează</span> (cu „buclă" bifat) → <span className="text-sky-300/80">Lipsync</span> peste voce.
+                Generează portretul → <span className="text-amber-300/80">Animează</span> (cu „buclă” bifat) → <span className="text-sky-300/80">Lipsync</span> peste voce.
                 Cadrarea e deja corectă: spațiu deasupra capului pentru banda grafică, faţa la ~40% din înălţime pentru lipsync, gura închisă.
               </p>
             )}
