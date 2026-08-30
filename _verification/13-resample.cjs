@@ -102,9 +102,15 @@ function lanczos(target) {
   ok("'best' still wins at 3:1", d720Best < d720Default, `${d720Best.toFixed(2)} vs ${d720Default.toFixed(2)}`)
 
   // ── and the renderer must actually ask for it ────────────────────────────
-  const drawSrc = fs.readFileSync(path.join(__dirname, '..', 'render-worker', 'src', 'draw.js'), 'utf8')
-  ok('drawBitmap sets patternQuality — the measurement above is worth nothing otherwise',
-    /function drawBitmap[\s\S]{0,1400}?patternQuality\s*=\s*'best'/.test(drawSrc))
+  // Drawing moved to lib/timeline/draw.ts, which the browser preview and the
+  // worker now share. Check the source of truth, and check that the worker
+  // really delegates to it rather than keeping a second copy that could drift.
+  const drawSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'timeline', 'draw.ts'), 'utf8')
+  ok('drawBitmap asks for the good resampler — the measurement above is worth nothing otherwise',
+    /export function drawBitmap[\s\S]{0,1600}?patternQuality\s*=\s*'best'/.test(drawSrc))
+  const workerDraw = fs.readFileSync(path.join(__dirname, '..', 'render-worker', 'src', 'draw.js'), 'utf8')
+  ok('the worker delegates to the shared implementation instead of holding its own',
+    /require\('\.\/timeline'\)/.test(workerDraw) && !/function drawBitmap/.test(workerDraw))
   ok('and nothing re-added a downsampler to the image cache',
     !/downsample/.test(fs.readFileSync(path.join(__dirname, '..', 'render-worker', 'src', 'sources.js'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')))

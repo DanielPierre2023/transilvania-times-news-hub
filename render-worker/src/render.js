@@ -81,7 +81,23 @@ async function renderTimeline(tl, opts = {}) {
 
   const encoder = spawn(FFMPEG, [
     '-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'rawvideo', '-pix_fmt', 'rgba',
+    // BGRA, NOT RGBA.
+    //
+    // node-canvas hands back Cairo's native ARGB32, which on a little-endian
+    // machine is B, G, R, A in memory. Telling ffmpeg 'rgba' made it read the
+    // blue byte as red and the red byte as blue in EVERY frame of EVERY render
+    // this worker has ever produced.
+    //
+    // Measured: a #CA2222 rectangle (R 202, G 34, B 34) came out of the encoder
+    // as R 33, G 33, B 202. Exactly the swap.
+    //
+    // This is the real reason a warm golden-hour still arrived on screen cold
+    // and blue, and the reason the delivered film measured B−R of +60, +39 and
+    // +49 across its shots. That was read at the time as the generation model
+    // drifting; it was this line. The browser preview never had the bug — it
+    // draws straight to a visible canvas — so the preview looked right and the
+    // file did not, which is the worst shape a bug can take.
+    '-f', 'rawvideo', '-pix_fmt', 'bgra',
     '-s', `${width}x${height}`, '-r', String(fps),
     '-i', 'pipe:0',
     ...codec,

@@ -48,6 +48,9 @@ export type {
 
 export { evalNumber, evalPoint, ramp } from './animate'
 
+export type { Ctx2D } from './draw'
+export { drawFrame, drawText, drawShape, drawBitmap, wrapText } from './draw'
+
 export type { CreateTimelineOptions, Problem } from './document'
 export {
   DEFAULT_DELIVERY,

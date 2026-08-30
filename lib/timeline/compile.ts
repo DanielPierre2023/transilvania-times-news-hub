@@ -119,14 +119,25 @@ function compileClip(
   const opacity = evalNumber(t.opacity, local) * fadeFactor(clip, local)
   const rotation = evalNumber(t.rotation, local)
 
-  // The clip's box is the full frame, recentred on its position.
+  // The clip's box is the full frame, recentred on its position...
   const box: PixelRect = {
     x: (centre.x - 0.5) * width,
     y: (centre.y - 0.5) * height,
     w: width,
     h: height,
   }
-  const dest = fitRect(clip.fit, sourceAspect(clip.source), box, scale)
+  // ...unless it is a shape that declares its own size, in which case the box
+  // is that size, centred on the position. Same semantics either way: the
+  // position is where the middle of the drawn thing lands.
+  const sized = clip.source.kind === 'shape' && clip.source.size
+    ? {
+        x: centre.x * width - (clip.source.size.w * width * scale) / 2,
+        y: centre.y * height - (clip.source.size.h * height * scale) / 2,
+        w: clip.source.size.w * width * scale,
+        h: clip.source.size.h * height * scale,
+      }
+    : null
+  const dest = sized ?? fitRect(clip.fit, sourceAspect(clip.source), box, scale)
 
   const crop = t.crop
     ? {

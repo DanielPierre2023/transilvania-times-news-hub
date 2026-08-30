@@ -40,7 +40,8 @@ export type Fit = 'contain' | 'cover' | 'fill'
 
 export interface TextStyle {
   readonly family: string
-  /** Fraction of frame height, so type scales with the master. */
+  /** Fraction of the SHORT edge, so type scales with the master and does not
+   *  triple in size when the same setting is used in a vertical frame. */
   readonly size: number
   readonly weight: number
   readonly color: string
@@ -49,6 +50,12 @@ export interface TextStyle {
   readonly background?: string
   readonly padding?: number
   readonly maxWidth?: number
+  /** Em, applied between characters. Uppercase kickers need it; body text does not. */
+  readonly letterSpacing?: number
+  /** Lines before the text is truncated. Captions want 2; a title card wants 3. */
+  readonly maxLines?: number
+  /** Drop shadow behind the type, for legibility over picture without a plate. */
+  readonly shadow?: string
 }
 
 export interface MediaSource {
@@ -79,6 +86,13 @@ export interface ShapeSource {
   readonly kind: 'shape'
   readonly shape: 'rect' | 'ellipse'
   readonly fill: string
+  /**
+   * Normalised size against the frame. Absent means the shape fills the frame,
+   * which is what a scrim or an end-card ground wants. A rule under a title is
+   * 0.16 wide and 0.006 tall, and without this it could only ever be a full
+   * frame scaled uniformly — which is to say, never a rule.
+   */
+  readonly size?: { readonly w: number; readonly h: number }
 }
 
 /** A brand-kit template: a lower third, ticker or end card, bound to parameters. */

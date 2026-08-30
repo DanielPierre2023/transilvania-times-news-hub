@@ -31,12 +31,20 @@ import { migrateLegacyProject } from '@/lib/timeline/migrate'
 import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
 import { framesToSeconds } from '@/lib/timeline/time'
 import { FPS } from '@/lib/timeline/time'
-import { validate } from '@/lib/timeline/document'
-import type { Timeline } from '@/lib/timeline/types'
+import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
+import { compileFrame } from '@/lib/timeline/compile'
+import { drawFrame as drawCompiled } from '@/lib/timeline/draw'
+import type { Timeline, Clip, TextStyle } from '@/lib/timeline/types'
+// tt-brand — the kit and the typography it dictates.
+import {
+  KITS, SAFE_AREAS, TT_KIT, captionStyle, captionY, resolveKit, safeBox,
+  type BrandKit, type SafeAreaName,
+} from '@/lib/brand/kit'
+import { endCard, lowerThird, titleCard } from '@/lib/brand/templates'
 import {
   Clapperboard, ImagePlus, Upload, Mic, Captions, Music, Film,
   Sparkles, Loader2, Play, Square, Trash2, ArrowUp, ArrowDown, Download, AlertCircle, Wand2,
-  UserPlus, Zap, ShieldCheck, Save, FolderOpen,
+  UserPlus, Zap, ShieldCheck, Save, FolderOpen, Type, Crop,
 } from 'lucide-react'
 
 type Aspect = '9:16' | '1:1' | '4:5' | '16:9'
@@ -98,6 +106,26 @@ const MOTION_PROMPT =
   'lighting, same time of day. Do NOT change the time of day, do NOT make it night, ' +
   'do NOT cool or desaturate the colours. No cuts, no shot changes, no text.'
 interface Cue { start: number; end: number; text: string }
+
+// ── OVERLAYS ────────────────────────────────────────────────────────────────
+// A title card, a name under a face, an end card. Stored as intent — kind, when,
+// how long, what it says — and expanded into real clips by lib/brand/templates
+// at build time. Storing the expansion instead would freeze every film against
+// the version of the design it was made with; storing the intent means a fix to
+// a template improves every project that has one.
+type OverlayKind = 'title' | 'lower' | 'end'
+interface Overlay {
+  id: string
+  kind: OverlayKind
+  at: number          // seconds on the timeline
+  dur: number         // seconds
+  a: string           // title / name / heading
+  b?: string          // kicker / role / line
+  c?: string          // subtitle / — / url
+}
+const OVERLAY_LABEL: Record<OverlayKind, string> = {
+  title: 'Titlu', lower: 'Nume (burtieră)', end: 'Card final',
+}
 interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 
 // Master resolution. 720p was the only option and it is below every delivery
@@ -206,6 +234,12 @@ export default function StudioPage() {
   const [workerQc, setWorkerQc] = useState<{ passed: boolean; checks: { name: string; ok: boolean; detail: string }[] } | null>(null)
   const [workerStats, setWorkerStats] = useState<{ seconds: number; renderSeconds: number } | null>(null)
   const [scenes, setScenes] = useState<Scene[]>([])
+  // Brand kit: the answer to "which red, which face, where may type sit, what
+  // are we mixing to" — given once instead of remembered per film.
+  const [kit, setKit] = useState<BrandKit>(TT_KIT)
+  const [kitList, setKitList] = useState<BrandKit[]>(KITS as BrandKit[])
+  const [overlays, setOverlays] = useState<Overlay[]>([])
+  const [showSafe, setShowSafe] = useState(true)
   const [imgPrompt, setImgPrompt] = useState('')
   const [imgAspect, setImgAspect] = useState('4:5')
   const [refImageUrl, setRefImageUrl] = useState('')   // reference photo -> image-to-image
@@ -315,6 +349,7 @@ export default function StudioPage() {
   useEffect(() => {
     let alive = true
     refreshProjects()
+    void refreshKits()
     ;(async () => {
       try {
         const r = await invokeRaw('voice-lab', { action: 'list' })
@@ -470,13 +505,87 @@ export default function StudioPage() {
   // The project as a real timeline, at the chosen master size and frame rate.
   // Everything downstream — captions, the cloud render, the cost estimate —
   // reads this one object, so the preview and the export cannot drift apart.
+  // ─── overlays ───────────────────────────────────────────────────────────
+  const addOverlay = (kind: OverlayKind) => setOverlays(o => {
+    const at = kind === 'end' ? Math.max(0, totalDur - 3) : kind === 'title' ? 0 : 1
+    const seed: Overlay =
+      kind === 'title' ? { id: uid(), kind, at, dur: 3, a: 'Titlul filmului', b: kit.name, c: '' }
+      : kind === 'lower' ? { id: uid(), kind, at, dur: kit.lowerThirdSeconds, a: 'Nume Prenume', b: 'funcție' }
+      : { id: uid(), kind, at, dur: 3, a: kit.name, b: 'Abonează-te', c: 'transilvaniatimes.com' }
+    return [...o, seed]
+  })
+  const setOverlay = (id: string, patch: Partial<Overlay>) =>
+    setOverlays(o => o.map(x => x.id === id ? { ...x, ...patch } : x))
+  const delOverlay = (id: string) => setOverlays(o => o.filter(x => x.id !== id))
+
+  /** Expands the overlay list into real clips at a given fps. */
+  const overlayClips = useCallback((fps: { n: number; d: number }): Clip[] => {
+    const out: Clip[] = []
+    for (const o of overlays) {
+      const start = Math.round((o.at * fps.n) / fps.d)
+      const duration = Math.max(2, Math.round((o.dur * fps.n) / fps.d))
+      const ctx = { kit, fps, start, duration }
+      if (o.kind === 'title') out.push(...titleCard(ctx, { kicker: o.b || undefined, title: o.a, sub: o.c || undefined }))
+      else if (o.kind === 'lower') out.push(...lowerThird(ctx, { name: o.a, role: o.b || undefined }))
+      else out.push(...endCard(ctx, { title: o.a, line: o.b || undefined, url: o.c || undefined }))
+    }
+    return out
+  }, [overlays, kit])
+
+  // A timeline containing ONLY the overlays, so the preview can draw them with
+  // the same compile-and-draw path the renderer uses. That is the whole reason
+  // templates are ordinary clips: what you see here is what the file gets, with
+  // no second implementation to drift.
+  const overlayTl = useMemo<Timeline | null>(() => {
+    const clips = overlayClips(fpsOut === 25 ? FPS.pal : FPS.web)
+    if (!clips.length) return null
+    let tl = migrateLegacyProject({ aspect, scenes: [] }, { fps: fpsOut === 25 ? FPS.pal : FPS.web })
+    tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
+    const track = emptyTrack('video', 'Titluri', 20)
+    tl = { ...tl, tracks: [track] }
+    for (const c of clips) tl = addClip(tl, track.id, c)
+    return { ...tl, duration: Math.max(1, ...clips.map(c => c.start + c.duration)) }
+  }, [overlayClips, fpsOut, aspect, W, H])
+
   function buildTimeline(forceCaptions = false): Timeline {
     const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
-    const tl = migrateLegacyProject(
+    const fps = fpsOut === 25 ? FPS.pal : FPS.web
+    let tl = migrateLegacyProject(
       forceCaptions ? { ...base, subsOn: true } : base,
-      { fps: fpsOut === 25 ? FPS.pal : FPS.web },
+      { fps },
     )
-    return { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
+    tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
+
+    // THE KIT IS AUTHORITATIVE. Captions take their face, size and colour from
+    // it, and their vertical position is clamped into the safe area — which is
+    // what stops a caption rendering underneath TikTok's own caption block,
+    // where it is technically present and practically invisible.
+    const capStyle: TextStyle = captionStyle(kit, subScale)
+    const capY = captionY(kit, SUB_POS[subPos])
+    tl = {
+      ...tl,
+      tracks: tl.tracks.map(track => track.z !== 10 || track.kind !== 'video' ? track : {
+        ...track,
+        clips: track.clips.map(c => c.source.kind !== 'text' ? c : {
+          ...c,
+          source: { ...c.source, style: { ...capStyle, ...(c.source.words ? { maxLines: 1 } : {}) } },
+          transform: { ...c.transform, position: { x: 0.5, y: capY } },
+        }),
+      }),
+      delivery: { ...tl.delivery, grade: kit.grade, loudness: kit.loudness },
+    }
+
+    // Titles ride ABOVE the captions: a title card's scrim is meant to cover
+    // everything under it, including a caption that happens to be on screen.
+    const extra = overlayClips(fps)
+    if (extra.length) {
+      const track = emptyTrack('video', 'Titluri', 20)
+      tl = { ...tl, tracks: [...tl.tracks, track] }
+      for (const c of extra) tl = addClip(tl, track.id, c)
+      const end = Math.max(...extra.map(c => c.start + c.duration))
+      if (end > tl.duration) tl = { ...tl, duration: end }
+    }
+    return tl
   }
 
   // A sidecar is independent of whether captions are burned into the picture,
@@ -543,8 +652,26 @@ export default function StudioPage() {
 
   // ─── project persistence ────────────────────────────────────────────────
   function projectData() {
-    return { aspect, master, fpsOut, provider, scenes, script, lang, tone, elVoiceId, geminiVoice, voice, voUrl, voDur, cues, words, capMode, subsOn, subPos, subScale, musicUrl, musicVol }
+    return { aspect, master, fpsOut, provider, scenes, script, lang, tone, elVoiceId, geminiVoice, voice, voUrl, voDur, cues, words, capMode, subsOn, subPos, subScale, musicUrl, musicVol,
+      // The kit travels WITH the project, not as a reference. A film approved in
+      // March must still render in March's brand in September, and it would not
+      // if it read a row somebody has since edited.
+      brandKit: kit, overlays }
   }
+  // The library lives in the database so a kit can be edited without a deploy;
+  // the built-in kits stay as a fallback so Studio works before the migration
+  // has been run.
+  const refreshKits = useCallback(async () => {
+    try {
+      const { data } = await db.from('studio_brand_kits').select('id, kit, is_default')
+      if (!data || !data.length) return
+      const loaded = data.map(r => resolveKit((r as { kit: Partial<BrandKit> }).kit))
+      setKitList(loaded)
+      const def = data.find(r => (r as { is_default?: boolean }).is_default)
+      if (def) setKit(resolveKit((def as { kit: Partial<BrandKit> }).kit))
+    } catch { /* migration not run yet — the built-in kits stand in */ }
+  }, [db])
+
   async function refreshProjects() {
     try {
       const { data } = await db.from('studio_projects').select('id, name, updated_at').order('updated_at', { ascending: false }).limit(12)
@@ -594,6 +721,10 @@ export default function StudioPage() {
       if (typeof d.subScale === 'number') setSubScale(d.subScale)
       if (typeof d.musicUrl === 'string') setMusicUrl(d.musicUrl)
       if (typeof d.musicVol === 'number') setMusicVol(d.musicVol)
+      // resolveKit fills anything the saved copy predates, so an old project
+      // opens with the current defaults for fields it never had.
+      setKit(resolveKit((d.brandKit as Partial<BrandKit>) || null))
+      setOverlays(Array.isArray(d.overlays) ? (d.overlays as Overlay[]) : [])
       setOutUrl('')
     } catch (e) { setError('Încărcarea a eșuat: ' + (e as Error).message) } finally { setBusy('') }
   }
@@ -912,12 +1043,35 @@ export default function StudioPage() {
         }
       }
     }
-    // brand wordmark
-    ctx.font = `italic 700 ${Math.round(H * 0.026)}px Georgia, serif`
+    // brand wordmark — from the kit, so changing the kit changes the film
+    const wm = safeBox(kit)
+    ctx.font = `italic 700 ${Math.round(Math.min(W, H) * 0.032)}px ${kit.type.displayFamily}`
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
     ctx.fillStyle = 'rgba(255,255,255,0.92)'
-    ctx.fillText('Transilvania Times', W * 0.05, H * 0.07)
-    ctx.fillStyle = '#CA2222'; ctx.fillRect(W * 0.05, H * 0.085, W * 0.16, H * 0.006)
+    ctx.fillText(kit.name, wm.x * W, (wm.y + 0.03) * H)
+    ctx.fillStyle = kit.colour.accent
+    ctx.fillRect(wm.x * W, (wm.y + 0.045) * H, W * 0.16, Math.max(2, H * kit.ruleWeight))
+
+    // TITLES, drawn through the SAME compile-and-draw path as the render.
+    if (overlayTl) {
+      const fps = fpsOut === 25 ? 25 : 30
+      const f = Math.round(t * fps)
+      if (f >= 0 && f < overlayTl.duration) {
+        drawCompiled(ctx as unknown as Parameters<typeof drawCompiled>[0],
+          compileFrame(overlayTl, f), W, H, () => null, { clear: false })
+      }
+    }
+
+    // Safe area — a guide, never rendered into the file.
+    if (showSafe && kit.safeArea !== 'none') {
+      const b = safeBox(kit)
+      ctx.save()
+      ctx.strokeStyle = 'rgba(255,211,122,0.75)'
+      ctx.setLineDash([Math.max(4, W * 0.008), Math.max(4, W * 0.008)])
+      ctx.lineWidth = Math.max(1, W * 0.002)
+      ctx.strokeRect(b.x * W, b.y * H, b.w * W, b.h * H)
+      ctx.restore()
+    }
   }
   function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r)
@@ -1283,6 +1437,92 @@ export default function StudioPage() {
                   „Generează imagine” va <b>porni de la această poză</b> (image-to-image, identitatea păstrată). Scrie în prompt ce schimbi (fundal, ținută, încadrare).
                 </p>
                 <button onClick={() => setRefImageUrl('')} className="text-white/30 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            )}
+          </div>
+
+          {/* ── BRAND & TITLURI ─────────────────────────────────────────
+              The kit decides which red, which face, where type may sit and
+              what the mix is delivered to — once, for every film. Titles are
+              stored as intent and expanded into real clips at build time, so
+              improving a template improves every project that uses one. */}
+          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
+                <Type className="w-3.5 h-3.5" /> Brand și titluri
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select value={kit.id} onChange={e => setKit(kitList.find(k => k.id === e.target.value) || TT_KIT)}
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {kitList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+                </select>
+                <input type="color" value={kit.colour.accent} aria-label="Culoare accent"
+                  onChange={e => setKit(k => ({ ...k, colour: { ...k.colour, accent: e.target.value } }))}
+                  className="w-7 h-7 bg-black border border-white/10 p-0.5 cursor-pointer" />
+                <span className="text-[10px] uppercase tracking-wider text-white/25">zonă sigură</span>
+                <select value={kit.safeArea} onChange={e => setKit(k => ({ ...k, safeArea: e.target.value as SafeAreaName }))}
+                  title="Unde e sigur să pui text. Pe TikTok, partea de jos e acoperită de descriere și butoane — un subtitlu la 88% din înălțime e acolo, dar nu se vede."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {Object.keys(SAFE_AREAS).map(k => <option key={k} value={k}>{k}</option>)}
+                </select>
+                <label className="flex items-center gap-1 text-[11px] text-white/50 cursor-pointer">
+                  <input type="checkbox" checked={showSafe} onChange={e => setShowSafe(e.target.checked)} className="accent-amber-500" />
+                  arată ghidul
+                </label>
+                <span className="text-[10px] uppercase tracking-wider text-white/25">mix</span>
+                <select value={kit.loudness} onChange={e => setKit(k => ({ ...k, loudness: e.target.value as BrandKit['loudness'] }))}
+                  title="Ținta de normalizare EBU R128. −16 LUFS pentru social, −23 pentru difuzare."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  <option value="social">social · −16 LUFS</option>
+                  <option value="broadcast">difuzare · −23 LUFS</option>
+                  <option value="none">fără</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {(['title', 'lower', 'end'] as OverlayKind[]).map(k => (
+                <button key={k} onClick={() => addOverlay(k)}
+                  className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 hover:border-white/25 text-[12px] font-bold px-3 py-1.5">
+                  <Crop className="w-3.5 h-3.5" /> {OVERLAY_LABEL[k]}
+                </button>
+              ))}
+              <span className="text-[11px] text-white/25">
+                {overlays.length === 0 ? 'Fără titluri — filmul are doar subtitrări.' : `${overlays.length} pe cronologie`}
+              </span>
+            </div>
+
+            {overlays.length > 0 && (
+              <div className="space-y-2 mt-3">
+                {overlays.map(o => (
+                  <div key={o.id} className="bg-[#111] border border-white/[0.07] p-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] uppercase tracking-wider text-amber-300/80 w-24">{OVERLAY_LABEL[o.kind]}</span>
+                      <label className="text-[10px] text-white/30">la</label>
+                      <input type="number" min={0} max={180} step={0.5} value={o.at}
+                        onChange={e => setOverlay(o.id, { at: Math.max(0, Number(e.target.value)) })}
+                        className="w-16 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                      <label className="text-[10px] text-white/30">durată</label>
+                      <input type="number" min={1} max={20} step={0.5} value={o.dur}
+                        onChange={e => setOverlay(o.id, { dur: Math.max(1, Number(e.target.value)) })}
+                        className="w-16 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                      <button onClick={() => delOverlay(o.id)} className="ml-auto text-white/30 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <input value={o.a} onChange={e => setOverlay(o.id, { a: e.target.value })}
+                        placeholder={o.kind === 'lower' ? 'Nume' : 'Titlu'}
+                        className="flex-1 min-w-[140px] bg-black border border-white/10 text-white/90 text-[12px] px-2 py-1" />
+                      <input value={o.b || ''} onChange={e => setOverlay(o.id, { b: e.target.value })}
+                        placeholder={o.kind === 'lower' ? 'funcție' : o.kind === 'title' ? 'supratitlu' : 'mesaj'}
+                        className="flex-1 min-w-[120px] bg-black border border-white/10 text-white/70 text-[12px] px-2 py-1" />
+                      {o.kind !== 'lower' && (
+                        <input value={o.c || ''} onChange={e => setOverlay(o.id, { c: e.target.value })}
+                          placeholder={o.kind === 'title' ? 'subtitlu' : 'adresă web'}
+                          className="flex-1 min-w-[120px] bg-black border border-white/10 text-white/70 text-[12px] px-2 py-1" />
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
