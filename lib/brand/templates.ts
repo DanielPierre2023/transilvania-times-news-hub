@@ -372,5 +372,48 @@ export function endCard(ctx: TemplateContext, p: EndCardParams): Clip[] {
   return clips
 }
 
-export const TEMPLATES = ['titleCard', 'lowerThird', 'endCard'] as const
+// ── WORDMARK ────────────────────────────────────────────────────────────────
+// A standing masthead for the whole film. Ordinary clips, like everything else
+// here, which is the entire point: the version of this that lived in the
+// preview painter appeared in the preview and in the browser recording and was
+// absent from the worker render, because the worker draws the timeline and this
+// was never in it.
+
+export function wordmark(ctx: TemplateContext & { readonly frames: number }): Clip[] {
+  const { kit, start } = ctx
+  if (kit.wordmark === 'none') return []
+  const box = safeBox(kit, ctx.safeArea)
+  const size = kit.type.kicker * 1.35
+  const y = kit.wordmark === 'topLeft' ? box.y + size * 0.9 : box.y + box.h - size * 2.2
+  const width = Math.min(0.5, box.w)
+  const cx = box.x + width / 2
+  const ruleW = 0.16
+
+  return [
+    mkClip({
+      name: 'Siglă text',
+      source: {
+        kind: 'text', text: kit.name,
+        style: textStyle(kit, {
+          family: kit.type.displayFamily, size,
+          weight: kit.type.displayWeight, color: kit.colour.overPicture,
+          maxWidth: width, maxLines: 1,
+          // Over picture and with no plate behind it, so it needs a shadow or
+          // it disappears against anything pale.
+          shadow: 'rgba(0,0,0,0.55)',
+        }),
+      },
+      start, duration: ctx.frames, fadeIn: 8, fadeOut: 8,
+      transform: { position: { x: cx, y } },
+    }),
+    mkClip({
+      name: 'Siglă linie',
+      source: rule(kit, ruleW),
+      start, duration: ctx.frames, fadeIn: 8, fadeOut: 8,
+      transform: { position: { x: box.x + ruleW / 2, y: y + size * 0.85 } },
+    }),
+  ]
+}
+
+export const TEMPLATES = ['titleCard', 'lowerThird', 'endCard', 'wordmark'] as const
 export type TemplateName = (typeof TEMPLATES)[number]

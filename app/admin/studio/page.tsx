@@ -40,7 +40,7 @@ import {
   KITS, SAFE_AREAS, TT_KIT, captionStyle, captionY, resolveKit, safeBox,
   type BrandKit, type SafeAreaName,
 } from '@/lib/brand/kit'
-import { endCard, lowerThird, titleCard } from '@/lib/brand/templates'
+import { endCard, lowerThird, titleCard, wordmark } from '@/lib/brand/templates'
 import {
   Clapperboard, ImagePlus, Upload, Mic, Captions, Music, Film,
   Sparkles, Loader2, Play, Square, Trash2, ArrowUp, ArrowDown, Download, AlertCircle, Wand2,
@@ -616,8 +616,11 @@ export default function StudioPage() {
   }
 
   /** Expands the overlay list into real clips at a given fps. */
-  const overlayClips = useCallback((fps: { n: number; d: number }): Clip[] => {
+  const overlayClips = useCallback((fps: { n: number; d: number }, filmFrames = 0): Clip[] => {
     const out: Clip[] = []
+    if (kit.wordmark !== 'none' && filmFrames > 0) {
+      out.push(...wordmark({ kit, fps, start: 0, frames: filmFrames }))
+    }
     for (const o of overlays) {
       const start = Math.round((o.at * fps.n) / fps.d)
       const duration = Math.max(2, Math.round((o.dur * fps.n) / fps.d))
@@ -634,15 +637,17 @@ export default function StudioPage() {
   // templates are ordinary clips: what you see here is what the file gets, with
   // no second implementation to drift.
   const overlayTl = useMemo<Timeline | null>(() => {
-    const clips = overlayClips(fpsOut === 25 ? FPS.pal : FPS.web)
+    const fps = fpsOut === 25 ? FPS.pal : FPS.web
+    const filmFrames = Math.max(1, Math.round((totalDur * fps.n) / fps.d))
+    const clips = overlayClips(fps, filmFrames)
     if (!clips.length) return null
-    let tl = migrateLegacyProject({ aspect, scenes: [] }, { fps: fpsOut === 25 ? FPS.pal : FPS.web })
+    let tl = migrateLegacyProject({ aspect, scenes: [] }, { fps })
     tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
     const track = emptyTrack('video', 'Titluri', 20)
     tl = { ...tl, tracks: [track] }
     for (const c of clips) tl = addClip(tl, track.id, c)
     return { ...tl, duration: Math.max(1, ...clips.map(c => c.start + c.duration)) }
-  }, [overlayClips, fpsOut, aspect, W, H])
+  }, [overlayClips, fpsOut, aspect, W, H, totalDur])
 
   function buildTimeline(forceCaptions = false): Timeline {
     const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
@@ -714,7 +719,7 @@ export default function StudioPage() {
 
     // Titles ride ABOVE the captions: a title card's scrim is meant to cover
     // everything under it, including a caption that happens to be on screen.
-    const extra = overlayClips(fps)
+    const extra = overlayClips(fps, tl.duration)
     if (extra.length) {
       const track = emptyTrack('video', 'Titluri', 20)
       tl = { ...tl, tracks: [...tl.tracks, track] }
@@ -1279,14 +1284,17 @@ export default function StudioPage() {
         }
       }
     }
-    // brand wordmark — from the kit, so changing the kit changes the film
-    const wm = safeBox(kit)
-    ctx.font = `italic 700 ${Math.round(Math.min(W, H) * 0.032)}px ${kit.type.displayFamily}`
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
-    ctx.fillStyle = 'rgba(255,255,255,0.92)'
-    ctx.fillText(kit.name, wm.x * W, (wm.y + 0.03) * H)
-    ctx.fillStyle = kit.colour.accent
-    ctx.fillRect(wm.x * W, (wm.y + 0.045) * H, W * 0.16, Math.max(2, H * kit.ruleWeight))
+    // THE WORDMARK USED TO BE PAINTED HERE, and that was the bug.
+    //
+    // It was hard-coded into this function, which draws the preview AND feeds
+    // the browser recorder — so it appeared in the preview and in a browser
+    // render, and was absent from every worker render, because the worker draws
+    // the timeline and the wordmark was never in it. Three outputs, two
+    // different films, and no way to switch it off.
+    //
+    // It is now an ordinary pair of clips from lib/brand/templates, off by
+    // default, and it arrives through the overlay path below like every other
+    // piece of type. Preview and file cannot disagree about it any more.
 
     // TITLES, drawn through the SAME compile-and-draw path as the render.
     if (overlayTl) {
@@ -1714,6 +1722,14 @@ export default function StudioPage() {
                   <input type="checkbox" checked={showSafe} onChange={e => setShowSafe(e.target.checked)} className="accent-amber-500" />
                   arată ghidul
                 </label>
+                <span className="text-[10px] uppercase tracking-wider text-white/25">siglă</span>
+                <select value={kit.wordmark} onChange={e => setKit(k => ({ ...k, wordmark: e.target.value as BrandKit['wordmark'] }))}
+                  title="O siglă permanentă în colț, pe toată durata filmului. Implicit oprită: până acum era desenată direct în previzualizare, deci apărea în previzualizare și în înregistrarea din browser, dar NU în randarea din worker."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  <option value="none">fără</option>
+                  <option value="topLeft">sus-stânga</option>
+                  <option value="bottomLeft">jos-stânga</option>
+                </select>
                 <span className="text-[10px] uppercase tracking-wider text-white/25">mix</span>
                 <select value={kit.loudness} onChange={e => setKit(k => ({ ...k, loudness: e.target.value as BrandKit['loudness'] }))}
                   title="Ținta de normalizare EBU R128. −16 LUFS pentru social, −23 pentru difuzare."

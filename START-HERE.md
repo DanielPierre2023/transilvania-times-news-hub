@@ -1,136 +1,75 @@
-# tt-typeface — the film is made, and it found four things
+# tt-wordmark — why the label came back, and why it was never in the film
 
-The spot is rendered and sitting on **v1** of the project *Spot brand · Știrile
-de aici* in Studio — open the version row and click **Fișier**. 30.00 seconds,
-1080×1920, −16 LUFS, true peak under −1 dBFS, QC green.
+## The answer
 
-This package is what building it exposed. Read the first item; it is the
-important one.
+It is painted by the Studio's **preview** function, and it was never part of the
+timeline.
 
----
+```
+app/admin/studio/page.tsx  ·  drawFrame(ctx, t)
+    ctx.fillText(kit.name, wm.x * W, (wm.y + 0.03) * H)
+    ctx.fillRect(...)                      // the crimson rule under it
+```
 
-## What the gate did
+That one function feeds two things: the live preview, and the **browser
+recorder**. It does not feed the worker. So:
 
-Five shots, two takes each, and it worked exactly as designed:
+| where | wordmark |
+|---|---|
+| Studio preview | **yes** |
+| “Randează clipul” (browser recording) | **yes, baked into the file** |
+| worker render — the cloud button, and a version’s Randează | **no** |
 
-| shot | movement | stability | outcome |
-|---|---|---|---|
-| 1 · the gate at dawn | 3.56 %/s | 1.24× | kept take 1 of 2 |
-| 2 · hospital corridor | 1.75 / 1.41 %/s | **2.36× / 2.87×** | **both rejected — reshot** |
-| 2 · reshoot | 0.51 %/s | 0.65× | kept |
-| 3 · the signature | 0.48 %/s | 0.87× | kept |
-| 4 · the newsroom | **0.03 / 0.31 %/s** | — | **both rejected, under the movement floor — reshot** |
-| 4 · reshoot | 5.31 %/s | 0.92× | kept |
-| 5 · the town | 0.37 %/s | 1.06× | kept |
+I checked the delivered spot before answering: sampled the top-left of v1 at 1s,
+8s and 15s. Clean picture, no mark. **The film you have does not contain it.**
 
-Four takes rejected, two shots reshot automatically, every shot on the timeline
-passed. Nothing on the market does this.
+It has been in that function since long before this month — the original was a
+hard-coded `'Transilvania Times'` at 5% / 7% of the frame. In tt-brand I changed
+it to read the name and the accent from the kit and left it in place, with a
+comment saying "from the kit, so changing the kit changes the film." That comment
+was wrong. It changed the preview. The film is drawn by the worker, which had
+never heard of it.
 
-Generation came to **$8.26** against the ~$6 I quoted. The whole overrun is the
-two reshoots — which is the feature working, not a surprise, but you should have
-the real number.
+So this is the same defect as the red/blue channel swap: the preview and the
+render disagreeing about what the film is. That one made the file wrong. This one
+makes the *preview* wrong — and makes the browser render disagree with the cloud
+render, which is worse, because both are called "render".
 
----
+## The fix
 
-## 1 · The brand face did not exist. Every title was set in the fallback.
+A standing masthead is a legitimate broadcast device, so it is kept — but as a
+real thing rather than a painted one:
 
-The kit named **Playfair Display**. fontconfig in the render worker had never
-heard of it. Cairo substituted the default sans without an error, the render
-reported success, and the QC report stayed green — because nothing measured it.
-
-A missing typeface is the most invisible defect this pipeline can have. The text
-is still there, still legible, still the right colour, just set in something
-else. There is no exception to catch.
-
-**Fixed three ways:**
-
-- The worker image now installs **EB Garamond** and **Inter** from Debian — no
-  download at build time, nothing to license.
-- The Studio self-hosts EB Garamond (`public/fonts`, because the site's CSP is
-  `font-src 'self' data:`), so the preview sets a title in the same face the
-  file will get. Preview-lies-to-you is a failure this project has already paid
-  for once.
-- **QC now measures it.** Before a frame is drawn, every family the timeline
-  asks for is set against a family that certainly does not exist. Identical
-  advance widths mean the font did not resolve. The report says which face is
-  missing and that the film was rendered in the fallback.
-
-*One detail worth keeping:* the display weight is **400**, not 700. The freely
-distributable EB Garamond **bold carries 128 glyphs and not one of ă â î ș ț** —
-a bold Romanian title would have rendered with holes in it. The regular has
-3080 and covers the language completely. I checked every serif on the machine
-for Romanian coverage before choosing.
-
-## 2 · The end card was a slide, not an end card
-
-The name sat at 0.46 and the address on the safe edge at 0.80, leaving a hole
-through the middle of the frame. Everything now hangs off one optical centre,
-each element a known multiple of the type size below the last, and the block
-sits slightly above true centre because type always looks low when it is
-measured to the middle. Title size up from 0.075 to 0.088 of the short edge.
-
-The tests for this were rewritten too. They had hard-coded the template's own
-coordinates, so they broke the moment the layout improved — a test that only
-restates the implementation. They now measure properties: there is ink above the
-middle, there is an accent rule below it, the rule is centred, and **nothing is
-stranded near the bottom edge** — which is the defect itself, asserted.
-
-## 3 · The subtitles outran the eye, and the fix existed but had no button
-
-Five of seven cues came back over seventeen characters per second, one at
-twenty-two. Nobody reads that. `conformCues` has been in the library for days —
-extend into the gaps, honour the minimum duration *after* moving the start,
-close sub-two-frame gaps into hard cuts — and nothing in the interface called
-it, so the checker could only ever complain.
-
-**Corectează** now sits next to the warning. Frames in, frames out, using the
-same rules that flagged them rather than a second implementation in seconds.
-
-## 4 · The music bed from the last drop is in here too
-
-`tt-bed` was never deployed, so the film has no bed under the voice. Its files
-are included here; the checkbox is **pat muzical** next to the sound row.
-
----
+- **`kit.wordmark`**: `none` · `topLeft` · `bottomLeft`, in the kit, in the
+  **Brand și titluri** panel under **siglă**.
+- **Off by default**, including for the house kit. A client's spot should not
+  carry a watermark nobody asked for, and the film you already have does not.
+- When it is on, `lib/brand/templates.ts` emits it as **ordinary clips** — a text
+  and a rule on the graphics track, spanning the film — so the preview and the
+  file cannot disagree about it, it can be nudged like anything else, and it is
+  excluded from the grade along with the rest of the type.
+- The paint call is deleted.
 
 ## Deploy
 
-Repo only, no SQL.
+Repo only, three files, no SQL.
 
 ```
-render-worker/Dockerfile          installs EB Garamond + Inter
-render-worker/src/fonts.js  (new) the resolution probe
-render-worker/src/render.js       checks fonts before drawing
-render-worker/src/qc.js           reports it to a human
-render-worker/src/index.js        passes it into the report
-render-worker/src/sfx.js          the music bed
-lib/brand/kit.ts                  real faces, weight 400, retuned scale
-lib/brand/templates.ts            end-card vertical rhythm
-app/globals.css                   @font-face for the preview
-public/fonts/ebgaramond-400.woff2 (new, 173 KB)
-app/admin/studio/page.tsx         Corectează, pat muzical
+lib/brand/kit.ts             the wordmark setting, defaulting to none
+lib/brand/templates.ts       wordmark() → clips
+app/admin/studio/page.tsx    the paint call removed, the control added
 ```
-
-Railway rebuilds the image — this one changes the Dockerfile, so the build is
-longer than usual.
 
 ## Verification
 
-**432 assertions, all passing.**
+`_verification/19-wordmark.cjs` → 11 assertions, and they check the fix from both
+ends, because half a fix here is invisible:
 
-```
-node _verification/18-fonts.cjs   15   the probe, and that a missing face
-                                       reaches the QC report a human reads
-node _verification/14-brand.cjs   40   was 38; the end-card assertions are now
-                                       property-based instead of restating the
-                                       template's coordinates
-node _verification/17-sound.cjs   25   the bed
-```
+- the preview no longer paints the name onto the canvas at all — asserted
+  against the source with comments stripped, so a commented-out line cannot pass
+- the house kit is off, and an old kit row with no such field resolves to off
+- with it **on**, a real film is rendered and the pixels are read: the mark is
+  present in the top-left of the **file**, and absent from the opposite corner
+- with it **off**, the same corner of the same film is clean
 
-## Then re-render
-
-Once this is live: open v1, press **Corectează** on the subtitles, tick **pat
-muzical**, submit v2 and render it. That version will be the first with the
-right typeface, a readable subtitle track and something under the voice — and
-it will be a clean before-and-after against v1, which is what the version table
-is for.
+432 → 443 assertions. `tsc` 0 errors, `eslint` 0 errors.

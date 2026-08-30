@@ -98,6 +98,21 @@ export interface BrandKit {
   readonly loudness: LoudnessTarget
   /** Where captions and templates are allowed to sit. */
   readonly safeArea: SafeAreaName
+  /**
+   * A persistent masthead in the corner of every frame.
+   *
+   * OFF by default, and that default is a correction. The Studio preview used
+   * to paint "Transilvania Times" into the top-left of every frame — hard-coded,
+   * not part of the timeline, not switchable. It therefore appeared in the
+   * preview and in the browser recording, and NOT in the worker render, because
+   * the worker draws the timeline and the wordmark was never in it. Three
+   * outputs, two different films.
+   *
+   * A standing masthead is a legitimate broadcast device, so it is kept — but as
+   * a real clip on the graphics track, so the preview and the file agree, and as
+   * a choice, so a client's spot does not carry a watermark nobody asked for.
+   */
+  readonly wordmark: 'none' | 'topLeft' | 'bottomLeft'
   /** Fraction of the short edge: thickness of the accent rule under a title. */
   readonly ruleWeight: number
   /** Seconds a lower third stays on screen by default. */
@@ -148,6 +163,7 @@ export const TT_KIT: BrandKit = {
   grade: { look: 'warm', strength: 0.85 },
   loudness: 'social',
   safeArea: 'reels',
+  wordmark: 'none',
   ruleWeight: 0.006,
   lowerThirdSeconds: 4,
 }
