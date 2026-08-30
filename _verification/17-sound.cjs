@@ -63,6 +63,17 @@ function meanDb(file, from, to) {
   ok('a riser rises', meanDb(ri, 1.1, 1.5) > meanDb(ri, 0, 0.4) + 10,
     `${meanDb(ri, 0, 0.4)} then ${meanDb(ri, 1.1, 1.5)}`)
 
+  // ── the bed ─────────────────────────────────────────────────────────────
+  const bed = await sfx.materialise('builtin:bed@12', dir)
+  ok('a bed can be as long as a film', Math.abs(probeSeconds(bed) - 12) < 0.05, String(probeSeconds(bed)))
+  ok('a bed fades in rather than starting on full', meanDb(bed, 5, 7) > meanDb(bed, 0, 1) + 4,
+    `${meanDb(bed, 0, 1)} then ${meanDb(bed, 5, 7)}`)
+  ok('...and fades out', meanDb(bed, 5, 7) > meanDb(bed, 11, 12) + 4,
+    `${meanDb(bed, 5, 7)} then ${meanDb(bed, 11, 12)}`)
+  ok('a bed sits below the voice, not on top of it', meanDb(bed, 5, 7) < -8, String(meanDb(bed, 5, 7)))
+  ok('an accent still cannot be a minute long', sfx.parse('builtin:whoosh@60').seconds === 6)
+  ok('...but a bed can', sfx.parse('builtin:bed@60').seconds === 60)
+
   // ── determinism, which the render depends on ────────────────────────────
   const a = await sfx.materialise('builtin:whoosh', dir)
   const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'sound2-'))

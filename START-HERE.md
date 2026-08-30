@@ -1,126 +1,136 @@
-# tt-phase1 — the rest of phase 1
+# tt-typeface — the film is made, and it found four things
 
-Three things: the grade stops landing on the titles, review and approval get a
-screen, and a cut stops sounding like a slideshow.
+The spot is rendered and sitting on **v1** of the project *Spot brand · Știrile
+de aici* in Studio — open the version row and click **Fișier**. 30.00 seconds,
+1080×1920, −16 LUFS, true peak under −1 dBFS, QC green.
+
+This package is what building it exposed. Read the first item; it is the
+important one.
 
 ---
 
-## 1 · The grade belongs to the picture, not to the titles
+## What the gate did
 
-Last drop's sample title card came out warm cream instead of white, because the
-house look was applied over the whole composite after the fact. A warm look at
-0.85 turns white type cream and pulls the accent off its own value — at which
-point the brand red is not the brand red and the kit is decoration.
+Five shots, two takes each, and it worked exactly as designed:
 
-Broadcast practice is to grade the picture and lay graphics over it ungraded.
-The frame loop now draws twice when — and only when — there is both a grade and
-something to protect from it: picture into the main encoder, graphics into a
-second stream carrying alpha, composited after the grade. With no grade, or no
-graphics, it is exactly the old single pass, because paying for a second encode
-to protect nothing would be silly.
+| shot | movement | stability | outcome |
+|---|---|---|---|
+| 1 · the gate at dawn | 3.56 %/s | 1.24× | kept take 1 of 2 |
+| 2 · hospital corridor | 1.75 / 1.41 %/s | **2.36× / 2.87×** | **both rejected — reshot** |
+| 2 · reshoot | 0.51 %/s | 0.65× | kept |
+| 3 · the signature | 0.48 %/s | 0.87× | kept |
+| 4 · the newsroom | **0.03 / 0.31 %/s** | — | **both rejected, under the movement floor — reshot** |
+| 4 · reshoot | 5.31 %/s | 0.92× | kept |
+| 5 · the town | 0.37 %/s | 1.06× | kept |
 
-`GRAPHICS_Z = 10` is the line: captions, titles, lower thirds and end cards sit
-at or above it, picture below.
+Four takes rejected, two shots reshot automatically, every shot on the timeline
+passed. Nothing on the market does this.
 
-`_verification/16-layers.cjs` renders a grey picture with a white bar over it
-under a full-strength golden look and measures both: the picture must move warm,
-the bar must stay white. See `graded-picture-ungraded-title.png` — the type is
-now white and the rule is the actual brand red.
+Generation came to **$8.26** against the ~$6 I quoted. The whole overrun is the
+two reshoots — which is the feature working, not a surprise, but you should have
+the real number.
 
-## 2 · Review and approval
+---
 
-`studio_project_versions` has held immutable snapshots and a
-draft / review / approved / rejected state machine since last week, with a
-trigger that refuses to let a version's timeline change after insert. Nothing in
-the interface touched it. Of the sixteen products surveyed yesterday, only Canva
-and Frame.io have an approval workflow at all.
+## 1 · The brand face did not exist. Every title was set in the fallback.
 
-Studio now has a **Revizuire și aprobare** panel:
+The kit named **Playfair Display**. fontconfig in the render worker had never
+heard of it. Cairo substituted the default sans without an error, the render
+reported success, and the QC report stayed green — because nothing measured it.
 
-- **Trimite spre aprobare** freezes the current cut as a version.
-- Each version shows its state, its age and how many notes are still open.
-- **Observații** are timecoded — frames, not seconds, because a note that lands
-  between two frames is a note about neither of them.
-- **Randează** renders *that snapshot*, not the current edit, and stamps the
-  file and the QC report back onto the version. That is the deterministic
-  renderer's promise made usable: an approved film re-renders a year later byte
-  for byte.
-- **Aprobă** is refused by the database while a note against the version is
-  still open. Without that rule, approval is a button somebody clicks and the
-  notes sit there for ever.
+A missing typeface is the most invisible defect this pipeline can have. The text
+is still there, still legible, still the right colour, just set in something
+else. There is no exception to catch.
 
-New migration: `studio_version_comments`, plus the approval guard and a
-`studio_version_review` view the screen reads in one query.
+**Fixed three ways:**
 
-## 3 · Sound design, synthesised
+- The worker image now installs **EB Garamond** and **Inter** from Debian — no
+  download at build time, nothing to license.
+- The Studio self-hosts EB Garamond (`public/fonts`, because the site's CSP is
+  `font-src 'self' data:`), so the preview sets a title in the same face the
+  file will get. Preview-lies-to-you is a failure this project has already paid
+  for once.
+- **QC now measures it.** Before a frame is drawn, every family the timeline
+  asks for is set against a family that certainly does not exist. Identical
+  advance widths mean the font did not resolve. The report says which face is
+  missing and that the film was rendered in the fallback.
 
-A cut with nothing under it sounds like a slideshow. The usual fix is a library
-of whooshes, which means licensing, hosting and a picker — a content-acquisition
-problem wearing an engineering hat.
+*One detail worth keeping:* the display weight is **400**, not 700. The freely
+distributable EB Garamond **bold carries 128 glyphs and not one of ă â î ș ț** —
+a bold Romanian title would have rendered with holes in it. The regular has
+3080 and covers the language completely. I checked every serif on the machine
+for Romanian coverage before choosing.
 
-Four sounds are generated by ffmpeg from noise and a sine, which is what most
-transition sounds are underneath: **whoosh, impact, riser, click**. A timeline
-refers to one as `builtin:whoosh`, so the document stays declarative and there
-is no asset to lose.
+## 2 · The end card was a slide, not an end card
 
-**whoosh pe tăieturi** puts one slightly *before* every cut — a transition sound
-that starts on the frame of the cut arrives late to the ear. The cut list comes
-from the scene durations, so it stays right when a scene is retimed.
+The name sat at 0.46 and the address on the safe edge at 0.80, leaving a hole
+through the middle of the frame. Everything now hangs off one optical centre,
+each element a known multiple of the type size below the last, and the block
+sits slightly above true centre because type always looks low when it is
+measured to the middle. Title size up from 0.075 to 0.088 of the short edge.
 
-They sit on their own audio track: not a duck target, because an accent that
-ducks under the voice is not an accent, and not a duck source, because it must
-never pull the music down.
+The tests for this were rewritten too. They had hard-coded the template's own
+coordinates, so they broke the moment the layout improved — a test that only
+restates the implementation. They now measure properties: there is ink above the
+middle, there is an accent rule below it, the rule is centred, and **nothing is
+stranded near the bottom edge** — which is the defect itself, asserted.
 
-*One thing this exposed:* `anoisesrc` seeds itself from the clock, so the same
-whoosh came out as different bytes on every render. The renderer's whole
-contract is that one timeline produces one file. Seed pinned, output bit-exact,
-and asserted.
+## 3 · The subtitles outran the eye, and the fix existed but had no button
+
+Five of seven cues came back over seventeen characters per second, one at
+twenty-two. Nobody reads that. `conformCues` has been in the library for days —
+extend into the gaps, honour the minimum duration *after* moving the start,
+close sub-two-frame gaps into hard cuts — and nothing in the interface called
+it, so the checker could only ever complain.
+
+**Corectează** now sits next to the warning. Frames in, frames out, using the
+same rules that flagged them rather than a second implementation in seconds.
+
+## 4 · The music bed from the last drop is in here too
+
+`tt-bed` was never deployed, so the film has no bed under the voice. Its files
+are included here; the checkbox is **pat muzical** next to the sound row.
 
 ---
 
 ## Deploy
 
-**1 · SQL** — Supabase SQL editor:
+Repo only, no SQL.
 
 ```
-supabase/migrations/20260830140000_studio_version_comments.sql
+render-worker/Dockerfile          installs EB Garamond + Inter
+render-worker/src/fonts.js  (new) the resolution probe
+render-worker/src/render.js       checks fonts before drawing
+render-worker/src/qc.js           reports it to a human
+render-worker/src/index.js        passes it into the report
+render-worker/src/sfx.js          the music bed
+lib/brand/kit.ts                  real faces, weight 400, retuned scale
+lib/brand/templates.ts            end-card vertical rhythm
+app/globals.css                   @font-face for the preview
+public/fonts/ebgaramond-400.woff2 (new, 173 KB)
+app/admin/studio/page.tsx         Corectează, pat muzical
 ```
 
-**2 · Repo** — commit and push:
-
-```
-lib/timeline/compile.ts          every draw op carries its track z
-lib/timeline/draw.ts             drawFrame can take one layer
-lib/timeline/index.ts            exports GRAPHICS_Z / isGraphic
-render-worker/src/render.js      two-layer render, composite after grade,
-                                 built-in sounds resolved before the mix
-render-worker/src/sfx.js  (new)  the four synthesised sounds
-app/admin/studio/page.tsx        review panel, sound row, sfx on the timeline
-```
-
-**3 · Check** — the Studio gains a **Revizuire și aprobare** panel and a
-**sunete** row under Brand și titluri. Save a project, submit a version, add a
-note at a frame, try to approve it: the database will refuse until the note is
-resolved.
+Railway rebuilds the image — this one changes the Dockerfile, so the build is
+longer than usual.
 
 ## Verification
 
-**407 assertions, all passing.**
+**432 assertions, all passing.**
 
 ```
-node _verification/16-layers.cjs   11   grade on the picture, not the titles
-node _verification/17-sound.cjs    19   the sounds are the right length, are not
-                                        silence, have the right SHAPE (a whoosh
-                                        swells, an impact decays, a riser rises),
-                                        are byte-identical between runs, and land
-                                        where the timeline put them
+node _verification/18-fonts.cjs   15   the probe, and that a missing face
+                                       reaches the QC report a human reads
+node _verification/14-brand.cjs   40   was 38; the end-card assertions are now
+                                       property-based instead of restating the
+                                       template's coordinates
+node _verification/17-sound.cjs   25   the bed
 ```
 
-`tsc --noEmit` → 0 errors. `eslint app lib` → 0 errors, 41 warnings (unchanged).
+## Then re-render
 
-## Phase 1 is now complete
-
-Approval, brand kit, designed titles, safe areas, sound design. Next is phase 2
-— brief to film in one step, continuity across shots with `elements` and
-`multi_prompt`, and variants in one pass — or the full Transilvania Times spot
-on the fixed pipeline, whichever you want first.
+Once this is live: open v1, press **Corectează** on the subtitles, tick **pat
+muzical**, submit v2 and render it. That version will be the first with the
+right typeface, a readable subtitle track and something under the voice — and
+it will be a clean before-and-after against v1, which is what the version table
+is for.

@@ -72,6 +72,29 @@ const SOUNDS = {
       'alimiter=limit=0.85',
     ],
   }),
+  // A MUSIC BED, and the reason it is here rather than in a licence.
+  //
+  // A spot with a voice and nothing under it is austere, which can be a choice,
+  // but silence under a voice reads as an unfinished mix far more often than it
+  // reads as restraint. What a bed has to do is simple: sit an octave below the
+  // voice, never move enough to draw attention, and give the words somewhere to
+  // stand.
+  //
+  // So: a low A, its fifth and its octave, with one slightly detuned partial so
+  // the sound breathes instead of sitting dead still, a slow tremolo, and
+  // everything above the voice's range rolled off so it never competes.
+  bed: (d) => ({
+    src: `aevalsrc='0.34*sin(2*PI*55*t)+0.24*sin(2*PI*82.41*t)+0.13*sin(2*PI*110*t)+0.07*sin(2*PI*110.45*t)+0.05*sin(2*PI*164.81*t)':d=${d}:s=${RATE}`,
+    chain: [
+      'tremolo=f=0.11:d=0.28',
+      'lowpass=f=900',
+      'highpass=f=38',
+      `afade=t=in:st=0:d=1.6`,
+      `afade=t=out:st=${Math.max(0, d - 2.2).toFixed(2)}:d=2.2`,
+      'alimiter=limit=0.7',
+    ],
+  }),
+
   // A soft tick for a caption or a stat appearing.
   click: (d) => ({
     src: `anoisesrc=color=white:duration=${d}:sample_rate=${RATE}:amplitude=0.4:seed=${SEED + 2}`,
@@ -82,7 +105,10 @@ const SOUNDS = {
   }),
 }
 
-const DEFAULT_SECONDS = { whoosh: 0.6, impact: 0.5, riser: 1.5, click: 0.12 }
+const DEFAULT_SECONDS = { whoosh: 0.6, impact: 0.5, riser: 1.5, click: 0.12, bed: 30 }
+// An accent has no business being six seconds long; a bed has no business being
+// six seconds short. The ceiling is per sound rather than one number for all.
+const MAX_SECONDS = { whoosh: 6, impact: 6, riser: 8, click: 2, bed: 180 }
 
 function isBuiltin(url) {
   return typeof url === 'string' && url.startsWith(SCHEME)
@@ -95,7 +121,7 @@ function parse(url) {
   if (!SOUNDS[name]) return null
   const wanted = Number(secondsRaw)
   const seconds = Number.isFinite(wanted) && wanted > 0
-    ? Math.min(6, Math.max(0.05, wanted))
+    ? Math.min(MAX_SECONDS[name], Math.max(0.05, wanted))
     : DEFAULT_SECONDS[name]
   return { name, seconds }
 }
@@ -146,4 +172,4 @@ async function resolveBuiltins(items, dir) {
   return out
 }
 
-module.exports = { SOUNDS, DEFAULT_SECONDS, isBuiltin, parse, materialise, resolveBuiltins, SCHEME }
+module.exports = { SOUNDS, DEFAULT_SECONDS, MAX_SECONDS, isBuiltin, parse, materialise, resolveBuiltins, SCHEME }

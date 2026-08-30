@@ -122,16 +122,28 @@ export const TT_KIT: BrandKit = {
     scrim: 'rgba(12,10,8,0.55)',
   },
   type: {
-    displayFamily: 'Playfair Display, Georgia, serif',
+    // EB GARAMOND AT 400, AND BOTH HALVES OF THAT ARE DELIBERATE.
+    //
+    // The kit used to name "Playfair Display", which the renderer had never
+    // heard of, so every title in every film was quietly set in the fallback
+    // sans. A brand face that exists only as a string in a JSON document is
+    // theatre. EB Garamond ships in Debian, so the worker installs it with no
+    // download and no licence.
+    //
+    // Weight 400 because the Debian EB Garamond BOLD carries 128 glyphs and not
+    // one of ă â î ș ț — a bold Romanian title would have rendered with holes
+    // in it. The regular has 3080 and covers the language completely, and a
+    // large Garamond regular is the better masthead treatment anyway.
+    displayFamily: 'EB Garamond, Georgia, serif',
     bodyFamily: 'Inter, Helvetica, Arial, sans-serif',
-    display: 0.115,
-    title: 0.075,
+    display: 0.125,
+    title: 0.088,
     subtitle: 0.040,
     caption: 0.045,
     kicker: 0.024,
-    displayWeight: 700,
+    displayWeight: 400,
     bodyWeight: 600,
-    lineHeight: 1.14,
+    lineHeight: 1.10,
   },
   grade: { look: 'warm', strength: 0.85 },
   loudness: 'social',

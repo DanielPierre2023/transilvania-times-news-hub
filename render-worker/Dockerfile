@@ -24,7 +24,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 \
       fonts-dejavu-core \
       fonts-liberation2 \
+      fonts-ebgaramond \
+      fonts-inter \
   && rm -rf /var/lib/apt/lists/*
+
+# THE BRAND FACES HAVE TO EXIST HERE, NOT ONLY IN THE KIT.
+#
+# The kit named a display face for weeks and the renderer had never heard of it,
+# so every title, every lower third and every end card was quietly set in the
+# fallback sans. Brand typography that only exists as a string in a JSON
+# document is theatre.
+#
+# EB Garamond is the display face and Inter the body face, both from Debian, so
+# there is nothing to download at build time and nothing to license. Both were
+# checked for the Romanian diacritics before being chosen — the Debian EB
+# Garamond BOLD has 128 glyphs and none of ă â î ș ț, which is why the kit sets
+# the display weight to 400 and uses the 3080-glyph regular.
+RUN fc-cache -f -v > /dev/null 2>&1 || true
 
 WORKDIR /app
 

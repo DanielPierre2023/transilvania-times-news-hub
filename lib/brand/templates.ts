@@ -296,7 +296,18 @@ export function endCard(ctx: TemplateContext, p: EndCardParams): Clip[] {
     }),
   ]
 
-  const centreY = 0.46
+  // VERTICAL RHYTHM, and it is the whole difference between an end card and a
+  // slide. The first version put the name at 0.46 and the address on the safe
+  // edge at 0.80, which left a hole through the middle of the frame and read as
+  // unfinished. Everything now hangs off one optical centre, each element a
+  // known multiple of the type size below the last, and the block as a whole
+  // sits slightly above true centre because type always looks low when it is
+  // measured to the middle.
+  const centreY = 0.44
+  const ruleY = centreY + kit.type.title * 0.72
+  const lineY = ruleY + kit.type.subtitle * 1.5
+  const urlY = lineY + kit.type.kicker * 3.4
+
   if (kit.mastheadUrl) {
     clips.push(mkClip({
       name: 'Siglă',
@@ -325,7 +336,7 @@ export function endCard(ctx: TemplateContext, p: EndCardParams): Clip[] {
     name: 'Linie',
     source: rule(kit, ruleW),
     start: start + 5, duration: dur - 5,
-    transform: wipeRight(cx, centreY + kit.type.title * 0.62, ruleW, inF),
+    transform: wipeRight(cx, ruleY, ruleW, inF),
   }))
 
   if (p.line) {
@@ -339,7 +350,7 @@ export function endCard(ctx: TemplateContext, p: EndCardParams): Clip[] {
         }),
       },
       start: start + 6, duration: dur - 6, fadeIn: inF,
-      transform: riseIn(cx, centreY + kit.type.title * 0.95, inF),
+      transform: riseIn(cx, lineY, inF),
     }))
   }
 
@@ -354,7 +365,7 @@ export function endCard(ctx: TemplateContext, p: EndCardParams): Clip[] {
         }),
       },
       start: start + 8, duration: dur - 8, fadeIn: inF,
-      transform: riseIn(cx, box.y + box.h - kit.type.kicker * 1.6, inF),
+      transform: riseIn(cx, urlY, inF),
     }))
   }
 

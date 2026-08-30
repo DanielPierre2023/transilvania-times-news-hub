@@ -22,6 +22,7 @@ const { ImageCache, VideoTap, FFMPEG } = require('./sources')
 const { collectAudio, mixAudio, normalise, run } = require('./audio')
 const { gradeFilm } = require('./grade')
 const { resolveBuiltins } = require('./sfx')
+const { checkFonts } = require('./fonts')
 const timeline = require('./timeline')
 
 const CODECS = {
@@ -93,6 +94,14 @@ async function renderTimeline(tl, opts = {}) {
   // stream that carries alpha, and the two are composited after the grade.
   // When either is absent this is exactly the old single pass, because paying
   // for a second encode to protect nothing would be silly.
+  // Checked before a single frame is drawn, so a missing brand face is reported
+  // rather than silently substituted.
+  const fonts = checkFonts(tl)
+  if (!fonts.ok) {
+    console.warn('[fonts] not resolved here, rendering in the fallback face:',
+      fonts.missing.map(f => `${f.family} ${f.weight}`).join(', '))
+  }
+
   const gradeSpec = tl.delivery && tl.delivery.grade
   const gradeActive = !!(gradeSpec && gradeSpec.look && gradeSpec.look !== 'none')
   const hasGraphics = tl.tracks.some(t =>
@@ -308,6 +317,7 @@ async function renderTimeline(tl, opts = {}) {
   onProgress({ phase: 'done', percent: 1 })
 
   return {
+    fonts,
     output: finalOut,
     workDir,
     width,

@@ -101,6 +101,7 @@ async function pump() {
       frames: result.frames,
       durationSeconds: result.durationSeconds,
       loudness: job.timeline.delivery?.loudness || 'social',
+      fonts: result.fonts,
     })
     job.file = result.output
     job.downloadKey = crypto.randomBytes(32).toString('base64url')

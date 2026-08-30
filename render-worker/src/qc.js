@@ -117,6 +117,18 @@ async function inspect(file, expected) {
     }
   }
 
+  // A missing typeface is invisible: the text is still there, still legible,
+  // still the right colour, just set in something else. It has to be measured
+  // or it is found by a client.
+  if (expected.fonts) {
+    const f = expected.fonts
+    add('every typeface the film asks for exists here',
+      f.ok,
+      f.ok
+        ? f.faces.map(x => `${x.family} ${x.weight}`).join(', ') || 'no type in this film'
+        : `missing: ${f.missing.map(x => `${x.family} ${x.weight}`).join(', ')} — rendered in the fallback face`)
+  }
+
   return {
     passed: checks.every(c => c.ok),
     checks,

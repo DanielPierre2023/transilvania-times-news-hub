@@ -185,3 +185,23 @@
   margin-top: 0.05em;
   color: hsl(var(--primary));
 }
+
+/* ── BRAND FACE FOR THE FILM ────────────────────────────────────────────────
+   EB Garamond, self-hosted because the site's CSP is font-src 'self' data: and
+   Google Fonts is therefore blocked here.
+
+   It is loaded for one reason: the Studio preview must set a title in the SAME
+   face the renderer will use. The renderer gets it from the Debian package in
+   its own image; without this the preview would show a fallback sans and the
+   file would come back in Garamond, which is the preview-lies-to-you failure
+   this project has already paid for once.
+
+   Regular only, and the kit sets the display weight to 400 to match: the freely
+   distributable EB Garamond bold carries 128 glyphs and none of ă â î ș ț. */
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/ebgaramond-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}

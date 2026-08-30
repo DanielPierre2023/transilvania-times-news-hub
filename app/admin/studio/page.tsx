@@ -24,19 +24,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 // tt-timeline — real loudness measurement and caption sidecars.
-import { checkCaptions, extractCues, toSRT, toVTT } from '@/lib/timeline/captions'
+import { checkCaptions, conformCues, extractCues, toSRT, toVTT } from '@/lib/timeline/captions'
 import { formatLufs, measureAudioBuffer, planNormalisation } from '@/lib/timeline/loudness'
 import type { LoudnessResult } from '@/lib/timeline/loudness'
 import { migrateLegacyProject } from '@/lib/timeline/migrate'
 import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
-import { framesToSeconds } from '@/lib/timeline/time'
+import { framesToSeconds, formatTimecode } from '@/lib/timeline/time'
 import { FPS } from '@/lib/timeline/time'
-import { validate } from '@/lib/timeline/document'
-import type { Timeline } from '@/lib/timeline/types'
+import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
+import { compileFrame } from '@/lib/timeline/compile'
+import { drawFrame as drawCompiled } from '@/lib/timeline/draw'
+import type { Timeline, Clip, TextStyle } from '@/lib/timeline/types'
+// tt-brand — the kit and the typography it dictates.
+import {
+  KITS, SAFE_AREAS, TT_KIT, captionStyle, captionY, resolveKit, safeBox,
+  type BrandKit, type SafeAreaName,
+} from '@/lib/brand/kit'
+import { endCard, lowerThird, titleCard } from '@/lib/brand/templates'
 import {
   Clapperboard, ImagePlus, Upload, Mic, Captions, Music, Film,
   Sparkles, Loader2, Play, Square, Trash2, ArrowUp, ArrowDown, Download, AlertCircle, Wand2,
-  UserPlus, Zap, ShieldCheck, Save, FolderOpen,
+  UserPlus, Zap, ShieldCheck, Save, FolderOpen, Type, Crop,
 } from 'lucide-react'
 
 type Aspect = '9:16' | '1:1' | '4:5' | '16:9'
@@ -98,6 +106,65 @@ const MOTION_PROMPT =
   'lighting, same time of day. Do NOT change the time of day, do NOT make it night, ' +
   'do NOT cool or desaturate the colours. No cuts, no shot changes, no text.'
 interface Cue { start: number; end: number; text: string }
+
+// ── OVERLAYS ────────────────────────────────────────────────────────────────
+// A title card, a name under a face, an end card. Stored as intent — kind, when,
+// how long, what it says — and expanded into real clips by lib/brand/templates
+// at build time. Storing the expansion instead would freeze every film against
+// the version of the design it was made with; storing the intent means a fix to
+// a template improves every project that has one.
+type OverlayKind = 'title' | 'lower' | 'end'
+interface Overlay {
+  id: string
+  kind: OverlayKind
+  at: number          // seconds on the timeline
+  dur: number         // seconds
+  a: string           // title / name / heading
+  b?: string          // kicker / role / line
+  c?: string          // subtitle / — / url
+}
+// ── REVIEW ──────────────────────────────────────────────────────────────────
+// studio_project_versions has held immutable snapshots and a
+// draft/review/approved/rejected state machine since last week, with an
+// immutability trigger on the timeline. Until now nothing in the interface
+// touched it. Of the sixteen products surveyed this morning, only two have an
+// approval workflow at all.
+type VersionState = 'draft' | 'review' | 'approved' | 'rejected'
+interface VersionRow {
+  id: string; version: number; state: VersionState; label: string | null
+  note: string | null; render_url: string | null; created_at: string
+  note_count: number; open_notes: number
+}
+interface NoteRow {
+  id: string; frame: number; body: string; resolved: boolean
+  author_name: string | null; created_at: string
+}
+const STATE_LABEL: Record<VersionState, string> = {
+  draft: 'ciornă', review: 'în revizuire', approved: 'aprobat', rejected: 'respins',
+}
+const STATE_TONE: Record<VersionState, string> = {
+  draft: 'text-white/40 border-white/15',
+  review: 'text-amber-300 border-amber-500/40',
+  approved: 'text-emerald-300 border-emerald-500/40',
+  rejected: 'text-red-300 border-red-500/40',
+}
+
+const OVERLAY_LABEL: Record<OverlayKind, string> = {
+  title: 'Titlu', lower: 'Nume (burtieră)', end: 'Card final',
+}
+
+// ── SOUND DESIGN ────────────────────────────────────────────────────────────
+// A cut with nothing under it sounds like a slideshow. These are synthesised by
+// the worker from noise and a sine — no library to license, nothing to lose,
+// and the same name and length always produce the same bytes, which the
+// deterministic render depends on.
+type SfxName = 'whoosh' | 'impact' | 'riser' | 'click'
+interface Sfx { id: string; name: SfxName; at: number; gain: number }
+const SFX_LABEL: Record<SfxName, string> = {
+  whoosh: 'whoosh · tranziție', impact: 'impact · greutate',
+  riser: 'riser · tensiune', click: 'click · apariție',
+}
+const SFX_SECONDS: Record<SfxName, number> = { whoosh: 0.6, impact: 0.5, riser: 1.5, click: 0.12 }
 interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 
 // Master resolution. 720p was the only option and it is below every delivery
@@ -206,6 +273,21 @@ export default function StudioPage() {
   const [workerQc, setWorkerQc] = useState<{ passed: boolean; checks: { name: string; ok: boolean; detail: string }[] } | null>(null)
   const [workerStats, setWorkerStats] = useState<{ seconds: number; renderSeconds: number } | null>(null)
   const [scenes, setScenes] = useState<Scene[]>([])
+  // Brand kit: the answer to "which red, which face, where may type sit, what
+  // are we mixing to" — given once instead of remembered per film.
+  const [kit, setKit] = useState<BrandKit>(TT_KIT)
+  const [kitList, setKitList] = useState<BrandKit[]>(KITS as BrandKit[])
+  const [overlays, setOverlays] = useState<Overlay[]>([])
+  const [showSafe, setShowSafe] = useState(true)
+  const [sfx, setSfx] = useState<Sfx[]>([])
+  // A synthesised low bed. Silence under a voice reads as an unfinished mix far
+  // more often than it reads as restraint.
+  const [musicBed, setMusicBed] = useState(false)
+  const [versions, setVersions] = useState<VersionRow[]>([])
+  const [openVersion, setOpenVersion] = useState<string>('')
+  const [notes, setNotes] = useState<NoteRow[]>([])
+  const [noteText, setNoteText] = useState('')
+  const [noteFrame, setNoteFrame] = useState(0)
   const [imgPrompt, setImgPrompt] = useState('')
   const [imgAspect, setImgAspect] = useState('4:5')
   const [refImageUrl, setRefImageUrl] = useState('')   // reference photo -> image-to-image
@@ -315,6 +397,7 @@ export default function StudioPage() {
   useEffect(() => {
     let alive = true
     refreshProjects()
+    void refreshKits()
     ;(async () => {
       try {
         const r = await invokeRaw('voice-lab', { action: 'list' })
@@ -453,6 +536,32 @@ export default function StudioPage() {
     return { problems: checkCaptions(extracted, tl.timebase.fps), count: extracted.length }
   }, [aspect, scenes, cues, words, capMode, subPos, subScale])
 
+  /**
+   * Make the subtitles readable, using the SAME rules that flagged them.
+   *
+   * The aligner times cues to the voice, and a voice can outrun the eye: this
+   * film came back with five cues over seventeen characters a second, one at
+   * twenty-two. Nobody reads that. The library already knew how to fix it —
+   * extend into the gaps, honour the minimum duration AFTER moving the start,
+   * close sub-two-frame gaps into hard cuts — and nothing in the interface
+   * called it, so the checker could only ever complain.
+   *
+   * Frames in, frames out: the conform works on the frame-accurate timeline and
+   * the result is converted back, rather than a second implementation of the
+   * same rules in seconds.
+   */
+  function conformSubtitles() {
+    if (!cues.length) return
+    const fps = fpsOut === 25 ? FPS.pal : FPS.web
+    const toFrames = (sec: number) => Math.round((sec * fps.n) / fps.d)
+    const toSeconds = (f: number) => (f * fps.d) / fps.n
+    const conformed = conformCues(
+      cues.map(c => ({ start: toFrames(c.start), end: toFrames(c.end), text: c.text })),
+      fps,
+    )
+    setCues(conformed.map(c => ({ start: toSeconds(c.start), end: toSeconds(c.end), text: c.text })))
+  }
+
   // Measures the voiceover's programme loudness so the number can be shown and
   // the export gain can be derived from it instead of guessed.
   async function measureVoice(url: string) {
@@ -470,13 +579,150 @@ export default function StudioPage() {
   // The project as a real timeline, at the chosen master size and frame rate.
   // Everything downstream — captions, the cloud render, the cost estimate —
   // reads this one object, so the preview and the export cannot drift apart.
+  // ─── overlays ───────────────────────────────────────────────────────────
+  const addOverlay = (kind: OverlayKind) => setOverlays(o => {
+    const at = kind === 'end' ? Math.max(0, totalDur - 3) : kind === 'title' ? 0 : 1
+    const seed: Overlay =
+      kind === 'title' ? { id: uid(), kind, at, dur: 3, a: 'Titlul filmului', b: kit.name, c: '' }
+      : kind === 'lower' ? { id: uid(), kind, at, dur: kit.lowerThirdSeconds, a: 'Nume Prenume', b: 'funcție' }
+      : { id: uid(), kind, at, dur: 3, a: kit.name, b: 'Abonează-te', c: 'transilvaniatimes.com' }
+    return [...o, seed]
+  })
+  const setOverlay = (id: string, patch: Partial<Overlay>) =>
+    setOverlays(o => o.map(x => x.id === id ? { ...x, ...patch } : x))
+  const delOverlay = (id: string) => setOverlays(o => o.filter(x => x.id !== id))
+
+  const addSfx = (name: SfxName, at: number) =>
+    setSfx(x => [...x, { id: uid(), name, at: Math.max(0, at), gain: name === 'impact' ? 0.5 : 0.35 }])
+  const delSfx = (id: string) => setSfx(x => x.filter(s2 => s2.id !== id))
+
+  /**
+   * Put a sound on every cut.
+   *
+   * The cut list comes from the scene durations, so this stays right when a
+   * scene is retimed — and it is the one edit that most reliably turns a
+   * sequence of plates into something that reads as cut rather than assembled.
+   */
+  const sfxOnCuts = (name: SfxName) => {
+    let t = 0
+    const next: Sfx[] = []
+    for (let i = 0; i < scenes.length - 1; i++) {
+      t += scenes[i].duration
+      // Land it slightly BEFORE the cut: a transition sound that starts on the
+      // frame of the cut arrives late to the ear.
+      next.push({ id: uid(), name, at: Math.max(0, t - SFX_SECONDS[name] * 0.55), gain: 0.35 })
+    }
+    setSfx(next)
+  }
+
+  /** Expands the overlay list into real clips at a given fps. */
+  const overlayClips = useCallback((fps: { n: number; d: number }): Clip[] => {
+    const out: Clip[] = []
+    for (const o of overlays) {
+      const start = Math.round((o.at * fps.n) / fps.d)
+      const duration = Math.max(2, Math.round((o.dur * fps.n) / fps.d))
+      const ctx = { kit, fps, start, duration }
+      if (o.kind === 'title') out.push(...titleCard(ctx, { kicker: o.b || undefined, title: o.a, sub: o.c || undefined }))
+      else if (o.kind === 'lower') out.push(...lowerThird(ctx, { name: o.a, role: o.b || undefined }))
+      else out.push(...endCard(ctx, { title: o.a, line: o.b || undefined, url: o.c || undefined }))
+    }
+    return out
+  }, [overlays, kit])
+
+  // A timeline containing ONLY the overlays, so the preview can draw them with
+  // the same compile-and-draw path the renderer uses. That is the whole reason
+  // templates are ordinary clips: what you see here is what the file gets, with
+  // no second implementation to drift.
+  const overlayTl = useMemo<Timeline | null>(() => {
+    const clips = overlayClips(fpsOut === 25 ? FPS.pal : FPS.web)
+    if (!clips.length) return null
+    let tl = migrateLegacyProject({ aspect, scenes: [] }, { fps: fpsOut === 25 ? FPS.pal : FPS.web })
+    tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
+    const track = emptyTrack('video', 'Titluri', 20)
+    tl = { ...tl, tracks: [track] }
+    for (const c of clips) tl = addClip(tl, track.id, c)
+    return { ...tl, duration: Math.max(1, ...clips.map(c => c.start + c.duration)) }
+  }, [overlayClips, fpsOut, aspect, W, H])
+
   function buildTimeline(forceCaptions = false): Timeline {
     const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
-    const tl = migrateLegacyProject(
+    const fps = fpsOut === 25 ? FPS.pal : FPS.web
+    let tl = migrateLegacyProject(
       forceCaptions ? { ...base, subsOn: true } : base,
-      { fps: fpsOut === 25 ? FPS.pal : FPS.web },
+      { fps },
     )
-    return { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
+    tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
+
+    // THE KIT IS AUTHORITATIVE. Captions take their face, size and colour from
+    // it, and their vertical position is clamped into the safe area — which is
+    // what stops a caption rendering underneath TikTok's own caption block,
+    // where it is technically present and practically invisible.
+    const capStyle: TextStyle = captionStyle(kit, subScale)
+    const capY = captionY(kit, SUB_POS[subPos])
+    tl = {
+      ...tl,
+      tracks: tl.tracks.map(track => track.z !== 10 || track.kind !== 'video' ? track : {
+        ...track,
+        clips: track.clips.map(c => c.source.kind !== 'text' ? c : {
+          ...c,
+          source: { ...c.source, style: { ...capStyle, ...(c.source.words ? { maxLines: 1 } : {}) } },
+          transform: { ...c.transform, position: { x: 0.5, y: capY } },
+        }),
+      }),
+      delivery: { ...tl.delivery, grade: kit.grade, loudness: kit.loudness },
+    }
+
+    // A synthesised bed, only when no real track was uploaded — an uploaded
+    // track always wins, because someone chose it.
+    if (musicBed && !musicUrl) {
+      const mTrack = tl.tracks.find(t => t.kind === 'audio' && t.z === 1)
+        || emptyTrack('audio', 'Muzică', 1)
+      if (!tl.tracks.includes(mTrack)) tl = { ...tl, tracks: [...tl.tracks, mTrack] }
+      const secs = Math.max(2, framesToSeconds(tl.duration, fps))
+      tl = addClip(tl, mTrack.id, {
+        id: uid(), name: 'Pat muzical',
+        source: { kind: 'audio', url: `builtin:bed@${secs.toFixed(1)}` },
+        start: 0, duration: tl.duration, sourceIn: 0,
+        transform: { position: { x: 0.5, y: 0.5 }, scale: 1, rotation: 0, opacity: 1 },
+        fit: 'contain',
+        // Ducks under the voice like any music would.
+        audio: { gain: 0.5, duckTarget: true },
+        fadeIn: 0, fadeOut: 0, enabled: true,
+      })
+    }
+
+    // Sound design on its own track, under the voice and beside the music.
+    if (sfx.length) {
+      const sTrack = emptyTrack('audio', 'Sunete', 2)
+      tl = { ...tl, tracks: [...tl.tracks, sTrack] }
+      for (const s2 of sfx) {
+        tl = addClip(tl, sTrack.id, {
+          id: uid(), name: SFX_LABEL[s2.name],
+          source: { kind: 'audio', url: `builtin:${s2.name}` },
+          start: Math.round((s2.at * fps.n) / fps.d),
+          duration: Math.max(1, Math.round((SFX_SECONDS[s2.name] * fps.n) / fps.d)),
+          sourceIn: 0,
+          transform: { position: { x: 0.5, y: 0.5 }, scale: 1, rotation: 0, opacity: 1 },
+          fit: 'contain',
+          // Not a duck target: an accent that ducks under the voice is not an
+          // accent. Not a duck source either — it must never pull the music down.
+          audio: { gain: s2.gain },
+          fadeIn: 0, fadeOut: 0, enabled: true,
+        })
+      }
+    }
+
+    // Titles ride ABOVE the captions: a title card's scrim is meant to cover
+    // everything under it, including a caption that happens to be on screen.
+    const extra = overlayClips(fps)
+    if (extra.length) {
+      const track = emptyTrack('video', 'Titluri', 20)
+      tl = { ...tl, tracks: [...tl.tracks, track] }
+      for (const c of extra) tl = addClip(tl, track.id, c)
+      const end = Math.max(...extra.map(c => c.start + c.duration))
+      if (end > tl.duration) tl = { ...tl, duration: end }
+    }
+    return tl
   }
 
   // A sidecar is independent of whether captions are burned into the picture,
@@ -543,8 +789,26 @@ export default function StudioPage() {
 
   // ─── project persistence ────────────────────────────────────────────────
   function projectData() {
-    return { aspect, master, fpsOut, provider, scenes, script, lang, tone, elVoiceId, geminiVoice, voice, voUrl, voDur, cues, words, capMode, subsOn, subPos, subScale, musicUrl, musicVol }
+    return { aspect, master, fpsOut, provider, scenes, script, lang, tone, elVoiceId, geminiVoice, voice, voUrl, voDur, cues, words, capMode, subsOn, subPos, subScale, musicUrl, musicVol,
+      // The kit travels WITH the project, not as a reference. A film approved in
+      // March must still render in March's brand in September, and it would not
+      // if it read a row somebody has since edited.
+      brandKit: kit, overlays, sfx, musicBed }
   }
+  // The library lives in the database so a kit can be edited without a deploy;
+  // the built-in kits stay as a fallback so Studio works before the migration
+  // has been run.
+  const refreshKits = useCallback(async () => {
+    try {
+      const { data } = await db.from('studio_brand_kits').select('id, kit, is_default')
+      if (!data || !data.length) return
+      const loaded = data.map(r => resolveKit((r as { kit: Partial<BrandKit> }).kit))
+      setKitList(loaded)
+      const def = data.find(r => (r as { is_default?: boolean }).is_default)
+      if (def) setKit(resolveKit((def as { kit: Partial<BrandKit> }).kit))
+    } catch { /* migration not run yet — the built-in kits stand in */ }
+  }, [db])
+
   async function refreshProjects() {
     try {
       const { data } = await db.from('studio_projects').select('id, name, updated_at').order('updated_at', { ascending: false }).limit(12)
@@ -563,9 +827,105 @@ export default function StudioPage() {
         if (e) throw new Error(e.message)
         if (data?.id) setProjId(String(data.id))
       }
-      setProjName(name); await refreshProjects()
+      setProjName(name); await refreshProjects(); await loadVersions(projId)
     } catch (e) { setError('Salvarea a eșuat (rulează tt-studio-projects.sql?): ' + (e as Error).message) } finally { setBusy('') }
   }
+  // ─── review ─────────────────────────────────────────────────────────────
+  // A note lands on a FRAME, and is shown as timecode, because "around eleven
+  // seconds" is not a note anybody can act on.
+  const formatTc = useCallback(
+    (frame: number) => formatTimecode(frame, fpsOut === 25 ? FPS.pal : FPS.web),
+    [fpsOut],
+  )
+
+  const loadVersions = useCallback(async (pid: string) => {
+    if (!pid) { setVersions([]); return }
+    try {
+      const { data } = await db.from('studio_version_review')
+        .select('id, version, state, label, note, render_url, created_at, note_count, open_notes')
+        .eq('project_id', pid).order('version', { ascending: false }).limit(30)
+      setVersions((data || []) as VersionRow[])
+    } catch { /* migration not run yet */ }
+  }, [db])
+
+  const loadNotes = useCallback(async (vid: string) => {
+    if (!vid) { setNotes([]); return }
+    try {
+      const { data } = await db.from('studio_version_comments')
+        .select('id, frame, body, resolved, author_name, created_at')
+        .eq('version_id', vid).order('frame', { ascending: true })
+      setNotes((data || []) as NoteRow[])
+    } catch { setNotes([]) }
+  }, [db])
+
+  /**
+   * Snapshot the project as it stands and send it for review.
+   *
+   * The timeline goes in whole. A version is immutable — the database refuses
+   * to let its timeline be edited after insert — so what was approved stays
+   * exactly as it was approved, and can be re-rendered a year later byte for
+   * byte. That is the promise the deterministic renderer exists to keep, and
+   * this is the row that holds it.
+   */
+  async function submitVersion() {
+    if (!projId) { setError('Salvează întâi proiectul — o versiune aparține unui proiect.'); return }
+    setError(''); setBusy('version')
+    try {
+      const tl = buildTimeline()
+      const problems = validate(tl).filter(p => p.severity === 'error')
+      if (problems.length) throw new Error(problems.map(p => `${p.where}: ${p.message}`).join('; '))
+      const { data, error: e } = await db.from('studio_project_versions')
+        .insert({ project_id: projId, timeline: tl, state: 'review', label: projName || null })
+        .select('id').single()
+      if (e) throw new Error(e.message)
+      await loadVersions(projId)
+      if (data?.id) { setOpenVersion(String(data.id)); await loadNotes(String(data.id)) }
+    } catch (e) { setError('Versiune: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
+  async function setVersionState(id: string, state: VersionState) {
+    setError('')
+    try {
+      const { error: e } = await db.from('studio_project_versions')
+        .update({ state, reviewed_at: new Date().toISOString() }).eq('id', id)
+      // The database refuses approval while a note is open. Say so plainly
+      // rather than showing a Postgres error.
+      if (e) throw new Error(/observații/.test(e.message) ? e.message : e.message)
+      await loadVersions(projId)
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  async function addNote() {
+    if (!openVersion || !noteText.trim()) return
+    setError('')
+    try {
+      const { error: e } = await db.from('studio_version_comments')
+        .insert({ version_id: openVersion, frame: Math.max(0, Math.round(noteFrame)), body: noteText.trim() })
+      if (e) throw new Error(e.message)
+      setNoteText(''); await loadNotes(openVersion); await loadVersions(projId)
+    } catch (e) { setError('Observație: ' + (e as Error).message) }
+  }
+
+  async function resolveNote(id: string, resolved: boolean) {
+    try {
+      await db.from('studio_version_comments')
+        .update({ resolved, resolved_at: resolved ? new Date().toISOString() : null }).eq('id', id)
+      await loadNotes(openVersion); await loadVersions(projId)
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  /** Render the snapshot, not the current edit — the point of a version. */
+  async function renderVersion(v: VersionRow) {
+    setError(''); setBusy('rendering')
+    try {
+      const { data, error: e } = await db.from('studio_project_versions')
+        .select('timeline').eq('id', v.id).single()
+      if (e || !data) throw new Error(e?.message || 'versiune negăsită')
+      await renderOnWorker(data.timeline as Timeline, v.id)
+      await loadVersions(projId)
+    } catch (e) { setError('Randare versiune: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
   async function loadProject(id: string) {
     if (!id) return
     setError(''); setBusy('load')
@@ -594,6 +954,13 @@ export default function StudioPage() {
       if (typeof d.subScale === 'number') setSubScale(d.subScale)
       if (typeof d.musicUrl === 'string') setMusicUrl(d.musicUrl)
       if (typeof d.musicVol === 'number') setMusicVol(d.musicVol)
+      // resolveKit fills anything the saved copy predates, so an old project
+      // opens with the current defaults for fields it never had.
+      setKit(resolveKit((d.brandKit as Partial<BrandKit>) || null))
+      setOverlays(Array.isArray(d.overlays) ? (d.overlays as Overlay[]) : [])
+      setSfx(Array.isArray(d.sfx) ? (d.sfx as Sfx[]) : [])
+      setMusicBed(d.musicBed === true)
+      setOpenVersion(''); setNotes([]); void loadVersions(String(data.id))
       setOutUrl('')
     } catch (e) { setError('Încărcarea a eșuat: ' + (e as Error).message) } finally { setBusy('') }
   }
@@ -912,12 +1279,35 @@ export default function StudioPage() {
         }
       }
     }
-    // brand wordmark
-    ctx.font = `italic 700 ${Math.round(H * 0.026)}px Georgia, serif`
+    // brand wordmark — from the kit, so changing the kit changes the film
+    const wm = safeBox(kit)
+    ctx.font = `italic 700 ${Math.round(Math.min(W, H) * 0.032)}px ${kit.type.displayFamily}`
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
     ctx.fillStyle = 'rgba(255,255,255,0.92)'
-    ctx.fillText('Transilvania Times', W * 0.05, H * 0.07)
-    ctx.fillStyle = '#CA2222'; ctx.fillRect(W * 0.05, H * 0.085, W * 0.16, H * 0.006)
+    ctx.fillText(kit.name, wm.x * W, (wm.y + 0.03) * H)
+    ctx.fillStyle = kit.colour.accent
+    ctx.fillRect(wm.x * W, (wm.y + 0.045) * H, W * 0.16, Math.max(2, H * kit.ruleWeight))
+
+    // TITLES, drawn through the SAME compile-and-draw path as the render.
+    if (overlayTl) {
+      const fps = fpsOut === 25 ? 25 : 30
+      const f = Math.round(t * fps)
+      if (f >= 0 && f < overlayTl.duration) {
+        drawCompiled(ctx as unknown as Parameters<typeof drawCompiled>[0],
+          compileFrame(overlayTl, f), W, H, () => null, { clear: false })
+      }
+    }
+
+    // Safe area — a guide, never rendered into the file.
+    if (showSafe && kit.safeArea !== 'none') {
+      const b = safeBox(kit)
+      ctx.save()
+      ctx.strokeStyle = 'rgba(255,211,122,0.75)'
+      ctx.setLineDash([Math.max(4, W * 0.008), Math.max(4, W * 0.008)])
+      ctx.lineWidth = Math.max(1, W * 0.002)
+      ctx.strokeRect(b.x * W, b.y * H, b.w * W, b.h * H)
+      ctx.restore()
+    }
   }
   function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r)
@@ -1073,7 +1463,7 @@ export default function StudioPage() {
   // Render on our own worker. The browser never sees the worker's token: it
   // calls an admin-gated edge function, which calls the worker. The finished
   // file comes back as a URL carrying a one-time key for that job alone.
-  async function renderOnWorker(tl: Timeline) {
+  async function renderOnWorker(tl: Timeline, versionId?: string) {
     setWorkerQc(null); setWorkerStats(null)
     const created = await invokeRaw('render-worker', { action: 'create', timeline: tl })
     if (created.configured === false) {
@@ -1111,6 +1501,15 @@ export default function StudioPage() {
           setWorkerStats({ seconds: st.seconds, renderSeconds: st.renderSeconds })
         }
         setCloud({ status: 'succeeded', url: String(st.downloadUrl || ''), msg: '' })
+        // A version keeps the file and the QC report it was signed off against.
+        if (versionId) {
+          try {
+            await db.from('studio_project_versions').update({
+              render_url: String(st.downloadUrl || ''),
+              qc_report: st.qc ?? null,
+            }).eq('id', versionId)
+          } catch { /* the render stands even if the stamp fails */ }
+        }
         return
       }
     }
@@ -1285,6 +1684,227 @@ export default function StudioPage() {
                 <button onClick={() => setRefImageUrl('')} className="text-white/30 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
               </div>
             )}
+          </div>
+
+          {/* ── BRAND & TITLURI ─────────────────────────────────────────
+              The kit decides which red, which face, where type may sit and
+              what the mix is delivered to — once, for every film. Titles are
+              stored as intent and expanded into real clips at build time, so
+              improving a template improves every project that uses one. */}
+          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
+                <Type className="w-3.5 h-3.5" /> Brand și titluri
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select value={kit.id} onChange={e => setKit(kitList.find(k => k.id === e.target.value) || TT_KIT)}
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {kitList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+                </select>
+                <input type="color" value={kit.colour.accent} aria-label="Culoare accent"
+                  onChange={e => setKit(k => ({ ...k, colour: { ...k.colour, accent: e.target.value } }))}
+                  className="w-7 h-7 bg-black border border-white/10 p-0.5 cursor-pointer" />
+                <span className="text-[10px] uppercase tracking-wider text-white/25">zonă sigură</span>
+                <select value={kit.safeArea} onChange={e => setKit(k => ({ ...k, safeArea: e.target.value as SafeAreaName }))}
+                  title="Unde e sigur să pui text. Pe TikTok, partea de jos e acoperită de descriere și butoane — un subtitlu la 88% din înălțime e acolo, dar nu se vede."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {Object.keys(SAFE_AREAS).map(k => <option key={k} value={k}>{k}</option>)}
+                </select>
+                <label className="flex items-center gap-1 text-[11px] text-white/50 cursor-pointer">
+                  <input type="checkbox" checked={showSafe} onChange={e => setShowSafe(e.target.checked)} className="accent-amber-500" />
+                  arată ghidul
+                </label>
+                <span className="text-[10px] uppercase tracking-wider text-white/25">mix</span>
+                <select value={kit.loudness} onChange={e => setKit(k => ({ ...k, loudness: e.target.value as BrandKit['loudness'] }))}
+                  title="Ținta de normalizare EBU R128. −16 LUFS pentru social, −23 pentru difuzare."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  <option value="social">social · −16 LUFS</option>
+                  <option value="broadcast">difuzare · −23 LUFS</option>
+                  <option value="none">fără</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {(['title', 'lower', 'end'] as OverlayKind[]).map(k => (
+                <button key={k} onClick={() => addOverlay(k)}
+                  className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 hover:border-white/25 text-[12px] font-bold px-3 py-1.5">
+                  <Crop className="w-3.5 h-3.5" /> {OVERLAY_LABEL[k]}
+                </button>
+              ))}
+              <span className="text-[11px] text-white/25">
+                {overlays.length === 0 ? 'Fără titluri — filmul are doar subtitrări.' : `${overlays.length} pe cronologie`}
+              </span>
+            </div>
+
+            {/* ── SUNETE ─────────────────────────────────────────────────
+                Synthesised by the worker, not licensed. A cut with nothing
+                under it sounds like a slideshow. */}
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-white/[0.07]">
+              <span className="text-[10px] uppercase tracking-wider text-white/25">sunete</span>
+              <button onClick={() => sfxOnCuts('whoosh')} disabled={scenes.length < 2}
+                title="Pune un whoosh pe fiecare tăietură, puțin înaintea ei — un sunet care începe exact pe cadrul tăieturii ajunge târziu la ureche."
+                className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35 disabled:opacity-40">
+                whoosh pe tăieturi
+              </button>
+              {(['whoosh', 'impact', 'riser', 'click'] as SfxName[]).map(n => (
+                <button key={n} onClick={() => addSfx(n, 0)}
+                  className="text-[11px] px-2 py-1 border border-white/15 text-white/50 hover:border-white/35">+ {n}</button>
+              ))}
+              <label className="flex items-center gap-1 text-[11px] text-white/55 cursor-pointer"
+                title="Un pat muzical jos, sintetizat: A grav, cvinta și octava, cu un partial ușor dezacordat ca sunetul să respire. Se estompează sub voce. Un track încărcat are întâietate.">
+                <input type="checkbox" checked={musicBed} onChange={e => setMusicBed(e.target.checked)} className="accent-amber-500" />
+                pat muzical{musicUrl ? ' (ai deja track)' : ''}
+              </label>
+              {sfx.length > 0 && <button onClick={() => setSfx([])} className="text-[11px] text-white/30 hover:text-red-400">golește</button>}
+            </div>
+
+            {sfx.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {sfx.map(s2 => (
+                  <span key={s2.id} className="flex items-center gap-1.5 text-[10px] px-1.5 py-1 border border-white/12 text-white/55">
+                    {s2.name}
+                    <input type="number" min={0} step={0.1} value={s2.at}
+                      onChange={e => setSfx(x => x.map(y => y.id === s2.id ? { ...y, at: Math.max(0, Number(e.target.value)) } : y))}
+                      className="w-14 bg-black border border-white/10 text-white/80 text-[10px] px-1 py-0.5" />
+                    <input type="number" min={0} max={1} step={0.05} value={s2.gain}
+                      title="Nivel"
+                      onChange={e => setSfx(x => x.map(y => y.id === s2.id ? { ...y, gain: Math.max(0, Math.min(1, Number(e.target.value))) } : y))}
+                      className="w-12 bg-black border border-white/10 text-white/80 text-[10px] px-1 py-0.5" />
+                    <button onClick={() => delSfx(s2.id)} className="text-white/25 hover:text-red-400">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {overlays.length > 0 && (
+              <div className="space-y-2 mt-3">
+                {overlays.map(o => (
+                  <div key={o.id} className="bg-[#111] border border-white/[0.07] p-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] uppercase tracking-wider text-amber-300/80 w-24">{OVERLAY_LABEL[o.kind]}</span>
+                      <label className="text-[10px] text-white/30">la</label>
+                      <input type="number" min={0} max={180} step={0.5} value={o.at}
+                        onChange={e => setOverlay(o.id, { at: Math.max(0, Number(e.target.value)) })}
+                        className="w-16 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                      <label className="text-[10px] text-white/30">durată</label>
+                      <input type="number" min={1} max={20} step={0.5} value={o.dur}
+                        onChange={e => setOverlay(o.id, { dur: Math.max(1, Number(e.target.value)) })}
+                        className="w-16 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                      <button onClick={() => delOverlay(o.id)} className="ml-auto text-white/30 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <input value={o.a} onChange={e => setOverlay(o.id, { a: e.target.value })}
+                        placeholder={o.kind === 'lower' ? 'Nume' : 'Titlu'}
+                        className="flex-1 min-w-[140px] bg-black border border-white/10 text-white/90 text-[12px] px-2 py-1" />
+                      <input value={o.b || ''} onChange={e => setOverlay(o.id, { b: e.target.value })}
+                        placeholder={o.kind === 'lower' ? 'funcție' : o.kind === 'title' ? 'supratitlu' : 'mesaj'}
+                        className="flex-1 min-w-[120px] bg-black border border-white/10 text-white/70 text-[12px] px-2 py-1" />
+                      {o.kind !== 'lower' && (
+                        <input value={o.c || ''} onChange={e => setOverlay(o.id, { c: e.target.value })}
+                          placeholder={o.kind === 'title' ? 'subtitlu' : 'adresă web'}
+                          className="flex-1 min-w-[120px] bg-black border border-white/10 text-white/70 text-[12px] px-2 py-1" />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── REVIZUIRE ȘI APROBARE ────────────────────────────────────
+              A version is an immutable snapshot: the database refuses to let
+              its timeline change after insert, and refuses to approve it while
+              a note against it is still open. So "approved" means something,
+              and an approved film re-renders a year later byte for byte. */}
+          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5" /> Revizuire și aprobare
+              </p>
+              <button onClick={submitVersion} disabled={busy === 'version' || !projId}
+                title={projId ? 'Îngheață montajul actual ca versiune și trimite-l spre revizuire.' : 'Salvează întâi proiectul.'}
+                className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 hover:border-white/25 disabled:opacity-40 text-[12px] font-bold px-3 py-1.5">
+                {busy === 'version' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Trimite spre aprobare
+              </button>
+            </div>
+
+            {!projId && <p className="text-[12px] text-white/30">Salvează proiectul ca să poți crea versiuni.</p>}
+            {projId && versions.length === 0 && (
+              <p className="text-[12px] text-white/30">Nicio versiune încă. Montajul curent nu este înghețat nicăieri.</p>
+            )}
+
+            <div className="space-y-2">
+              {versions.map(v => (
+                <div key={v.id} className="bg-[#111] border border-white/[0.07]">
+                  <div className="flex items-center gap-2 p-2 flex-wrap">
+                    <span className="font-sans text-[12px] text-white/80 w-8">v{v.version}</span>
+                    <span className={'text-[10px] uppercase tracking-wider px-1.5 py-0.5 border ' + STATE_TONE[v.state]}>
+                      {STATE_LABEL[v.state]}
+                    </span>
+                    <span className="text-[11px] text-white/30">{new Date(v.created_at).toLocaleString('ro-RO')}</span>
+                    {v.open_notes > 0 && (
+                      <span className="text-[10px] text-amber-300/80">{v.open_notes} observații deschise</span>
+                    )}
+                    <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                      <button onClick={() => { const next = openVersion === v.id ? '' : v.id; setOpenVersion(next); void loadNotes(next) }}
+                        className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35">
+                        {openVersion === v.id ? 'Ascunde' : 'Observații'}
+                      </button>
+                      <button onClick={() => renderVersion(v)} disabled={busy === 'rendering'}
+                        title="Randează exact acest instantaneu, nu montajul curent."
+                        className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35 disabled:opacity-40">
+                        Randează
+                      </button>
+                      {v.render_url && (
+                        <a href={v.render_url} target="_blank" rel="noreferrer"
+                          className="text-[11px] px-2 py-1 border border-sky-500/40 text-sky-300/90 hover:bg-sky-500/10">Fișier</a>
+                      )}
+                      {v.state !== 'approved' && (
+                        <button onClick={() => setVersionState(v.id, 'approved')}
+                          title={v.open_notes > 0 ? 'Nu se poate aproba cât timp sunt observații deschise.' : 'Aprobă această versiune.'}
+                          className="text-[11px] px-2 py-1 border border-emerald-500/40 text-emerald-300/90 hover:bg-emerald-500/10">Aprobă</button>
+                      )}
+                      {v.state !== 'rejected' && (
+                        <button onClick={() => setVersionState(v.id, 'rejected')}
+                          className="text-[11px] px-2 py-1 border border-red-500/30 text-red-300/80 hover:bg-red-500/10">Respinge</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {openVersion === v.id && (
+                    <div className="border-t border-white/[0.07] p-2 space-y-2">
+                      {notes.length === 0 && <p className="text-[11px] text-white/25">Nicio observație pe această versiune.</p>}
+                      {notes.map(n => (
+                        <div key={n.id} className="flex items-start gap-2">
+                          <span className="font-sans text-[11px] text-amber-300/80 w-16 shrink-0 tabular-nums">
+                            {formatTc(n.frame)}
+                          </span>
+                          <p className={'text-[12px] flex-1 ' + (n.resolved ? 'text-white/25 line-through' : 'text-white/75')}>{n.body}</p>
+                          <button onClick={() => resolveNote(n.id, !n.resolved)}
+                            className="text-[10px] px-1.5 py-0.5 border border-white/15 text-white/50 hover:border-white/35 shrink-0">
+                            {n.resolved ? 'redeschide' : 'rezolvat'}
+                          </button>
+                        </div>
+                      ))}
+                      <div className="flex items-center gap-2 pt-1">
+                        <input type="number" min={0} value={noteFrame} onChange={e => setNoteFrame(Number(e.target.value))}
+                          title="Cadrul la care se referă observația."
+                          className="w-20 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                        <span className="text-[10px] text-white/25 w-16 tabular-nums">{formatTc(noteFrame)}</span>
+                        <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') void addNote() }}
+                          placeholder="Observație la acest cadru…"
+                          className="flex-1 bg-black border border-white/10 text-white/90 text-[12px] px-2 py-1" />
+                        <button onClick={addNote} disabled={!noteText.trim()}
+                          className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35 disabled:opacity-40">Adaugă</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Timeline */}
@@ -1548,6 +2168,13 @@ export default function StudioPage() {
                       <span className={'text-[11px] px-1.5 py-0.5 ' + (errors.length ? 'bg-brand-red/20 text-brand-red' : 'bg-emerald-500/15 text-emerald-300/80')}>
                         {errors.length ? `${errors.length} de corectat` : 'trec verificarea'}
                       </span>
+                      {errors.length > 0 && (
+                        <button onClick={conformSubtitles}
+                          title="Întinde replicile în pauzele dintre ele până coboară sub 17 caractere pe secundă, respectă durata minimă și închide micro-pauzele. Nu schimbă textul."
+                          className="flex items-center gap-1.5 bg-[#111] border border-amber-500/40 text-amber-300/90 text-[11px] font-bold px-2.5 py-1 hover:bg-amber-500/10">
+                          <Wand2 className="w-3 h-3" /> Corectează
+                        </button>
+                      )}
                     </div>
                     {errors.length > 0 && (
                       <ul className="mt-2 space-y-1 max-h-24 overflow-y-auto">

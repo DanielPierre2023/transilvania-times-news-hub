@@ -143,9 +143,18 @@ const PAPER = hex(kit.colour.paper)
     return -1
   })()
   ok('the title is set in type inside its band', titleBand > 0, String(titleBand))
+  // Leftmost across the WHOLE band, not on one row: a serif at 400 has thin
+  // strokes, and a single scan line can slip between the leading glyph's stems.
+  const titleLeft = (() => {
+    let best = W
+    for (let y = 0.44 * H; y < 0.66 * H; y += 2) {
+      const x = firstX(mid.ctx, y, [255, 255, 255], 70)
+      if (x >= 0 && x < best) best = x
+    }
+    return best
+  })()
   ok('...starting at the safe-area left edge, not centred in the frame',
-    titleBand > 0 && Math.abs(firstX(mid.ctx, titleBand, [255, 255, 255], 70) - box.x * W) < 60,
-    titleBand > 0 ? String(firstX(mid.ctx, titleBand, [255, 255, 255], 70)) : 'no band')
+    Math.abs(titleLeft - box.x * W) < 60, `${titleLeft} vs ${box.x * W}`)
   ok('the scrim darkens the frame rather than covering it',
     px(mid.ctx, 0.5 * W, 0.05 * H)[0] < 90)
   ok('nothing is drawn outside the safe area on the left',
@@ -164,8 +173,15 @@ const PAPER = hex(kit.colour.paper)
   ok('the accent bar sits at the safe-area left edge',
     near(px(r.ctx, box.x * W + 2, plateY), ACCENT, 40), String(px(r.ctx, box.x * W + 2, plateY)))
   ok('the plate is drawn behind the type', px(r.ctx, box.x * W + 60, plateY)[0] > 0)
+  // Measured, not recomputed from the template's own arithmetic: find the
+  // lowest accent pixel in the frame and check it clears the safe bottom.
+  const lowestAccent = (() => {
+    for (let y = H - 1; y > 0; y -= 2) if (firstX(r.ctx, y, ACCENT, 40) >= 0) return y
+    return -1
+  })()
   ok('the whole thing sits inside the vertical safe area',
-    plateY + (plateH * H) / 2 <= (box.y + box.h) * H + 8)
+    lowestAccent > 0 && lowestAccent <= (box.y + box.h) * H + 10,
+    `${lowestAccent} vs ${(box.y + box.h) * H}`)
   ok('a lower third with no role drops the role clip',
     tpl.lowerThird({ kit, fps, start: 0 }, { name: 'X' }).length === 3)
 }
@@ -178,11 +194,38 @@ const PAPER = hex(kit.colour.paper)
   const r = renderAt(clips, 60)
   ok('the end card fills the frame with the brand ground',
     near(px(r.ctx, 0.5 * W, 0.12 * H), PAPER, 20), String(px(r.ctx, 0.5 * W, 0.12 * H)))
-  ok('the publication name is set in ink on that ground',
-    px(r.ctx, 0.5 * W, 0.46 * H)[0] < 200 || px(r.ctx, 0.42 * W, 0.46 * H)[0] < 200)
-  const ruleY = (0.46 + kit.type.title * 0.62) * H
-  ok('the rule under it is accent-coloured', near(px(r.ctx, 0.5 * W, ruleY), ACCENT, 40), String(px(r.ctx, 0.5 * W, ruleY)))
-  ok('the rule is centred', Math.abs((firstX(r.ctx, ruleY, ACCENT) + lastX(r.ctx, ruleY, ACCENT)) / 2 - W / 2) < 14)
+  // Property, not coordinate: there is dark type somewhere on the light ground,
+  // above the middle of the frame.
+  let inkRow = -1
+  for (let y = 0.30 * H; y < 0.60 * H; y += 2) {
+    const row = r.ctx.getImageData(0, Math.round(y), W, 1).data
+    for (let x = 0; x < W; x++) if (row[x * 4] < 120) { inkRow = Math.round(y); break }
+    if (inkRow > 0) break
+  }
+  ok('the publication name is set in ink on that ground', inkRow > 0, String(inkRow))
+
+  // And the rule: find it wherever it is, then check it is accent-coloured and
+  // centred. Hard-coding its y made this test a restatement of the template.
+  let accentRow = -1
+  for (let y = 0.30 * H; y < 0.75 * H; y += 1) {
+    if (firstX(r.ctx, y, ACCENT, 40) >= 0) { accentRow = y; break }
+  }
+  ok('there is an accent rule under the name', accentRow > 0, String(accentRow))
+  ok('the rule sits below the name', accentRow > inkRow, `${accentRow} vs ${inkRow}`)
+  ok('the rule is centred',
+    accentRow > 0 && Math.abs((firstX(r.ctx, accentRow, ACCENT, 40) + lastX(r.ctx, accentRow, ACCENT, 40)) / 2 - W / 2) < 16,
+    accentRow > 0 ? `${firstX(r.ctx, accentRow, ACCENT, 40)}..${lastX(r.ctx, accentRow, ACCENT, 40)}` : 'no rule')
+  // The hole the first version left through the middle of the frame: the URL
+  // must belong to the block, not sit on the bottom edge of the safe area.
+  let lowestInk = -1
+  for (let y = H - 1; y > 0; y -= 2) {
+    const row = r.ctx.getImageData(0, Math.round(y), W, 1).data
+    let hit = false
+    for (let x = 0; x < W; x++) if (row[x * 4] < 200 && row[x * 4 + 2] < 200) { hit = true; break }
+    if (hit) { lowestInk = y; break }
+  }
+  ok('the block holds together — nothing is stranded near the bottom edge',
+    lowestInk > 0 && lowestInk < 0.72 * H, `${lowestInk} vs ${0.72 * H}`)
 }
 
 // ── typography that the old drawing code could not do ─────────────────────
