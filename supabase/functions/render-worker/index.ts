@@ -26,6 +26,8 @@
 //   { action: 'create', timeline }  -> { id, state }
 //   { action: 'status', job_id }    -> { state, progress, qc, downloadUrl }
 //   { action: 'health' }            -> { configured, ok, queued }
+//   { action: 'inspect', clips, referenceImage?, spec?, samples? }
+//                                   -> { takes[], best, anyAccepted, verdict }
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -172,6 +174,29 @@ serve(async (req) => {
         renderSeconds: job.renderSeconds ?? null,
         downloadUrl,
       });
+    }
+
+    // ── INSPECT ────────────────────────────────────────────────────────────
+    // Hands a batch of generated takes to the worker's vision layer and returns
+    // which of them is actually usable. Studio calls this after generating N
+    // takes of the same shot, before any of them reach the timeline.
+    if (action === 'inspect') {
+      const clips = Array.isArray(body.clips) ? body.clips : [];
+      if (!clips.length) return json({ error: 'clips is required' }, 400);
+
+      const res = await fetch(`${base}/inspect`, {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({
+          clips,
+          referenceImage: body.referenceImage ?? body.reference_image ?? null,
+          spec: body.spec ?? null,
+          samples: body.samples ?? null,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) return json({ error: payload?.error || `Worker returned ${res.status}` }, 200);
+      return json({ configured: true, ...payload });
     }
 
     if (action === 'create') {

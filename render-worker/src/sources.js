@@ -19,6 +19,28 @@ const { loadImage } = require('canvas')
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg'
 
+/**
+ * Loads stills and keeps them at full size.
+ *
+ * There WAS a multi-step downsampler here for about an hour. Stills are now
+ * generated at twice the master, and the theory was that a single bilinear
+ * reduction at 2:1 or worse would alias fine detail into moire, so the image
+ * should be halved on the way in.
+ *
+ * The theory was wrong, and the measurement is in _verification/13-resample.
+ * Against ffmpeg's Lanczos as ground truth, reducing a 3840x2160 chart to
+ * 1920x1080 gives an RMS error of, in grey levels out of 255:
+ *
+ *     one drawImage, canvas default .............. 8.87
+ *     one drawImage, patternQuality 'best' ....... 6.57
+ *     reduced to 2880 first, then drawn ......... 14.26
+ *     reduced to 2560 first, then drawn ......... 15.57
+ *
+ * Every intermediate step COMPOUNDS error rather than removing it. The whole
+ * gain — 26% closer to a correct reduction — comes from one line in draw.js
+ * asking Cairo for its good resampler instead of its default one. The clever
+ * version of this code made the picture worse than doing nothing.
+ */
 class ImageCache {
   constructor() {
     this.map = new Map()

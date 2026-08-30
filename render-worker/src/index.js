@@ -17,12 +17,24 @@ const crypto = require('crypto')
 
 const { renderTimeline } = require('./render')
 const { inspect } = require('./qc')
+const { analyseClip, judge, selectBest } = require('./vision')
 const timeline = require('./timeline')
 
 const PORT = Number(process.env.PORT || 8080)
 const TOKEN = process.env.RENDER_WORKER_TOKEN || ''
 const MAX_SECONDS = Number(process.env.MAX_RENDER_SECONDS || 600)
 const RETENTION_MS = Number(process.env.JOB_RETENTION_MS || 6 * 60 * 60 * 1000)
+// Inspection costs CPU per take. Six is enough to choose from and small enough
+// that a mistyped request cannot occupy the box for an hour.
+const MAX_TAKES = Number(process.env.MAX_TAKES || 6)
+
+/** ffmpeg will happily open a local path or a pipe; this endpoint must not. */
+function isFetchable(u) {
+  try {
+    const parsed = new URL(u)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch { return false }
+}
 
 const jobs = new Map()
 const queue = []
@@ -250,6 +262,70 @@ const server = http.createServer(async (req, res) => {
     queue.push(job)
     setImmediate(pump)
     return json(res, 202, { ...publicJob(job), queuePosition: queue.length })
+  }
+
+  // ── /inspect ───────────────────────────────────────────────────────────
+  // The closed loop. Give it the takes a generator produced and the still they
+  // were grown from; it measures each one and says which — if any — is usable.
+  //
+  // This is the endpoint the rest of the market does not have. Every other tool
+  // generates, shows you the result, and lets you decide. A shot that goes
+  // nowhere while its pixels boil is a measurable defect, and measuring it is
+  // what makes an unattended reshoot possible.
+  if (req.method === 'POST' && url.pathname === '/inspect') {
+    let body
+    try { body = await readBody(req) } catch (e) { return json(res, 400, { error: e.message }) }
+
+    const raw = Array.isArray(body.clips) ? body.clips : []
+    if (!raw.length) return json(res, 400, { error: 'clips is required' })
+    if (raw.length > MAX_TAKES) {
+      return json(res, 400, { error: `At most ${MAX_TAKES} takes per call, got ${raw.length}.` })
+    }
+
+    const clips = []
+    for (const c of raw) {
+      const u = typeof c === 'string' ? c : String(c?.url || '')
+      if (!isFetchable(u)) return json(res, 400, { error: `Not a fetchable http(s) URL: ${u.slice(0, 80)}` })
+      clips.push({ id: typeof c === 'string' ? null : (c.id ?? null), url: u })
+    }
+
+    const referenceImage = String(body.referenceImage || body.reference_image || '').trim() || null
+    if (referenceImage && !isFetchable(referenceImage)) {
+      return json(res, 400, { error: 'referenceImage must be an http(s) URL' })
+    }
+
+    const spec = body.spec && typeof body.spec === 'object' ? body.spec : {}
+    const samples = Math.max(3, Math.min(10, Number(body.samples) || 6))
+
+    // Sequential on purpose: this box renders too, and two ffmpeg fan-outs at
+    // once make both slower rather than either faster.
+    const takes = []
+    for (const clip of clips) {
+      try {
+        const analysis = await analyseClip(clip.url, { samples, referenceImage })
+        takes.push({ ...clip, ok: true, analysis, judgement: judge(analysis, spec) })
+      } catch (err) {
+        // An unreadable take is a failed take, not a failed request — the other
+        // takes still deserve to be scored.
+        takes.push({
+          ...clip, ok: false, error: err.message, analysis: null,
+          judgement: { accepted: false, score: 0, checks: [], failed: ['the take could be read at all'] },
+        })
+      }
+    }
+
+    const best = selectBest(takes.map(t => t.judgement))
+    return json(res, 200, {
+      takes,
+      best: best.index >= 0
+        ? { index: best.index, id: takes[best.index].id, url: takes[best.index].url, score: best.score }
+        : null,
+      anyAccepted: best.anyAccepted,
+      // Said plainly so the caller does not have to interpret the numbers.
+      verdict: best.anyAccepted
+        ? `${takes.filter(t => t.judgement.accepted).length} of ${takes.length} takes are usable.`
+        : `All ${takes.length} takes were rejected — reshoot.`,
+    })
   }
 
   const match = url.pathname.match(/^\/jobs\/([0-9a-f-]{36})(\/file)?$/i)

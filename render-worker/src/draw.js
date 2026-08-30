@@ -88,6 +88,22 @@ function drawShape(ctx, op) {
 
 function drawBitmap(ctx, op, bitmap) {
   if (!bitmap) return
+  // ONE LINE, AND IT IS THE WHOLE PICTURE QUALITY STORY OF THIS FILE.
+  //
+  // Stills are generated at twice the master, so every drawImage here is a
+  // reduction — usually 2:1, more when a 4K still lands in a 720p master.
+  // node-canvas defaults to Cairo's 'good' filter, which at those ratios
+  // undersamples: brick, foliage, fabric and hair turn into crawling moire
+  // that the encoder then spends bitrate on.
+  //
+  // Measured against ffmpeg's Lanczos as ground truth (_verification/13),
+  // reducing a 3840x2160 ring chart to 1920x1080, RMS error in grey levels:
+  //     canvas default ......... 8.87
+  //     patternQuality 'best' ... 6.57   <- 26% closer, one property
+  // Halving the image first, which is the intuitive fix, measured 14.26 —
+  // every intermediate resample compounds error instead of removing it.
+  ctx.patternQuality = 'best'
+  ctx.quality = 'best'
   const { x, y, w, h } = op.dest
   if (op.crop) {
     ctx.drawImage(bitmap, op.crop.x, op.crop.y, op.crop.w, op.crop.h, x, y, w, h)

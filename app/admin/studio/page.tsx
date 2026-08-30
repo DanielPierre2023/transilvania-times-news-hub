@@ -42,16 +42,30 @@ import {
 type Aspect = '9:16' | '1:1' | '4:5' | '16:9'
 type KB = 'none' | 'in' | 'out' | 'left' | 'right'
 type SubPos = 'jos' | 'treime' | 'sus'
-interface Scene { id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB; motion?: 'idle' | 'working' | 'done'; sync?: 'idle' | 'working' | 'done' }
+interface Take { url: string; score: number; accepted: boolean; why: string; move: number; shimmer: number }
+interface Scene {
+  id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB
+  motion?: 'idle' | 'working' | 'done'; sync?: 'idle' | 'working' | 'done'
+  stage?: string            // what the take machine is doing right now
+  still?: string            // the approved still a clip was grown from
+  takes?: Take[]            // every take, measured
+  verdict?: string          // said in one line, in the UI
+}
 
 // ── KLING ENGINE OPTIONS ────────────────────────────────────────────────────
 // The same API the kling.ai website drives. Studio used three fields of it.
 // Prices are audio-off, read from fal's model pages on 29 Aug 2026.
-type MotionModel = { key: string; label: string; usdPerSecond: number; maxSeconds: number; endFrame: boolean }
+type MotionModel = { key: string; label: string; usdPerSecond: number; maxSeconds: number; endFrame: boolean; negative: boolean }
+// Read from fal's own schemas, 30 Aug 2026. `negative` is not a nicety: o3 has
+// no negative_prompt field at all, so on o3 the instruction that forbids the
+// model turning a golden-hour still into a blue night is thrown away before the
+// request leaves us. Every clip in the last two films was made that way.
 const MOTION_MODELS: MotionModel[] = [
-  { key: 'o3-standard', label: 'o3 standard · $0.084/s', usdPerSecond: 0.084, maxSeconds: 15, endFrame: true },
-  { key: 'o3-pro',      label: 'o3 pro · $0.112/s',      usdPerSecond: 0.112, maxSeconds: 15, endFrame: true },
-  { key: 'v2.1',        label: '2.1 vechi · $0.05/s',    usdPerSecond: 0.05,  maxSeconds: 10, endFrame: false },
+  { key: 'v3-pro',      label: 'v3 pro · $0.112/s · negative prompt',  usdPerSecond: 0.112, maxSeconds: 15, endFrame: true,  negative: true },
+  { key: 'v3-4k',       label: 'v3 4K · $0.42/s · master 4K',          usdPerSecond: 0.42,  maxSeconds: 15, endFrame: true,  negative: true },
+  { key: 'o3-standard', label: 'o3 standard · $0.084/s · FĂRĂ negativ', usdPerSecond: 0.084, maxSeconds: 15, endFrame: true,  negative: false },
+  { key: 'o3-pro',      label: 'o3 pro · $0.112/s · FĂRĂ negativ',      usdPerSecond: 0.112, maxSeconds: 15, endFrame: true,  negative: false },
+  { key: 'v2.1',        label: '2.1 vechi · $0.05/s',                   usdPerSecond: 0.05,  maxSeconds: 10, endFrame: false, negative: true },
 ]
 const SYNC_ENGINES: { key: string; label: string }[] = [
   { key: 'latentsync', label: 'LatentSync · ~$0.20' },
@@ -98,6 +112,13 @@ const MASTERS: Record<Master, Record<Aspect, [number, number]>> = {
 }
 
 const ASPECTS: Record<Aspect, [number, number]> = MASTERS['1080']
+
+// What we ask the image model for: twice the 1080p master on each side. The
+// still is the only thing in the pipeline that cannot be improved later —
+// grade, motion and captions all inherit whatever sharpness it had.
+const MASTER_STILL: Record<Aspect, [number, number]> = {
+  '16:9': [3840, 2160], '9:16': [2160, 3840], '1:1': [2560, 2560], '4:5': [2160, 2700],
+}
 const GEMINI_VOICES: { v: string; label: string }[] = [
   { v: 'Charon', label: 'Charon · bărbat, grav' },
   { v: 'Orus', label: 'Orus · bărbat, ferm' },
@@ -193,8 +214,19 @@ export default function StudioPage() {
   const [voice] = useState('onyx')
   const [geminiVoice, setGeminiVoice] = useState('Charon')
   const [libCat, setLibCat] = useState<LibCat>('marketing')
-  const [motionModel, setMotionModel] = useState('o3-standard')
-  const [motionLoop, setMotionLoop] = useState(true)   // start frame == end frame
+  const [motionModel, setMotionModel] = useState('v3-pro')
+  // OFF by default now, and this is the single most consequential default in
+  // the file. `end_image_url` tells the model the last frame must equal the
+  // first; the cheapest way to obey is to not move. Measured on the five shots
+  // of the last delivered film: 0.00 %/s of coherent camera movement, every
+  // one. Keep it for an anchor plate that must repeat; never for b-roll.
+  const [motionLoop, setMotionLoop] = useState(false)  // start frame == end frame
+  // How many takes of each shot to shoot before choosing. A film crew does not
+  // print the first take either.
+  const [takes, setTakes] = useState(2)
+  // Kling's own default. Higher follows the prompt harder and drifts less from
+  // the still; too high and the motion goes stiff.
+  const [cfgScale, setCfgScale] = useState(0.5)
   const [syncEngine, setSyncEngine] = useState('latentsync')
   const [voUrl, setVoUrl] = useState('')
   const [voDur, setVoDur] = useState(0)
@@ -357,10 +389,19 @@ export default function StudioPage() {
       // With a reference photo attached, condition on it (image-to-image via
       // gpt-image-1) so the result actually reflects the uploaded picture.
       // Without one, fall back to text-to-image (generate-cover-image).
+      // ASK FOR THE MASTER SIZE. Until today this call sent only the aspect,
+      // and the edge function answered with 1024 on the long side — 576x1024
+      // for a vertical film whose master is 1080x1920. Every still on screen
+      // had therefore been enlarged 1.875x from a draft-grade generation, and
+      // a Ken Burns push enlarged it further. Twice the master gives the render
+      // something to downsample and the push somewhere to go.
+      const big = MASTER_STILL[imgAspect as Aspect] || MASTER_STILL['16:9']
       const r = refImageUrl
         ? await invoke<{ publicUrl: string }>('generate-image-edit', { image_urls: [refImageUrl], prompt: imgPrompt.trim(), aspect: imgAspect })
-        : await invoke<{ publicUrl: string }>('generate-cover-image', { raw_prompt: imgPrompt.trim(), aspect: imgAspect })
-      setScenes(s => [...s, { id: uid(), kind: 'image', url: r.publicUrl, name: (refImageUrl ? 'Editată · ' : 'AI · ') + imgAspect, duration: 4, kb: 'in' }])
+        : await invoke<{ publicUrl: string; provider?: string; renderedAt?: string }>('generate-cover-image',
+            { raw_prompt: imgPrompt.trim(), aspect: imgAspect, width: big[0], height: big[1] })
+      const at = (r as { renderedAt?: string }).renderedAt
+      setScenes(s => [...s, { id: uid(), kind: 'image', url: r.publicUrl, name: (refImageUrl ? 'Editată · ' : 'AI · ') + imgAspect + (at ? ` · ${at}` : ''), duration: 4, kb: 'in' }])
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }, [imgPrompt, imgAspect, refImageUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -586,50 +627,145 @@ export default function StudioPage() {
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
 
-  // ─── image → video motion (fal.ai Kling) ────────────────────────────────
+  // ─── image → video motion: the closed loop ──────────────────────────────
+  //
+  // WHAT THE REST OF THE MARKET DOES: generate one clip, show it to you, let
+  // you decide. WHAT THIS DOES: shoot several takes, MEASURE each one against
+  // the still it was grown from, and refuse the ones that failed.
+  //
+  // The measurement is not a vibe. Consecutive frames are aligned by searching
+  // for the translation and scale that best match them. What the alignment
+  // finds is coherent motion — the camera moved. What is left over after
+  // aligning is shimmer — pixels changing while the picture goes nowhere.
+  // Zero movement with high shimmer is a dead generation, and it is exactly
+  // what the last two delivered films were made of, five shots out of five.
+  //
+  // A take that fails is not quietly used. The still stays on the timeline and
+  // you are told, in numbers, what was wrong with the take.
   async function animateScene(id: string) {
     const sc = scenes.find(s => s.id === id)
     if (!sc || sc.kind !== 'image') return
+    const still = sc.url
     setError('')
-    setScenes(s => s.map(x => x.id === id ? { ...x, motion: 'working' } : x))
+    const mark = (patch: Partial<Scene>) => setScenes(s => s.map(x => x.id === id ? { ...x, ...patch } : x))
+    mark({ motion: 'working', stage: 'trimit', takes: undefined, verdict: undefined })
+
     try {
       const mm = MOTION_MODELS.find(m => m.key === motionModel) || MOTION_MODELS[0]
       const seconds = Math.max(3, Math.min(mm.maxSeconds, Math.round(sc.duration) || 5))
+      const n = Math.max(1, Math.min(4, takes))
+
       const created = await invokeRaw('generate-motion', {
         action: 'create',
-        image_url: sc.url,
+        image_url: still,
         model: mm.key,
         duration: seconds,
-        // THE LOOP. Same still in the start and end slot, so the clip returns to
-        // its opening pose and can repeat with no visible seam. This is the one
-        // thing that forced you onto kling.ai; it is a single field.
-        ...(motionLoop && mm.endFrame ? { end_image_url: sc.url } : {}),
+        takes: n,
+        // The loop is opt-in now. See the comment on motionLoop.
+        ...(motionLoop && mm.endFrame ? { end_image_url: still } : {}),
         prompt: MOTION_PROMPT,
         negative_prompt: MOTION_NEGATIVE,
+        cfg_scale: cfgScale,
         generate_audio: false,
       })
       if (created.configured === false) throw new Error(String(created.message || 'FAL_KEY lipsește.'))
       if (created.error) throw new Error(String(created.error))
-      const statusUrl = String(created.status_url || ''), responseUrl = String(created.response_url || '')
-      if (!statusUrl) throw new Error('fal nu a returnat status_url')
-      for (let i = 0; i < 75; i++) {
-        await sleep(4000)
-        const st = await invokeRaw('generate-motion', { action: 'poll', status_url: statusUrl, response_url: responseUrl })
-        if (st.error) throw new Error(String(st.error))
-        if (st.status === 'COMPLETED' && st.publicUrl) {
-          const url = String(st.publicUrl)
-          const v = await loadVideo(url)
-          setScenes(s => s.map(x => x.id === id
-            ? { ...x, kind: 'video', url, name: '🎞 ' + x.name.replace(/^🎞 /, ''), duration: Math.min(30, Math.max(1, v.duration || x.duration)), kb: 'none', motion: 'done' }
-            : x))
-          return
+
+      const jobs: { status_url: string; response_url: string }[] =
+        Array.isArray(created.jobs) && created.jobs.length
+          ? created.jobs
+          : [{ status_url: String(created.status_url || ''), response_url: String(created.response_url || '') }]
+      if (!jobs[0]?.status_url) throw new Error('fal nu a returnat status_url')
+
+      // Every take is polled in parallel — they render in parallel at fal, so
+      // polling them one after another would triple the wait for nothing.
+      mark({ stage: `filmez ${jobs.length} duble` })
+      const urls = await Promise.all(jobs.map(async (jb) => {
+        for (let i = 0; i < 75; i++) {
+          await sleep(4000)
+          const st = await invokeRaw('generate-motion', { action: 'poll', status_url: jb.status_url, response_url: jb.response_url })
+          if (st.error) throw new Error(String(st.error))
+          if (st.status === 'COMPLETED' && st.publicUrl) return String(st.publicUrl)
         }
+        throw new Error('Animarea durează neobișnuit de mult — reîncearcă.')
+      }))
+
+      // ── the measurement ───────────────────────────────────────────────
+      mark({ stage: 'măsor dublele' })
+      let measured: Take[] = urls.map(u => ({ url: u, score: 0, accepted: true, why: 'nemăsurat', move: 0, shimmer: 0 }))
+      let judged = false
+      try {
+        const insp = await invokeRaw('render-worker', {
+          action: 'inspect', clips: urls.map(u => ({ url: u })), referenceImage: still,
+        })
+        if (!insp.error && Array.isArray(insp.takes)) {
+          judged = true
+          measured = insp.takes.map((t: {
+            url: string
+            judgement?: { score?: number; accepted?: boolean; failed?: string[] }
+            analysis?: { motion?: { coherentPercentPerSecond?: number; zoomPercentPerSecond?: number; shimmerPerSecond?: number } }
+          }) => {
+            const j = t.judgement || {}
+            const m = t.analysis?.motion || {}
+            return {
+              url: t.url,
+              score: Number(j.score || 0),
+              accepted: !!j.accepted,
+              why: (j.failed || []).join(' · ') || 'trece',
+              move: Number(m.coherentPercentPerSecond || 0) + Number(m.zoomPercentPerSecond || 0),
+              shimmer: Number(m.shimmerPerSecond || 0),
+            }
+          })
+        }
+      } catch { /* the worker is optional — an unmeasured take is still a take */ }
+
+      measured = [...measured].sort((a, b) => Number(b.accepted) - Number(a.accepted) || b.score - a.score)
+      const winner = measured.find(t => t.accepted) || null
+
+      if (!winner) {
+        // Nothing usable. The still stays; you are told why, in numbers.
+        mark({
+          motion: 'idle', stage: undefined, still, takes: measured,
+          verdict: `${measured.length} duble, niciuna bună — ${measured[0]?.why || 'respinse'}. Refilmează sau alege manual.`,
+        })
+        setError('Toate dublele au fost respinse la măsurare. Detaliile sunt pe scenă.')
+        return
       }
-      throw new Error('Animarea durează neobișnuit de mult — reîncearcă.')
+
+      const v = await loadVideo(winner.url)
+      mark({
+        kind: 'video', url: winner.url, still,
+        name: '🎞 ' + sc.name.replace(/^🎞 /, ''),
+        duration: Math.min(30, Math.max(1, v.duration || sc.duration)),
+        kb: 'none', motion: 'done', stage: undefined,
+        takes: measured.length > 1 ? measured : undefined,
+        verdict: judged
+          ? `mișcare ${winner.move.toFixed(2)} %/s · fierbere ${winner.shimmer.toFixed(2)}/s` +
+            (measured.length > 1 ? ` · dubla ${measured.indexOf(winner) + 1} din ${measured.length}` : '')
+          : undefined,
+      })
     } catch (e) {
       setError('Animare: ' + (e as Error).message)
-      setScenes(s => s.map(x => x.id === id ? { ...x, motion: 'idle' } : x))
+      setScenes(s => s.map(x => x.id === id ? { ...x, motion: 'idle', stage: undefined } : x))
     }
+  }
+
+  /** Adopt a take the measurement rejected, deliberately and on the record.
+   *  NOT named useTake: a `use` prefix makes ESLint treat it as a React hook
+   *  and forbid calling it from a click handler. */
+  async function adoptTake(id: string, take: Take) {
+    const sc = scenes.find(s => s.id === id)
+    if (!sc) return
+    try {
+      const v = await loadVideo(take.url)
+      setScenes(s => s.map(x => x.id === id ? {
+        ...x, kind: 'video', url: take.url, still: x.still || x.url,
+        name: '🎞 ' + x.name.replace(/^🎞 /, ''),
+        duration: Math.min(30, Math.max(1, v.duration || x.duration)),
+        kb: 'none', motion: 'done',
+        verdict: take.accepted ? 'aleasă manual' : `aleasă manual, respinsă la măsurare (${take.why})`,
+      } : x))
+    } catch (e) { setError((e as Error).message) }
   }
 
   // ── LIPSYNC ───────────────────────────────────────────────────────────────
@@ -1165,11 +1301,23 @@ export default function StudioPage() {
                   {MOTION_MODELS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
                 </select>
                 <label className="flex items-center gap-1 text-[11px] text-white/50 cursor-pointer"
-                  title="Trimite aceeași imagine ca prim ȘI ultim cadru. Clipul se întoarce în poziția de start, deci se poate repeta fără tăietură vizibilă.">
+                  title="Trimite aceeași imagine ca prim ȘI ultim cadru. Bun pentru un plan de prezentator care se repetă; PROST pentru b-roll: modelul primește ordinul ca ultimul cadru să fie egal cu primul, iar cel mai ieftin mod de a-l respecta este să nu miște deloc.">
                   <input type="checkbox" checked={motionLoop} onChange={e => setMotionLoop(e.target.checked)}
                     className="accent-amber-500" />
                   buclă
                 </label>
+                <span className="text-white/15">·</span>
+                <span className="text-[10px] uppercase tracking-wider text-white/25">duble</span>
+                <select value={takes} onChange={e => setTakes(Number(e.target.value))}
+                  title="Câte duble filmăm din fiecare plan înainte de a alege. Fiecare dublă este măsurată; se păstrează cea care trece."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option><option value={4}>4</option>
+                </select>
+                <span className="text-[10px] uppercase tracking-wider text-white/25">cfg</span>
+                <input type="number" min={0} max={1} step={0.05} value={cfgScale}
+                  onChange={e => setCfgScale(Math.max(0, Math.min(1, Number(e.target.value))))}
+                  title="Cât de literal urmează modelul promptul. 0.5 este implicit la Kling. Mai sus înseamnă mai puțină derivă de culoare, dar mișcare mai țeapănă. Doar v3 și 2.1 acceptă acest câmp."
+                  className="w-14 bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1" />
                 <span className="text-white/15">·</span>
                 <span className="text-[10px] uppercase tracking-wider text-white/25">lipsync</span>
                 <select value={syncEngine} onChange={e => setSyncEngine(e.target.value)}
@@ -1181,7 +1329,8 @@ export default function StudioPage() {
             {scenes.length === 0 && <p className="text-[13px] text-white/30 py-6 text-center">Nicio scenă încă. Generează sau încarcă mai sus.</p>}
             <div className="space-y-2">
               {scenes.map((sc, i) => (
-                <div key={sc.id} className="flex items-center gap-3 bg-[#111] border border-white/[0.07] p-2">
+                <div key={sc.id} className="bg-[#111] border border-white/[0.07]">
+                <div className="flex items-center gap-3 p-2">
                   <span className="font-sans text-[11px] text-white/30 w-5 text-center">{i + 1}</span>
                   {sc.kind === 'image'
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1200,14 +1349,15 @@ export default function StudioPage() {
                           title="Transformă fotografia într-un clip cu mișcare reală (Kling, prin fal.ai)"
                           className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10 disabled:opacity-60">
                           {sc.motion === 'working' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                          {sc.motion === 'working' ? 'Animez…' : 'Animează'}
+                          {sc.motion === 'working' ? (sc.stage ? sc.stage + '…' : 'Animez…') : 'Animează'}
                         </button>
                         {(() => {
                           const mm = MOTION_MODELS.find(m => m.key === motionModel) || MOTION_MODELS[0]
                           const secs = Math.max(3, Math.min(mm.maxSeconds, Math.round(sc.duration) || 5))
                           return <span className="text-[10px] text-white/30">
-                            {secs}s · ${(mm.usdPerSecond * secs).toFixed(2)}
+                            {secs}s × {takes} · ${(mm.usdPerSecond * secs * takes).toFixed(2)}
                             {motionLoop && mm.endFrame ? ' · buclă' : ''}
+                            {!mm.negative && <span className="text-amber-400/70"> · fără negativ</span>}
                           </span>
                         })()}
                       </>}
@@ -1230,6 +1380,35 @@ export default function StudioPage() {
                     <button onClick={() => move(i, 1)} className="text-white/30 hover:text-white"><ArrowDown className="w-3.5 h-3.5" /></button>
                   </div>
                   <button onClick={() => del(sc.id)} className="text-white/30 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                </div>
+
+                {/* ── RAPORTUL DUBLELOR ────────────────────────────────────
+                    Numbers, not adjectives. `mișcare` is coherent camera
+                    movement as a percentage of frame width per second;
+                    `fierbere` is what is left over once the frames have been
+                    aligned — pixels changing while the picture goes nowhere.
+                    A shot with no movement and high boil is the failure this
+                    whole layer exists to catch. */}
+                {(sc.verdict || (sc.takes && sc.takes.length > 0)) && (
+                  <div className="border-t border-white/[0.07] px-2 py-1.5">
+                    {sc.verdict && (
+                      <p className={'text-[10px] ' + (sc.motion === 'done' ? 'text-emerald-400/70' : 'text-amber-400/80')}>{sc.verdict}</p>
+                    )}
+                    {sc.takes && sc.takes.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {sc.takes.map((t, ti) => (
+                          <button key={t.url} onClick={() => adoptTake(sc.id, t)}
+                            title={t.accepted ? 'Trece măsurarea. Click pentru a o folosi.' : `Respinsă: ${t.why}. Click pentru a o folosi oricum.`}
+                            className={'text-[10px] px-1.5 py-0.5 border ' + (sc.url === t.url
+                              ? 'border-emerald-500/60 text-emerald-300'
+                              : t.accepted ? 'border-white/20 text-white/60 hover:border-white/40' : 'border-red-500/30 text-red-300/70 hover:border-red-500/60')}>
+                            dubla {ti + 1} · {t.move.toFixed(2)} %/s · fierbere {t.shimmer.toFixed(2)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 </div>
               ))}
             </div>
