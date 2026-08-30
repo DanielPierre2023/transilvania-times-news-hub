@@ -26,6 +26,14 @@ const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, 
   ok('the painter takes a guides flag', /function drawFrame\([^)]*guides\s*=\s*true/.test(src))
   ok('the safe-area box is drawn only when guides are on',
     /if \(guides && showSafe/.test(src))
+  // It is now a dimmed mask OUTSIDE the frame, not a box drawn ON the picture.
+  // A dashed rectangle sitting on the image looks like content — it was
+  // reported twice, as "a strange rectangle" and as "a grid".
+  ok('the guide dims what falls outside the safe area rather than drawing a box on it',
+    /fillRect\(0, 0, W, y\)/.test(src) && /fillRect\(0, y \+ h, W, H - \(y \+ h\)\)/.test(src))
+  ok('...and it labels itself, so it cannot be read as part of the film',
+    /nu apare in film|nu apare în film/.test(raw))
+  ok('the old dashed-box style is gone', !/setLineDash/.test(src))
   ok('the recorder asks for no guides',
     /drawFrame\(ctx,\s*Math\.max\(0,\s*t\),\s*false\)/.test(src))
   ok('the preview still gets them', /drawFrame\(ctx,\s*t\)\s*$/m.test(src))

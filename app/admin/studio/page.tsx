@@ -1351,20 +1351,35 @@ export default function StudioPage() {
       }
     }
 
-    // Safe area — a guide, and `guides` is why this argument exists.
+    // ── SAFE AREA ────────────────────────────────────────────────────────
     //
-    // This function draws the preview AND feeds the browser recorder. The
-    // comment here used to read "never rendered into the file", which was true
-    // of the worker and false of the recorder: the dashed amber box was being
-    // captured into every browser render. Same shape of bug as the wordmark,
-    // found the same way — by someone watching their own film.
+    // Drawn as a DIMMED MASK outside the box, not as a dashed rectangle inside
+    // it. That is not decoration: a dashed box sitting on the picture looks
+    // exactly like something the film contains — it was reported twice as "a
+    // strange rectangle" and "a grid" — whereas a darkened border reads
+    // instantly as an overlay, because nothing in a film dims its own edges.
+    //
+    // `guides` is false while recording. The painter feeds both the preview and
+    // the browser recorder, and the comment that used to sit here said "never
+    // rendered into the file", which was true of the worker and false of the
+    // recorder.
     if (guides && showSafe && kit.safeArea !== 'none') {
       const b = safeBox(kit)
+      const x = b.x * W, y = b.y * H, w = b.w * W, h = b.h * H
       ctx.save()
-      ctx.strokeStyle = 'rgba(255,211,122,0.75)'
-      ctx.setLineDash([Math.max(4, W * 0.008), Math.max(4, W * 0.008)])
-      ctx.lineWidth = Math.max(1, W * 0.002)
-      ctx.strokeRect(b.x * W, b.y * H, b.w * W, b.h * H)
+      ctx.fillStyle = 'rgba(0,0,0,0.42)'
+      ctx.fillRect(0, 0, W, y)                       // above
+      ctx.fillRect(0, y + h, W, H - (y + h))         // below
+      ctx.fillRect(0, y, x, h)                       // left
+      ctx.fillRect(x + w, y, W - (x + w), h)         // right
+      ctx.strokeStyle = 'rgba(255,211,122,0.5)'
+      ctx.lineWidth = Math.max(1, W * 0.0015)
+      ctx.strokeRect(x, y, w, h)
+      const fs = Math.round(Math.min(W, H) * 0.018)
+      ctx.font = `600 ${fs}px Inter, system-ui, sans-serif`
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+      ctx.fillStyle = 'rgba(255,211,122,0.85)'
+      ctx.fillText(`ZONĂ SIGURĂ · ${kit.safeArea} · nu apare în film`, x + fs * 0.4, y + fs * 0.4)
       ctx.restore()
     }
   }
