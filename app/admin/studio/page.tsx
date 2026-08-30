@@ -29,6 +29,7 @@ import { formatLufs, measureAudioBuffer, planNormalisation } from '@/lib/timelin
 import type { LoudnessResult } from '@/lib/timeline/loudness'
 import { migrateLegacyProject } from '@/lib/timeline/migrate'
 import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
+import { framesToSeconds } from '@/lib/timeline/time'
 import { FPS } from '@/lib/timeline/time'
 import { validate } from '@/lib/timeline/document'
 import type { Timeline } from '@/lib/timeline/types'
@@ -157,7 +158,10 @@ export default function StudioPage() {
   const [aspect, setAspect] = useState<Aspect>('9:16')
   const [master, setMaster] = useState<Master>('1080')
   const [fpsOut, setFpsOut] = useState<25 | 30>(30)
-  const [provider, setProvider] = useState<'shotstack' | 'creatomate'>('shotstack')
+  const [provider, setProvider] = useState<'worker' | 'shotstack' | 'creatomate'>('worker')
+  // QC report from the owned worker: what the render actually delivered.
+  const [workerQc, setWorkerQc] = useState<{ passed: boolean; checks: { name: string; ok: boolean; detail: string }[] } | null>(null)
+  const [workerStats, setWorkerStats] = useState<{ seconds: number; renderSeconds: number } | null>(null)
   const [scenes, setScenes] = useState<Scene[]>([])
   const [imgPrompt, setImgPrompt] = useState('')
   const [imgAspect, setImgAspect] = useState('4:5')
@@ -510,7 +514,7 @@ export default function StudioPage() {
       if (d.aspect) setAspect(d.aspect as Aspect)
       if (d.master === '720' || d.master === '1080') setMaster(d.master)
       if (d.fpsOut === 25 || d.fpsOut === 30) setFpsOut(d.fpsOut)
-      if (d.provider === 'shotstack' || d.provider === 'creatomate') setProvider(d.provider)
+      if (d.provider === 'worker' || d.provider === 'shotstack' || d.provider === 'creatomate') setProvider(d.provider)
       if (Array.isArray(d.scenes)) setScenes(d.scenes as Scene[])
       if (typeof d.script === 'string') setScript(d.script)
       if (d.lang === 'ro' || d.lang === 'en') setLang(d.lang)
@@ -904,6 +908,53 @@ export default function StudioPage() {
     return { source: { output_format: 'mp4', width: W, height: H, elements } }
   }
 
+  // Render on our own worker. The browser never sees the worker's token: it
+  // calls an admin-gated edge function, which calls the worker. The finished
+  // file comes back as a URL carrying a one-time key for that job alone.
+  async function renderOnWorker(tl: Timeline) {
+    setWorkerQc(null); setWorkerStats(null)
+    const created = await invokeRaw('render-worker', { action: 'create', timeline: tl })
+    if (created.configured === false) {
+      setCloud({ status: 'unconfigured', url: '', msg: String(created.message || '') }); return
+    }
+    if (created.error) {
+      const problems = Array.isArray(created.problems)
+        ? ' — ' + (created.problems as { where: string; message: string }[]).map(p => `${p.where}: ${p.message}`).join('; ')
+        : ''
+      setCloud({ status: 'error', url: '', msg: String(created.error) + problems }); return
+    }
+    const id = String(created.id || '')
+    if (!id) { setCloud({ status: 'error', url: '', msg: 'Workerul nu a returnat un id.' }); return }
+
+    // A three-minute bulletin takes about nine minutes, so allow well past that.
+    for (let i = 0; i < 300; i++) {
+      await sleep(4000)
+      const st = await invokeRaw('render-worker', { action: 'status', job_id: id })
+      if (st.error) { setCloud({ status: 'error', url: '', msg: String(st.error) }); return }
+
+      const state = String(st.state || 'rendering')
+      const pct = (st.progress as { percent?: number } | null)?.percent
+      setCloud({
+        status: state === 'queued' ? 'în așteptare' : state === 'rendering' ? 'rendering' : state,
+        url: '',
+        msg: typeof pct === 'number' ? `${Math.round(pct * 100)}%` : '',
+      })
+
+      if (state === 'failed') {
+        setCloud({ status: 'failed', url: '', msg: String(st.error || 'Randare eșuată.') }); return
+      }
+      if (state.startsWith('done')) {
+        setWorkerQc((st.qc as { passed: boolean; checks: { name: string; ok: boolean; detail: string }[] }) || null)
+        if (typeof st.seconds === 'number' && typeof st.renderSeconds === 'number') {
+          setWorkerStats({ seconds: st.seconds, renderSeconds: st.renderSeconds })
+        }
+        setCloud({ status: 'succeeded', url: String(st.downloadUrl || ''), msg: '' })
+        return
+      }
+    }
+    setCloud({ status: 'timeout', url: '', msg: 'Randarea durează neobișnuit de mult.' })
+  }
+
   async function renderCloud() {
     if (scenes.length === 0) { setError('Adaugă cel puțin o scenă.'); return }
     setError(''); setCloud({ status: 'creating', url: '', msg: '' })
@@ -914,6 +965,10 @@ export default function StudioPage() {
         setCloud({ status: 'error', url: '', msg: problems.map(x => `${x.where}: ${x.message}`).join(' · ') })
         return
       }
+      // The owned worker takes the timeline itself — no spec translation, so
+      // nothing is lost between what you previewed and what is rendered.
+      if (provider === 'worker') return renderOnWorker(tl)
+
       const spec = provider === 'shotstack' ? toShotstackEdit(tl) : buildCloudSpec()
       const created = await invokeRaw('render-video', { spec, provider })
       if (created.configured === false) { setCloud({ status: 'unconfigured', url: '', msg: String(created.message || '') }); return }
@@ -1365,15 +1420,23 @@ export default function StudioPage() {
             <div className="mt-4 pt-4 border-t border-white/[0.07]">
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <span className="text-[11px] text-white/40">Serviciu</span>
-                {(['shotstack', 'creatomate'] as const).map(pv => (
-                  <button key={pv} onClick={() => setProvider(pv)}
-                    className={'px-2.5 py-1 text-[11px] border capitalize ' + (provider === pv ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>
-                    {pv}
+                {([
+                  { id: 'worker', label: 'Worker propriu' },
+                  { id: 'shotstack', label: 'Shotstack' },
+                  { id: 'creatomate', label: 'Creatomate' },
+                ] as const).map(pv => (
+                  <button key={pv.id} onClick={() => setProvider(pv.id)}
+                    className={'px-2.5 py-1 text-[11px] border ' + (provider === pv.id ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>
+                    {pv.label}
                   </button>
                 ))}
                 {scenes.length > 0 && (
                   <span className="ml-auto font-mono text-[11px] text-white/40">
-                    ≈ ${estimateCostUsd(buildTimeline()).toFixed(2)}
+                    {provider === 'worker'
+                      // Railway bills per second: 4 vCPU + 8 GB is $0.222/hour,
+                      // and the render takes roughly 3x the clip's own length.
+                      ? `≈ $${((framesToSeconds(buildTimeline().duration, buildTimeline().timebase.fps) * 3 / 3600) * 0.222).toFixed(3)} calcul`
+                      : `≈ $${estimateCostUsd(buildTimeline()).toFixed(2)}`}
                   </span>
                 )}
               </div>
@@ -1401,6 +1464,32 @@ export default function StudioPage() {
               )}
               {(cloud.status === 'error' || cloud.status === 'failed' || cloud.status === 'timeout') && cloud.msg && (
                 <p className="text-[11px] text-red-400 mt-2 leading-relaxed break-words">{cloud.msg}</p>
+              )}
+              {provider === 'worker' && (
+                <p className="text-[10.5px] text-white/35 mt-2 leading-relaxed">
+                  Randare deterministă: aceeași cronologie dă exact același fișier.
+                  Mișcarea pe cadre-cheie, atenuarea muzicii sub voce și normalizarea
+                  EBU R128 se aplică integral. Durează aproximativ de trei ori lungimea clipului.
+                </p>
+              )}
+              {workerQc && (
+                <div className={'mt-3 border px-2.5 py-2 ' + (workerQc.passed ? 'border-emerald-500/25 bg-emerald-500/[0.06]' : 'border-brand-red/40 bg-brand-red/[0.06]')}>
+                  <p className={'text-[10.5px] font-bold uppercase tracking-wider mb-1 ' + (workerQc.passed ? 'text-emerald-300/80' : 'text-brand-red')}>
+                    {workerQc.passed ? 'Control tehnic trecut' : 'Control tehnic — de verificat'}
+                    {workerStats && (
+                      <span className="ml-2 font-mono font-normal normal-case tracking-normal text-white/35">
+                        {workerStats.seconds.toFixed(1)}s randat în {workerStats.renderSeconds.toFixed(0)}s
+                      </span>
+                    )}
+                  </p>
+                  <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+                    {workerQc.checks.map((c, i) => (
+                      <li key={i} className={'text-[10.5px] leading-snug ' + (c.ok ? 'text-white/45' : 'text-brand-red')}>
+                        {c.ok ? '✓' : '✕'} {c.name} — <span className="font-mono">{c.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {cloud.status === 'succeeded' && cloud.url && (
                 <div className="mt-3 border border-white/[0.07]">

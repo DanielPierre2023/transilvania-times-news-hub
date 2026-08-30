@@ -1,8 +1,6 @@
 DO NOT COMMIT THIS FOLDER. Evidence, not repo code.
 
-Suite 6 renders a real 10-second 1080p MP4 and inspects it with ffprobe and
-ebur128: exact frame count, exact duration, delivered loudness, and the same
-timeline rendered twice producing byte-identical picture and sound.
-
-Suite 7 drives the worker over HTTP: auth, validation, the job queue, the QC
-report, and downloading the finished file.
+Suite 7 now covers the one-time download key: refused with no key, refused with
+a wrong key of the same length, refused with a short key (which is where a
+naive timing-safe comparison throws), accepted with the right one, and one
+job's key refused on another job.

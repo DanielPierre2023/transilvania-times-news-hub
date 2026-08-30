@@ -90,6 +90,7 @@ async function pump() {
       loudness: job.timeline.delivery?.loudness || 'social',
     })
     job.file = result.output
+    job.downloadKey = crypto.randomBytes(32).toString('base64url')
     job.state = job.qc.passed ? 'done' : 'done_with_warnings'
   } catch (err) {
     job.state = 'failed'
@@ -110,7 +111,12 @@ function publicJob(job) {
     qc: job.qc || null,
     seconds: job.result?.durationSeconds ?? null,
     renderSeconds: job.finishedAt ? (job.finishedAt - job.startedAt) / 1000 : null,
-    url: job.state.startsWith('done') ? `/jobs/${job.id}/file` : null,
+    // A one-time key, scoped to this job and gone when the job is swept. It
+    // lets a browser fetch the finished file directly without ever holding the
+    // worker's token — the same idea as a storage signed URL. The key only
+    // appears once the render is finished, so it cannot be handed out early.
+    downloadKey: job.state.startsWith('done') ? job.downloadKey : null,
+    path: job.state.startsWith('done') ? `/jobs/${job.id}/file` : null,
   }
 }
 
@@ -125,11 +131,48 @@ function sweep() {
 }
 setInterval(sweep, 15 * 60 * 1000).unref()
 
+function sendFile(res, job) {
+  if (!job || !job.file || !fs.existsSync(job.file)) {
+    return json(res, 409, { error: `Job is ${job ? job.state : 'unknown'}` })
+  }
+  const stat = fs.statSync(job.file)
+  res.writeHead(200, {
+    'Content-Type': job.file.endsWith('.mov') ? 'video/quicktime' : 'video/mp4',
+    'Content-Length': stat.size,
+    'Content-Disposition': `attachment; filename="${path.basename(job.file)}"`,
+    // The key is a capability, not a session. Never let a proxy keep the file.
+    'Cache-Control': 'private, no-store',
+  })
+  return fs.createReadStream(job.file).pipe(res)
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
 
+  // Only the finished file is ever fetched cross-origin, and only with a job
+  // key. Everything else is called server-to-server by the edge function.
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
+
   if (url.pathname === '/health') {
     return json(res, 200, { ok: true, running, queued: queue.length, jobs: jobs.size })
+  }
+
+  // The finished file may also be fetched with the job's own download key, so
+  // a browser can download a render without being given the worker's token.
+  const fileRoute = url.pathname.match(/^\/jobs\/([0-9a-f-]{36})\/file$/i)
+  const suppliedKey = url.searchParams.get('key') || ''
+  if (req.method === 'GET' && fileRoute && suppliedKey) {
+    const job = jobs.get(fileRoute[1])
+    const expected = job?.downloadKey || ''
+    const keyOk =
+      expected.length > 0 &&
+      suppliedKey.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(suppliedKey), Buffer.from(expected))
+    if (!keyOk) return json(res, 401, { error: 'Unauthorized' })
+    return sendFile(res, job)
   }
 
   if (!authorised(req)) return json(res, 401, { error: 'Unauthorized' })
@@ -172,14 +215,7 @@ const server = http.createServer(async (req, res) => {
     const job = jobs.get(match[1])
     if (!job) return json(res, 404, { error: 'No such job' })
     if (!match[2]) return json(res, 200, publicJob(job))
-    if (!job.file || !fs.existsSync(job.file)) return json(res, 409, { error: `Job is ${job.state}` })
-    const stat = fs.statSync(job.file)
-    res.writeHead(200, {
-      'Content-Type': job.file.endsWith('.mov') ? 'video/quicktime' : 'video/mp4',
-      'Content-Length': stat.size,
-      'Content-Disposition': `attachment; filename="${path.basename(job.file)}"`,
-    })
-    return fs.createReadStream(job.file).pipe(res)
+    return sendFile(res, job)
   }
 
   return json(res, 404, { error: 'Not found' })
