@@ -22,6 +22,17 @@ export interface PixelRect {
 
 export interface DrawOp {
   readonly clipId: string
+  /**
+   * The z of the track the op came from.
+   *
+   * The renderer needs it to separate PICTURE from GRAPHICS. The house grade is
+   * applied over the assembled cut, and a grade that also lands on the titles
+   * means the brand red is not the brand red — a warm look at 0.85 turns white
+   * type cream and pulls the accent off its own value. Broadcast practice is to
+   * grade the picture and lay graphics over it ungraded, and that split has to
+   * happen somewhere. It happens here.
+   */
+  readonly z: number
   readonly source: Source
   /** Seconds into the source media. Zero for stills, text and shapes. */
   readonly sourceTime: number
@@ -52,6 +63,17 @@ export interface CompiledFrame {
 
 /** −18 dB under the voice. Broadcast practice, and what "ducked" should mean. */
 export const DUCK_GAIN = 0.125
+
+/**
+ * Tracks at or above this z are GRAPHICS: captions, titles, lower thirds, end
+ * cards. Everything below is PICTURE. The house grade is applied to the picture
+ * only, so type keeps the colour the brand kit says it has.
+ */
+export const GRAPHICS_Z = 10
+
+export function isGraphic(op: DrawOp): boolean {
+  return op.z >= GRAPHICS_Z
+}
 
 function activeAt(clip: Clip, frame: number): boolean {
   return clip.enabled && frame >= clip.start && frame < clipEnd(clip)
@@ -111,6 +133,7 @@ function compileClip(
   width: number,
   height: number,
   fpsSeconds: (f: number) => number,
+  z: number,
 ): DrawOp {
   const local = frame - clip.start
   const t = clip.transform
@@ -158,6 +181,7 @@ function compileClip(
 
   return {
     clipId: clip.id,
+    z,
     source: clip.source,
     sourceTime: clip.source.kind === 'video' ? fpsSeconds(clip.sourceIn + local) : 0,
     dest,
@@ -185,7 +209,7 @@ export function compileFrame(tl: Timeline, frame: number): CompiledFrame {
       const local = frame - clip.start
 
       if (track.kind === 'video') {
-        const op = compileClip(clip, frame, width, height, toSeconds)
+        const op = compileClip(clip, frame, width, height, toSeconds, track.z)
         if (op.opacity > 0.001) video.push(op)
         // A video clip can also carry sound.
         if (clip.source.kind === 'video' && clip.audio) {

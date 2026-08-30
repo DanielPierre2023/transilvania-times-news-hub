@@ -199,7 +199,7 @@ export function drawFrame(
   width: number,
   height: number,
   resolve: (op: DrawOp) => unknown,
-  opts?: { readonly clear?: boolean },
+  opts?: { readonly clear?: boolean; readonly filter?: (op: DrawOp) => boolean },
 ): void {
   if (opts?.clear !== false) {
     ctx.save()
@@ -209,6 +209,7 @@ export function drawFrame(
   }
 
   for (const op of frame.video) {
+    if (opts?.filter && !opts.filter(op)) continue
     ctx.save()
     ctx.globalAlpha = Math.max(0, Math.min(1, op.opacity))
 

@@ -29,7 +29,7 @@ import { formatLufs, measureAudioBuffer, planNormalisation } from '@/lib/timelin
 import type { LoudnessResult } from '@/lib/timeline/loudness'
 import { migrateLegacyProject } from '@/lib/timeline/migrate'
 import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
-import { framesToSeconds } from '@/lib/timeline/time'
+import { framesToSeconds, formatTimecode } from '@/lib/timeline/time'
 import { FPS } from '@/lib/timeline/time'
 import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
 import { compileFrame } from '@/lib/timeline/compile'
@@ -123,9 +123,48 @@ interface Overlay {
   b?: string          // kicker / role / line
   c?: string          // subtitle / — / url
 }
+// ── REVIEW ──────────────────────────────────────────────────────────────────
+// studio_project_versions has held immutable snapshots and a
+// draft/review/approved/rejected state machine since last week, with an
+// immutability trigger on the timeline. Until now nothing in the interface
+// touched it. Of the sixteen products surveyed this morning, only two have an
+// approval workflow at all.
+type VersionState = 'draft' | 'review' | 'approved' | 'rejected'
+interface VersionRow {
+  id: string; version: number; state: VersionState; label: string | null
+  note: string | null; render_url: string | null; created_at: string
+  note_count: number; open_notes: number
+}
+interface NoteRow {
+  id: string; frame: number; body: string; resolved: boolean
+  author_name: string | null; created_at: string
+}
+const STATE_LABEL: Record<VersionState, string> = {
+  draft: 'ciornă', review: 'în revizuire', approved: 'aprobat', rejected: 'respins',
+}
+const STATE_TONE: Record<VersionState, string> = {
+  draft: 'text-white/40 border-white/15',
+  review: 'text-amber-300 border-amber-500/40',
+  approved: 'text-emerald-300 border-emerald-500/40',
+  rejected: 'text-red-300 border-red-500/40',
+}
+
 const OVERLAY_LABEL: Record<OverlayKind, string> = {
   title: 'Titlu', lower: 'Nume (burtieră)', end: 'Card final',
 }
+
+// ── SOUND DESIGN ────────────────────────────────────────────────────────────
+// A cut with nothing under it sounds like a slideshow. These are synthesised by
+// the worker from noise and a sine — no library to license, nothing to lose,
+// and the same name and length always produce the same bytes, which the
+// deterministic render depends on.
+type SfxName = 'whoosh' | 'impact' | 'riser' | 'click'
+interface Sfx { id: string; name: SfxName; at: number; gain: number }
+const SFX_LABEL: Record<SfxName, string> = {
+  whoosh: 'whoosh · tranziție', impact: 'impact · greutate',
+  riser: 'riser · tensiune', click: 'click · apariție',
+}
+const SFX_SECONDS: Record<SfxName, number> = { whoosh: 0.6, impact: 0.5, riser: 1.5, click: 0.12 }
 interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 
 // Master resolution. 720p was the only option and it is below every delivery
@@ -240,6 +279,12 @@ export default function StudioPage() {
   const [kitList, setKitList] = useState<BrandKit[]>(KITS as BrandKit[])
   const [overlays, setOverlays] = useState<Overlay[]>([])
   const [showSafe, setShowSafe] = useState(true)
+  const [sfx, setSfx] = useState<Sfx[]>([])
+  const [versions, setVersions] = useState<VersionRow[]>([])
+  const [openVersion, setOpenVersion] = useState<string>('')
+  const [notes, setNotes] = useState<NoteRow[]>([])
+  const [noteText, setNoteText] = useState('')
+  const [noteFrame, setNoteFrame] = useState(0)
   const [imgPrompt, setImgPrompt] = useState('')
   const [imgAspect, setImgAspect] = useState('4:5')
   const [refImageUrl, setRefImageUrl] = useState('')   // reference photo -> image-to-image
@@ -518,6 +563,29 @@ export default function StudioPage() {
     setOverlays(o => o.map(x => x.id === id ? { ...x, ...patch } : x))
   const delOverlay = (id: string) => setOverlays(o => o.filter(x => x.id !== id))
 
+  const addSfx = (name: SfxName, at: number) =>
+    setSfx(x => [...x, { id: uid(), name, at: Math.max(0, at), gain: name === 'impact' ? 0.5 : 0.35 }])
+  const delSfx = (id: string) => setSfx(x => x.filter(s2 => s2.id !== id))
+
+  /**
+   * Put a sound on every cut.
+   *
+   * The cut list comes from the scene durations, so this stays right when a
+   * scene is retimed — and it is the one edit that most reliably turns a
+   * sequence of plates into something that reads as cut rather than assembled.
+   */
+  const sfxOnCuts = (name: SfxName) => {
+    let t = 0
+    const next: Sfx[] = []
+    for (let i = 0; i < scenes.length - 1; i++) {
+      t += scenes[i].duration
+      // Land it slightly BEFORE the cut: a transition sound that starts on the
+      // frame of the cut arrives late to the ear.
+      next.push({ id: uid(), name, at: Math.max(0, t - SFX_SECONDS[name] * 0.55), gain: 0.35 })
+    }
+    setSfx(next)
+  }
+
   /** Expands the overlay list into real clips at a given fps. */
   const overlayClips = useCallback((fps: { n: number; d: number }): Clip[] => {
     const out: Clip[] = []
@@ -573,6 +641,27 @@ export default function StudioPage() {
         }),
       }),
       delivery: { ...tl.delivery, grade: kit.grade, loudness: kit.loudness },
+    }
+
+    // Sound design on its own track, under the voice and beside the music.
+    if (sfx.length) {
+      const sTrack = emptyTrack('audio', 'Sunete', 2)
+      tl = { ...tl, tracks: [...tl.tracks, sTrack] }
+      for (const s2 of sfx) {
+        tl = addClip(tl, sTrack.id, {
+          id: uid(), name: SFX_LABEL[s2.name],
+          source: { kind: 'audio', url: `builtin:${s2.name}` },
+          start: Math.round((s2.at * fps.n) / fps.d),
+          duration: Math.max(1, Math.round((SFX_SECONDS[s2.name] * fps.n) / fps.d)),
+          sourceIn: 0,
+          transform: { position: { x: 0.5, y: 0.5 }, scale: 1, rotation: 0, opacity: 1 },
+          fit: 'contain',
+          // Not a duck target: an accent that ducks under the voice is not an
+          // accent. Not a duck source either — it must never pull the music down.
+          audio: { gain: s2.gain },
+          fadeIn: 0, fadeOut: 0, enabled: true,
+        })
+      }
     }
 
     // Titles ride ABOVE the captions: a title card's scrim is meant to cover
@@ -656,7 +745,7 @@ export default function StudioPage() {
       // The kit travels WITH the project, not as a reference. A film approved in
       // March must still render in March's brand in September, and it would not
       // if it read a row somebody has since edited.
-      brandKit: kit, overlays }
+      brandKit: kit, overlays, sfx }
   }
   // The library lives in the database so a kit can be edited without a deploy;
   // the built-in kits stay as a fallback so Studio works before the migration
@@ -690,9 +779,105 @@ export default function StudioPage() {
         if (e) throw new Error(e.message)
         if (data?.id) setProjId(String(data.id))
       }
-      setProjName(name); await refreshProjects()
+      setProjName(name); await refreshProjects(); await loadVersions(projId)
     } catch (e) { setError('Salvarea a eșuat (rulează tt-studio-projects.sql?): ' + (e as Error).message) } finally { setBusy('') }
   }
+  // ─── review ─────────────────────────────────────────────────────────────
+  // A note lands on a FRAME, and is shown as timecode, because "around eleven
+  // seconds" is not a note anybody can act on.
+  const formatTc = useCallback(
+    (frame: number) => formatTimecode(frame, fpsOut === 25 ? FPS.pal : FPS.web),
+    [fpsOut],
+  )
+
+  const loadVersions = useCallback(async (pid: string) => {
+    if (!pid) { setVersions([]); return }
+    try {
+      const { data } = await db.from('studio_version_review')
+        .select('id, version, state, label, note, render_url, created_at, note_count, open_notes')
+        .eq('project_id', pid).order('version', { ascending: false }).limit(30)
+      setVersions((data || []) as VersionRow[])
+    } catch { /* migration not run yet */ }
+  }, [db])
+
+  const loadNotes = useCallback(async (vid: string) => {
+    if (!vid) { setNotes([]); return }
+    try {
+      const { data } = await db.from('studio_version_comments')
+        .select('id, frame, body, resolved, author_name, created_at')
+        .eq('version_id', vid).order('frame', { ascending: true })
+      setNotes((data || []) as NoteRow[])
+    } catch { setNotes([]) }
+  }, [db])
+
+  /**
+   * Snapshot the project as it stands and send it for review.
+   *
+   * The timeline goes in whole. A version is immutable — the database refuses
+   * to let its timeline be edited after insert — so what was approved stays
+   * exactly as it was approved, and can be re-rendered a year later byte for
+   * byte. That is the promise the deterministic renderer exists to keep, and
+   * this is the row that holds it.
+   */
+  async function submitVersion() {
+    if (!projId) { setError('Salvează întâi proiectul — o versiune aparține unui proiect.'); return }
+    setError(''); setBusy('version')
+    try {
+      const tl = buildTimeline()
+      const problems = validate(tl).filter(p => p.severity === 'error')
+      if (problems.length) throw new Error(problems.map(p => `${p.where}: ${p.message}`).join('; '))
+      const { data, error: e } = await db.from('studio_project_versions')
+        .insert({ project_id: projId, timeline: tl, state: 'review', label: projName || null })
+        .select('id').single()
+      if (e) throw new Error(e.message)
+      await loadVersions(projId)
+      if (data?.id) { setOpenVersion(String(data.id)); await loadNotes(String(data.id)) }
+    } catch (e) { setError('Versiune: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
+  async function setVersionState(id: string, state: VersionState) {
+    setError('')
+    try {
+      const { error: e } = await db.from('studio_project_versions')
+        .update({ state, reviewed_at: new Date().toISOString() }).eq('id', id)
+      // The database refuses approval while a note is open. Say so plainly
+      // rather than showing a Postgres error.
+      if (e) throw new Error(/observații/.test(e.message) ? e.message : e.message)
+      await loadVersions(projId)
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  async function addNote() {
+    if (!openVersion || !noteText.trim()) return
+    setError('')
+    try {
+      const { error: e } = await db.from('studio_version_comments')
+        .insert({ version_id: openVersion, frame: Math.max(0, Math.round(noteFrame)), body: noteText.trim() })
+      if (e) throw new Error(e.message)
+      setNoteText(''); await loadNotes(openVersion); await loadVersions(projId)
+    } catch (e) { setError('Observație: ' + (e as Error).message) }
+  }
+
+  async function resolveNote(id: string, resolved: boolean) {
+    try {
+      await db.from('studio_version_comments')
+        .update({ resolved, resolved_at: resolved ? new Date().toISOString() : null }).eq('id', id)
+      await loadNotes(openVersion); await loadVersions(projId)
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  /** Render the snapshot, not the current edit — the point of a version. */
+  async function renderVersion(v: VersionRow) {
+    setError(''); setBusy('rendering')
+    try {
+      const { data, error: e } = await db.from('studio_project_versions')
+        .select('timeline').eq('id', v.id).single()
+      if (e || !data) throw new Error(e?.message || 'versiune negăsită')
+      await renderOnWorker(data.timeline as Timeline, v.id)
+      await loadVersions(projId)
+    } catch (e) { setError('Randare versiune: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
   async function loadProject(id: string) {
     if (!id) return
     setError(''); setBusy('load')
@@ -725,6 +910,8 @@ export default function StudioPage() {
       // opens with the current defaults for fields it never had.
       setKit(resolveKit((d.brandKit as Partial<BrandKit>) || null))
       setOverlays(Array.isArray(d.overlays) ? (d.overlays as Overlay[]) : [])
+      setSfx(Array.isArray(d.sfx) ? (d.sfx as Sfx[]) : [])
+      setOpenVersion(''); setNotes([]); void loadVersions(String(data.id))
       setOutUrl('')
     } catch (e) { setError('Încărcarea a eșuat: ' + (e as Error).message) } finally { setBusy('') }
   }
@@ -1227,7 +1414,7 @@ export default function StudioPage() {
   // Render on our own worker. The browser never sees the worker's token: it
   // calls an admin-gated edge function, which calls the worker. The finished
   // file comes back as a URL carrying a one-time key for that job alone.
-  async function renderOnWorker(tl: Timeline) {
+  async function renderOnWorker(tl: Timeline, versionId?: string) {
     setWorkerQc(null); setWorkerStats(null)
     const created = await invokeRaw('render-worker', { action: 'create', timeline: tl })
     if (created.configured === false) {
@@ -1265,6 +1452,15 @@ export default function StudioPage() {
           setWorkerStats({ seconds: st.seconds, renderSeconds: st.renderSeconds })
         }
         setCloud({ status: 'succeeded', url: String(st.downloadUrl || ''), msg: '' })
+        // A version keeps the file and the QC report it was signed off against.
+        if (versionId) {
+          try {
+            await db.from('studio_project_versions').update({
+              render_url: String(st.downloadUrl || ''),
+              qc_report: st.qc ?? null,
+            }).eq('id', versionId)
+          } catch { /* the render stands even if the stamp fails */ }
+        }
         return
       }
     }
@@ -1492,6 +1688,41 @@ export default function StudioPage() {
               </span>
             </div>
 
+            {/* ── SUNETE ─────────────────────────────────────────────────
+                Synthesised by the worker, not licensed. A cut with nothing
+                under it sounds like a slideshow. */}
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-white/[0.07]">
+              <span className="text-[10px] uppercase tracking-wider text-white/25">sunete</span>
+              <button onClick={() => sfxOnCuts('whoosh')} disabled={scenes.length < 2}
+                title="Pune un whoosh pe fiecare tăietură, puțin înaintea ei — un sunet care începe exact pe cadrul tăieturii ajunge târziu la ureche."
+                className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35 disabled:opacity-40">
+                whoosh pe tăieturi
+              </button>
+              {(['whoosh', 'impact', 'riser', 'click'] as SfxName[]).map(n => (
+                <button key={n} onClick={() => addSfx(n, 0)}
+                  className="text-[11px] px-2 py-1 border border-white/15 text-white/50 hover:border-white/35">+ {n}</button>
+              ))}
+              {sfx.length > 0 && <button onClick={() => setSfx([])} className="text-[11px] text-white/30 hover:text-red-400">golește</button>}
+            </div>
+
+            {sfx.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {sfx.map(s2 => (
+                  <span key={s2.id} className="flex items-center gap-1.5 text-[10px] px-1.5 py-1 border border-white/12 text-white/55">
+                    {s2.name}
+                    <input type="number" min={0} step={0.1} value={s2.at}
+                      onChange={e => setSfx(x => x.map(y => y.id === s2.id ? { ...y, at: Math.max(0, Number(e.target.value)) } : y))}
+                      className="w-14 bg-black border border-white/10 text-white/80 text-[10px] px-1 py-0.5" />
+                    <input type="number" min={0} max={1} step={0.05} value={s2.gain}
+                      title="Nivel"
+                      onChange={e => setSfx(x => x.map(y => y.id === s2.id ? { ...y, gain: Math.max(0, Math.min(1, Number(e.target.value))) } : y))}
+                      className="w-12 bg-black border border-white/10 text-white/80 text-[10px] px-1 py-0.5" />
+                    <button onClick={() => delSfx(s2.id)} className="text-white/25 hover:text-red-400">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+
             {overlays.length > 0 && (
               <div className="space-y-2 mt-3">
                 {overlays.map(o => (
@@ -1525,6 +1756,101 @@ export default function StudioPage() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* ── REVIZUIRE ȘI APROBARE ────────────────────────────────────
+              A version is an immutable snapshot: the database refuses to let
+              its timeline change after insert, and refuses to approve it while
+              a note against it is still open. So "approved" means something,
+              and an approved film re-renders a year later byte for byte. */}
+          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5" /> Revizuire și aprobare
+              </p>
+              <button onClick={submitVersion} disabled={busy === 'version' || !projId}
+                title={projId ? 'Îngheață montajul actual ca versiune și trimite-l spre revizuire.' : 'Salvează întâi proiectul.'}
+                className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 hover:border-white/25 disabled:opacity-40 text-[12px] font-bold px-3 py-1.5">
+                {busy === 'version' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Trimite spre aprobare
+              </button>
+            </div>
+
+            {!projId && <p className="text-[12px] text-white/30">Salvează proiectul ca să poți crea versiuni.</p>}
+            {projId && versions.length === 0 && (
+              <p className="text-[12px] text-white/30">Nicio versiune încă. Montajul curent nu este înghețat nicăieri.</p>
+            )}
+
+            <div className="space-y-2">
+              {versions.map(v => (
+                <div key={v.id} className="bg-[#111] border border-white/[0.07]">
+                  <div className="flex items-center gap-2 p-2 flex-wrap">
+                    <span className="font-sans text-[12px] text-white/80 w-8">v{v.version}</span>
+                    <span className={'text-[10px] uppercase tracking-wider px-1.5 py-0.5 border ' + STATE_TONE[v.state]}>
+                      {STATE_LABEL[v.state]}
+                    </span>
+                    <span className="text-[11px] text-white/30">{new Date(v.created_at).toLocaleString('ro-RO')}</span>
+                    {v.open_notes > 0 && (
+                      <span className="text-[10px] text-amber-300/80">{v.open_notes} observații deschise</span>
+                    )}
+                    <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                      <button onClick={() => { const next = openVersion === v.id ? '' : v.id; setOpenVersion(next); void loadNotes(next) }}
+                        className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35">
+                        {openVersion === v.id ? 'Ascunde' : 'Observații'}
+                      </button>
+                      <button onClick={() => renderVersion(v)} disabled={busy === 'rendering'}
+                        title="Randează exact acest instantaneu, nu montajul curent."
+                        className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35 disabled:opacity-40">
+                        Randează
+                      </button>
+                      {v.render_url && (
+                        <a href={v.render_url} target="_blank" rel="noreferrer"
+                          className="text-[11px] px-2 py-1 border border-sky-500/40 text-sky-300/90 hover:bg-sky-500/10">Fișier</a>
+                      )}
+                      {v.state !== 'approved' && (
+                        <button onClick={() => setVersionState(v.id, 'approved')}
+                          title={v.open_notes > 0 ? 'Nu se poate aproba cât timp sunt observații deschise.' : 'Aprobă această versiune.'}
+                          className="text-[11px] px-2 py-1 border border-emerald-500/40 text-emerald-300/90 hover:bg-emerald-500/10">Aprobă</button>
+                      )}
+                      {v.state !== 'rejected' && (
+                        <button onClick={() => setVersionState(v.id, 'rejected')}
+                          className="text-[11px] px-2 py-1 border border-red-500/30 text-red-300/80 hover:bg-red-500/10">Respinge</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {openVersion === v.id && (
+                    <div className="border-t border-white/[0.07] p-2 space-y-2">
+                      {notes.length === 0 && <p className="text-[11px] text-white/25">Nicio observație pe această versiune.</p>}
+                      {notes.map(n => (
+                        <div key={n.id} className="flex items-start gap-2">
+                          <span className="font-sans text-[11px] text-amber-300/80 w-16 shrink-0 tabular-nums">
+                            {formatTc(n.frame)}
+                          </span>
+                          <p className={'text-[12px] flex-1 ' + (n.resolved ? 'text-white/25 line-through' : 'text-white/75')}>{n.body}</p>
+                          <button onClick={() => resolveNote(n.id, !n.resolved)}
+                            className="text-[10px] px-1.5 py-0.5 border border-white/15 text-white/50 hover:border-white/35 shrink-0">
+                            {n.resolved ? 'redeschide' : 'rezolvat'}
+                          </button>
+                        </div>
+                      ))}
+                      <div className="flex items-center gap-2 pt-1">
+                        <input type="number" min={0} value={noteFrame} onChange={e => setNoteFrame(Number(e.target.value))}
+                          title="Cadrul la care se referă observația."
+                          className="w-20 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                        <span className="text-[10px] text-white/25 w-16 tabular-nums">{formatTc(noteFrame)}</span>
+                        <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') void addNote() }}
+                          placeholder="Observație la acest cadru…"
+                          className="flex-1 bg-black border border-white/10 text-white/90 text-[12px] px-2 py-1" />
+                        <button onClick={addNote} disabled={!noteText.trim()}
+                          className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35 disabled:opacity-40">Adaugă</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Timeline */}

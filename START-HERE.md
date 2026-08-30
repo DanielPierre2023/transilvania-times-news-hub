@@ -1,160 +1,126 @@
-# tt-brand — the brand kit, the titles, and a bug worth the whole session
+# tt-phase1 — the rest of phase 1
 
-Phase 1 of the plan, minus the legal phase you struck out. Plus one thing I
-found while checking my own work that changes how you should read every film
-this tool has ever produced.
-
----
-
-## READ THIS FIRST — red and blue were swapped in every render
-
-The worker draws frames on a canvas and pipes raw pixels to ffmpeg. node-canvas
-hands back Cairo's native ARGB32, which on a little-endian machine is **B, G, R,
-A** in memory. The pipe told ffmpeg `rgba`.
-
-Measured, before and after, on a `#CA2222` rectangle:
-
-| | R | G | B |
-|---|---|---|---|
-| what it should be | 202 | 34 | 34 |
-| what came out | **33** | 33 | **202** |
-| after the fix | 201 | 31 | 32 |
-
-Every frame of every render. The browser preview never had it — that draws
-straight to a visible canvas — so **the preview looked right and the file did
-not**, which is the worst shape a bug can take.
-
-This is the real reason a warm golden-hour still arrived on screen cold and
-blue. When I measured the delivered film and found B−R of +60, +39 and +49
-across its shots, I read that as the generation model drifting and built a
-negative prompt and a shot-matching grade to fight it. The model was fine. It
-was one word in one ffmpeg argument, and I had been measuring my own bug.
-
-The fix is `bgra`. `_verification/15-colour.cjs` renders four real swatches
-through the real encoder and asserts both that they land on the right colour
-*and* that they are not the red/blue swap, so this cannot come back quietly.
-
-**Re-render anything you still care about.** Every existing master is wrong.
+Three things: the grade stops landing on the titles, review and approval get a
+screen, and a cut stops sounding like a slideshow.
 
 ---
 
-## What the film can now contain
+## 1 · The grade belongs to the picture, not to the titles
 
-Until today a Studio film had exactly one piece of typography in it: the
-subtitle. There was no title card, no name under a face, no end card — not
-because they were unimplemented but because there was nowhere to express them.
+Last drop's sample title card came out warm cream instead of white, because the
+house look was applied over the whole composite after the fact. A warm look at
+0.85 turns white type cream and pulls the accent off its own value — at which
+point the brand red is not the brand red and the kit is decoration.
 
-### The kit
+Broadcast practice is to grade the picture and lay graphics over it ungraded.
+The frame loop now draws twice when — and only when — there is both a grade and
+something to protect from it: picture into the main encoder, graphics into a
+second stream carrying alpha, composited after the grade. With no grade, or no
+graphics, it is exactly the old single pass, because paying for a second encode
+to protect nothing would be silly.
 
-One object answers, once and for every film: which red, which two faces, the
-type scale, the house grade, the delivery loudness, and **where type is allowed
-to sit**. It lives in `studio_brand_kits` so it can be edited without a deploy,
-and a **copy travels with each project** — a film approved in March must still
-render in March's brand in September, and it would not if it read a row somebody
-has since edited. Same reasoning as the immutable version snapshots.
+`GRAPHICS_Z = 10` is the line: captions, titles, lower thirds and end cards sit
+at or above it, picture below.
 
-### Safe areas
+`_verification/16-layers.cjs` renders a grey picture with a white bar over it
+under a full-strength golden look and measures both: the picture must move warm,
+the bar must stay white. See `graded-picture-ungraded-title.png` — the type is
+now white and the rule is the actual brand red.
 
-A caption pinned at 88% of frame height sits underneath TikTok's own caption
-block: present in the file, invisible to the viewer. Caption position is now
-clamped into the safe box, and the preview draws the guide. Broadcast is the
-EBU-style 5% inset; the social figures are house defaults measured off the apps'
-own overlays, which is exactly why they are editable rather than hard-coded.
+## 2 · Review and approval
 
-### Three templates
+`studio_project_versions` has held immutable snapshots and a
+draft / review / approved / rejected state machine since last week, with a
+trigger that refuses to let a version's timeline change after insert. Nothing in
+the interface touched it. Of the sixteen products surveyed yesterday, only Canva
+and Frame.io have an approval workflow at all.
 
-`Titlu`, `Nume (burtieră)`, `Card final` — see the two sample frames in this
-folder, straight out of the encoder.
+Studio now has a **Revizuire și aprobare** panel:
 
-They are **not** a new thing the renderer understands. Each is a function that
-returns ordinary clips: rectangles and text, with keyframes. That choice is the
-whole design — the preview and the render already draw rectangles and text, so a
-title card previews exactly as it renders with no second implementation; every
-element stays selectable and trimmable afterwards, because it is a real clip;
-and "nudge that up twenty pixels" is possible, which is the note that arrives on
-every job.
+- **Trimite spre aprobare** freezes the current cut as a version.
+- Each version shows its state, its age and how many notes are still open.
+- **Observații** are timecoded — frames, not seconds, because a note that lands
+  between two frames is a note about neither of them.
+- **Randează** renders *that snapshot*, not the current edit, and stamps the
+  file and the QC report back onto the version. That is the deterministic
+  renderer's promise made usable: an approved film re-renders a year later byte
+  for byte.
+- **Aprobă** is refused by the database while a note against the version is
+  still open. Without that rule, approval is a button somebody clicks and the
+  notes sit there for ever.
 
-Stored as **intent** — kind, when, how long, what it says — and expanded at build
-time, so improving a template improves every project that already uses one.
+New migration: `studio_version_comments`, plus the approval guard and a
+`studio_version_review` view the screen reads in one query.
 
-### One drawing implementation
+## 3 · Sound design, synthesised
 
-The worker had its own `draw.js` and the Studio preview had its own canvas code,
-agreeing only by luck. Letter-spaced kickers, three-line titles and rules with a
-real thickness would have had to be written twice. `lib/timeline/draw.ts` is now
-the single implementation, compiled into the worker's `dist/timeline` alongside
-the rest of the module. `compile.ts` was always described as "the seam that
-makes the renderer replaceable"; this is the other half of it.
+A cut with nothing under it sounds like a slideshow. The usual fix is a library
+of whooshes, which means licensing, hosting and a picker — a content-acquisition
+problem wearing an engineering hat.
 
-Two capabilities came with it that the old code could not do at all:
-**letter spacing** (done by hand, because node-canvas has no `ctx.letterSpacing`
-and Chrome does — doing it manually means a kicker is tracked identically in the
-preview and in the file) and **shapes with a size**, without which a rule under a
-title could only ever be a full frame scaled uniformly.
+Four sounds are generated by ffmpeg from noise and a sine, which is what most
+transition sounds are underneath: **whoosh, impact, riser, click**. A timeline
+refers to one as `builtin:whoosh`, so the document stays declarative and there
+is no asset to lose.
+
+**whoosh pe tăieturi** puts one slightly *before* every cut — a transition sound
+that starts on the frame of the cut arrives late to the ear. The cut list comes
+from the scene durations, so it stays right when a scene is retimed.
+
+They sit on their own audio track: not a duck target, because an accent that
+ducks under the voice is not an accent, and not a duck source, because it must
+never pull the music down.
+
+*One thing this exposed:* `anoisesrc` seeds itself from the clock, so the same
+whoosh came out as different bytes on every render. The renderer's whole
+contract is that one timeline produces one file. Seed pinned, output bit-exact,
+and asserted.
 
 ---
 
-## Deploy, in this order
+## Deploy
 
 **1 · SQL** — Supabase SQL editor:
 
 ```
-supabase/migrations/20260830120000_studio_brand_kits.sql
+supabase/migrations/20260830140000_studio_version_comments.sql
 ```
 
-Idempotent. Creates the kit library, adds two columns to `studio_projects`, and
-seeds the Transilvania Times kit as the default.
-
-**2 · Repo** — commit and push; Netlify and Railway both build from it.
+**2 · Repo** — commit and push:
 
 ```
-lib/brand/kit.ts                 (new)  the kit, safe areas, caption rules
-lib/brand/templates.ts           (new)  title card, lower third, end card
-lib/timeline/draw.ts             (new)  the one drawing implementation
-lib/timeline/types.ts                   letterSpacing, maxLines, shadow, shape size
-lib/timeline/compile.ts                 sized shapes
-lib/timeline/index.ts                   exports draw
-render-worker/src/render.js             ★ the bgra fix
-render-worker/src/draw.js               now delegates to the shared module
-app/admin/studio/page.tsx               the Brand și titluri panel
+lib/timeline/compile.ts          every draw op carries its track z
+lib/timeline/draw.ts             drawFrame can take one layer
+lib/timeline/index.ts            exports GRAPHICS_Z / isGraphic
+render-worker/src/render.js      two-layer render, composite after grade,
+                                 built-in sounds resolved before the mix
+render-worker/src/sfx.js  (new)  the four synthesised sounds
+app/admin/studio/page.tsx        review panel, sound row, sfx on the timeline
 ```
 
-**3 · Check** — Studio gains a **Brand și titluri** panel above the timeline:
-kit, accent colour, safe area, guide toggle, mix target, and three buttons. Add
-a title, scrub the preview: what you see is what the file gets, through the same
-compile-and-draw path.
-
----
+**3 · Check** — the Studio gains a **Revizuire și aprobare** panel and a
+**sunete** row under Brand și titluri. Save a project, submit a version, add a
+note at a frame, try to approve it: the database will refuse until the note is
+resolved.
 
 ## Verification
 
-**377 assertions, all passing.** New this round:
+**407 assertions, all passing.**
 
 ```
-node _verification/14-brand.cjs    38   the templates, checked by DRAWING them
-                                        and reading the pixels back — including
-                                        that a rule grows from its left edge
-                                        rather than stretching from its centre
-node _verification/15-colour.cjs   10   four swatches through the real encoder
-node _verification/13-resample.cjs  8   now also asserts the worker delegates
-                                        rather than keeping a second copy
+node _verification/16-layers.cjs   11   grade on the picture, not the titles
+node _verification/17-sound.cjs    19   the sounds are the right length, are not
+                                        silence, have the right SHAPE (a whoosh
+                                        swells, an impact decays, a riser rises),
+                                        are byte-identical between runs, and land
+                                        where the timeline put them
 ```
 
-`tsc --noEmit` → 0 errors. `eslint app lib` → 0 errors, 41 warnings (unchanged
-baseline).
+`tsc --noEmit` → 0 errors. `eslint app lib` → 0 errors, 41 warnings (unchanged).
 
----
+## Phase 1 is now complete
 
-## Known, and next
-
-**The grade currently applies to the graphics as well as the picture.** Look at
-the sample title card: the type is warm cream rather than white, because the
-house look is applied over the whole composite after the fact. Broadcast
-practice is to grade the picture and lay graphics on top ungraded, or your brand
-red is not your brand red. Fixing it properly means rendering the graphics as a
-separate pass with alpha and compositing after the grade — about forty lines in
-the worker, and the first thing in the next drop rather than a rushed change at
-the end of this one.
-
-Then the rest of phase 1: the approval screen over the versions table that
-already exists in the database, and the sound-design layer.
+Approval, brand kit, designed titles, safe areas, sound design. Next is phase 2
+— brief to film in one step, continuity across shots with `elements` and
+`multi_prompt`, and variants in one pass — or the full Transilvania Times spot
+on the fixed pipeline, whichever you want first.

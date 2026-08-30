@@ -46,6 +46,7 @@ export type {
   Transform,
 } from './types'
 
+export { GRAPHICS_Z, isGraphic } from './compile'
 export { evalNumber, evalPoint, ramp } from './animate'
 
 export type { Ctx2D } from './draw'

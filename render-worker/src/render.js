@@ -21,6 +21,7 @@ const { drawFrame } = require('./draw')
 const { ImageCache, VideoTap, FFMPEG } = require('./sources')
 const { collectAudio, mixAudio, normalise, run } = require('./audio')
 const { gradeFilm } = require('./grade')
+const { resolveBuiltins } = require('./sfx')
 const timeline = require('./timeline')
 
 const CODECS = {
@@ -79,6 +80,25 @@ async function renderTimeline(tl, opts = {}) {
   const clipsById = new Map()
   for (const track of tl.tracks) for (const clip of track.clips) clipsById.set(clip.id, clip)
 
+  // ── PICTURE AND GRAPHICS ARE TWO LAYERS ─────────────────────────────────
+  //
+  // The house grade is applied over the assembled cut. Applied over the whole
+  // COMPOSITE it also lands on the titles, and a warm look at 0.85 turns white
+  // type cream and pulls the accent off its own value — the brand red stops
+  // being the brand red. Broadcast practice is to grade the picture and lay
+  // graphics on top ungraded.
+  //
+  // So when there is both a grade and something to protect from it, the frame
+  // loop draws twice: picture into the main encoder, graphics into a second
+  // stream that carries alpha, and the two are composited after the grade.
+  // When either is absent this is exactly the old single pass, because paying
+  // for a second encode to protect nothing would be silly.
+  const gradeSpec = tl.delivery && tl.delivery.grade
+  const gradeActive = !!(gradeSpec && gradeSpec.look && gradeSpec.look !== 'none')
+  const hasGraphics = tl.tracks.some(t =>
+    t.kind === 'video' && t.enabled !== false && t.z >= timeline.GRAPHICS_Z && t.clips.length > 0)
+  const splitLayers = gradeActive && hasGraphics
+
   const encoder = spawn(FFMPEG, [
     '-hide_banner', '-loglevel', 'error', '-y',
     // BGRA, NOT RGBA.
@@ -111,15 +131,42 @@ async function renderTimeline(tl, opts = {}) {
     encoder.on('error', reject)
   })
 
+  // The graphics stream. PNG in a MOV: lossless and, critically, it keeps the
+  // alpha channel, which every delivery codec here throws away.
+  const gfxPath = path.join(workDir, 'graphics.mov')
+  const gfxCanvas = splitLayers ? createCanvas(width, height) : null
+  const gfxCtx = gfxCanvas ? gfxCanvas.getContext('2d') : null
+  let gfxEncoder = null
+  let gfxDone = Promise.resolve()
+  if (splitLayers) {
+    gfxEncoder = spawn(FFMPEG, [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'rawvideo', '-pix_fmt', 'bgra',
+      '-s', `${width}x${height}`, '-r', String(fps),
+      '-i', 'pipe:0',
+      '-c:v', 'png', '-pix_fmt', 'rgba',
+      '-r', String(fps),
+      gfxPath,
+    ])
+    let gfxErr = ''
+    gfxEncoder.stderr.on('data', d => { gfxErr += d.toString() })
+    gfxDone = new Promise((resolve, reject) => {
+      gfxEncoder.on('close', code => code === 0 ? resolve() : reject(new Error(`graphics encoder exited ${code}: ${gfxErr.slice(-2000)}`)))
+      gfxEncoder.on('error', reject)
+    })
+  }
+
   // One persistent error handler. Attaching a fresh one per frame leaks
   // listeners — at 25 fps the warning fires within half a second of video.
   let writeError = null
   encoder.stdin.on('error', err => { writeError = err })
-  const write = buffer => new Promise((resolve, reject) => {
+  const writeTo = (proc, buffer) => new Promise((resolve, reject) => {
     if (writeError) { reject(writeError); return }
-    if (encoder.stdin.write(buffer)) resolve()
-    else encoder.stdin.once('drain', resolve)
+    if (proc.stdin.write(buffer)) resolve()
+    else proc.stdin.once('drain', resolve)
   })
+  const write = buffer => writeTo(encoder, buffer)
+  if (gfxEncoder) gfxEncoder.stdin.on('error', err => { writeError = err })
 
   try {
     for (let f = 0; f < totalFrames; f++) {
@@ -136,12 +183,23 @@ async function renderTimeline(tl, opts = {}) {
         bitmaps.set(op.clipId, await tap.next())
       }
 
-      drawFrame(ctx, compiled, width, height, op => {
+      const resolve = op => {
         if (op.source.kind === 'video') return bitmaps.get(op.clipId) || null
         return images.map.get(op.source.url) || null
-      })
+      }
 
-      await write(canvas.toBuffer('raw'))
+      if (splitLayers) {
+        drawFrame(ctx, compiled, width, height, resolve, { filter: op => !timeline.isGraphic(op) })
+        // Transparent, not black: the graphics layer is a matte and everything
+        // it does not cover must let the picture through.
+        gfxCtx.clearRect(0, 0, width, height)
+        drawFrame(gfxCtx, compiled, width, height, resolve, { clear: false, filter: timeline.isGraphic })
+        await write(canvas.toBuffer('raw'))
+        await writeTo(gfxEncoder, gfxCanvas.toBuffer('raw'))
+      } else {
+        drawFrame(ctx, compiled, width, height, resolve)
+        await write(canvas.toBuffer('raw'))
+      }
 
       if (f % Math.max(1, Math.round(fps)) === 0) {
         onProgress({ phase: 'video', frame: f, total: totalFrames, percent: f / totalFrames })
@@ -152,7 +210,9 @@ async function renderTimeline(tl, opts = {}) {
   }
 
   encoder.stdin.end()
+  if (gfxEncoder) gfxEncoder.stdin.end()
   await encoderDone
+  await gfxDone
 
   /* ------------------------------------------------------------------ grade */
   // Applied once over the assembled cut, per shot, using the timeline's own cut
@@ -161,8 +221,7 @@ async function renderTimeline(tl, opts = {}) {
 
   let gradeReport = null
   let picture = silentVideo
-  const gradeSpec = tl.delivery && tl.delivery.grade
-  if (gradeSpec && gradeSpec.look && gradeSpec.look !== 'none') {
+  if (gradeActive) {
     const cuts = timeline.cutFrames(tl)
     const shots = []
     for (let i = 0; i < cuts.length - 1; i++) {
@@ -177,11 +236,34 @@ async function renderTimeline(tl, opts = {}) {
     }
   }
 
+  /* --------------------------------------------------------------- compose */
+  // Graphics go on AFTER the grade, which is the whole point of having drawn
+  // them separately. One extra encode, and only on films that have both.
+  if (splitLayers && fs.existsSync(gfxPath)) {
+    onProgress({ phase: 'compose', percent: 0.88 })
+    const composed = path.join(workDir, `composed.${extension}`)
+    await run([
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', picture, '-i', gfxPath,
+      '-filter_complex', '[0:v][1:v]overlay=format=auto:shortest=0[vout]',
+      '-map', '[vout]',
+      ...codec,
+      '-r', String(fps),
+      composed,
+    ])
+    picture = composed
+  }
+
   /* ------------------------------------------------------------------ sound */
 
   onProgress({ phase: 'audio', percent: 0.9 })
 
-  const audioItems = collectAudio(tl, frames => timeline.framesToSeconds(frames, rational))
+  // Built-in sound design is synthesised here, so the timeline can refer to
+  // `builtin:whoosh` and nothing downstream has to know it was not a file.
+  const audioItems = await resolveBuiltins(
+    collectAudio(tl, frames => timeline.framesToSeconds(frames, rational)),
+    workDir,
+  )
   let loudness = null
   let audioPath = null
 
