@@ -24,6 +24,8 @@ export type {
   Clip,
   ClipAudio,
   DeliverySpec,
+  GradeSpec,
+  LookName,
   Ease,
   Fit,
   Keyframe,

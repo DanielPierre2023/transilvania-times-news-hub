@@ -23,6 +23,9 @@ export const DEFAULT_DELIVERY: DeliverySpec = {
   loudness: 'social',
   codec: 'h264',
   captions: ['burn', 'srt'],
+  // A grade is on by default. Every film that shipped without one looked like
+  // five different films.
+  grade: { look: 'warm', strength: 0.85 },
 }
 
 export const IDENTITY_TRANSFORM: Transform = {

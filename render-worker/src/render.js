@@ -20,6 +20,7 @@ const { createCanvas } = require('canvas')
 const { drawFrame } = require('./draw')
 const { ImageCache, VideoTap, FFMPEG } = require('./sources')
 const { collectAudio, mixAudio, normalise, run } = require('./audio')
+const { gradeFilm } = require('./grade')
 const timeline = require('./timeline')
 
 const CODECS = {
@@ -137,6 +138,29 @@ async function renderTimeline(tl, opts = {}) {
   encoder.stdin.end()
   await encoderDone
 
+  /* ------------------------------------------------------------------ grade */
+  // Applied once over the assembled cut, per shot, using the timeline's own cut
+  // list. This is what makes independently generated shots read as one film.
+  onProgress({ phase: 'grade', percent: 0.86 })
+
+  let gradeReport = null
+  let picture = silentVideo
+  const gradeSpec = tl.delivery && tl.delivery.grade
+  if (gradeSpec && gradeSpec.look && gradeSpec.look !== 'none') {
+    const cuts = timeline.cutFrames(tl)
+    const shots = []
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const a = timeline.framesToSeconds(cuts[i], rational)
+      const b = timeline.framesToSeconds(cuts[i + 1], rational)
+      if (b - a > 0.25) shots.push({ start: a, end: b })
+    }
+    if (shots.length) {
+      const graded = path.join(workDir, `graded.${extension}`)
+      gradeReport = await gradeFilm(picture, graded, shots, gradeSpec)
+      if (gradeReport.applied) picture = graded
+    }
+  }
+
   /* ------------------------------------------------------------------ sound */
 
   onProgress({ phase: 'audio', percent: 0.9 })
@@ -168,7 +192,7 @@ async function renderTimeline(tl, opts = {}) {
   if (audioPath) {
     await run([
       '-hide_banner', '-loglevel', 'error', '-y',
-      '-i', silentVideo, '-i', audioPath,
+      '-i', picture, '-i', audioPath,
       '-map', '0:v:0', '-map', '1:a:0',
       '-c:v', 'copy',
       ...(extension === 'mov' ? ['-c:a', 'pcm_s16le'] : ['-c:a', 'aac', '-b:a', '192k']),
@@ -180,7 +204,7 @@ async function renderTimeline(tl, opts = {}) {
       finalOut,
     ])
   } else {
-    fs.copyFileSync(silentVideo, finalOut)
+    fs.copyFileSync(picture, finalOut)
   }
 
   onProgress({ phase: 'done', percent: 1 })
@@ -195,6 +219,7 @@ async function renderTimeline(tl, opts = {}) {
     durationSeconds,
     codec: tl.delivery?.codec || 'h264',
     loudness,
+    grade: gradeReport,
   }
 }
 

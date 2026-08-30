@@ -160,11 +160,27 @@ export interface Timebase {
 
 export type LoudnessTarget = 'broadcast' | 'social' | 'none'
 
+export type LookName = 'none' | 'neutral' | 'warm' | 'golden' | 'cool'
+
+/**
+ * The grade is a property of the FILM, not of a shot. It is applied once over
+ * the assembled cut, matching every shot to one look — which is the only way a
+ * sequence of independently generated shots ever cuts together.
+ */
+export interface GradeSpec {
+  readonly look: LookName
+  /** 0 leaves the picture alone, 1 lands fully on the look. */
+  readonly strength: number
+  readonly saturation?: number
+  readonly contrast?: number
+}
+
 export interface DeliverySpec {
   /** −23 LUFS for broadcast, −16 for social, none to leave levels alone. */
   readonly loudness: LoudnessTarget
   readonly codec: 'h264' | 'prores422'
   readonly captions: readonly ('burn' | 'srt' | 'vtt')[]
+  readonly grade?: GradeSpec
 }
 
 export interface Timeline {
