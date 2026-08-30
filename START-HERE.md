@@ -1,75 +1,95 @@
-# tt-reading — the Corectează button did not correct the thing next to it
+# tt-kit-drift — v2 rendered, and the font guard caught its first real failure
 
-I pressed it on the real film to check, and nothing happened. Here is why, and
-what it does now.
+## v2 is up, and it is better
 
-## The bug was mine, and it is a nasty shape
+Rendered from the version snapshot. QC:
 
-`conformCues` handled minimum duration, overlaps and flicker gaps. **Reading
-speed was the one rule it did not implement.** I wired a button to it, labelled
-it *Corectează*, and put it directly beside a warning reading *“5 de corectat —
-over the 17 characters per second limit”*.
+```
+✓ resolution matches the master — 1080×1920
+✓ frame count is exact — 900, expected 900
+✓ duration matches the timeline — 30.00s
+✓ loudness within 1 LU of -16 LUFS — -15.8 LUFS
+✓ true peak under -1 dBFS — -1.8 dBFS
+✕ every typeface the film asks for exists here
+    missing: Playfair Display 700 — rendered in the fallback face
+```
 
-The button was not broken. It was solving a different problem next to the label
-for this one, which is worse, because it looks fixed.
+Subtitles went from **five** cues over the reading-speed limit to **one**, and
+that one sits exactly on 17.0. The bed is under the voice. The end card now
+holds together as one block instead of leaving a hole through the middle.
 
-## What it does now
+And the typeface is still wrong — which is the interesting part, because
+**nothing told us that before today; the check I shipped this morning did.**
 
-A reading-speed pass, written the way a subtitler works:
+## Why it was still wrong
 
-- A cue that is too fast is first given more time **at the end**, into the gap
-  before the next cue. Holding a caption after the line has been spoken is free
-  and nobody notices.
-- Only if that is not enough does it take time **at the front**, and never more
-  than half a second, because a caption that appears well before the words are
-  said reads as a mistake.
-- Nothing ever overlaps, nothing passes the seven-second ceiling, and the text
-  is never touched — this changes timing, never words.
-- The call now passes the **film duration** in. The slack is almost always at
-  the end, because the picture outlasts the voice; without that the last cue had
-  nowhere to grow into, which is exactly where the room was.
+The migration that created the kit library seeded the house kit by copying every
+value out of `lib/brand/kit.ts` into a `jsonb_build_object`: the display face,
+the type scale, the grade, the loudness.
 
-## And a limit I have to be straight about
+Four hours later the code changed — the display face moved to one the renderer
+actually has, and the weight from 700 to 400 because the free bold has no
+Romanian diacritics. **The SQL row did not move, because nothing tells it to.**
+The row is loaded over the code defaults, so the stale value won, and the film
+came back set in the fallback face.
 
-Reading speed is characters over time. A cue can be given more time only if
-there **is** time beside it, and it cannot be made slower by splitting, because
-splitting changes neither figure.
+Two copies of the same truth, four hours apart. That is not a bug in either
+copy; it is a bug in having two.
 
-On the delivered spot the first three lines sit 0.2 seconds apart and the voice
-delivers sixty characters in two and a half seconds — 24 characters per second
-of *speech*. No retiming fixes that. The only remaining levers are a shorter
-line or a slower read, and this function touches neither.
+## The fix
 
-So the promise is **strictly better, never worse, and honest about the rest**:
-on the real cue list it fixes the ones with room and leaves three, and the panel
-now says why in plain words instead of leaving a button that looks like it
-failed.
+**The kit row holds overrides, not a copy.** `resolveKit()` already fills every
+absent field from the house default, so an empty object means "whatever the code
+says today". A row now stores only what somebody deliberately changed, and the
+code is the single source of truth for the rest. There is nothing left to drift.
 
-*My first version of the test asserted “after conforming, nothing is too fast”.
-That assertion was impossible to satisfy and I had to correct it — which is
-recorded in the test file, because a test that demands the impossible gets
-deleted by the next person rather than understood.*
+The migration sets the seeded row to `{}` — and only that row: it is guarded so
+a kit anyone has hand-edited is left alone.
+
+**A saved project is a different question, and I did not touch it.** A project
+carries a *full frozen copy* of the kit, on purpose: an approved film must
+render next year exactly as it was approved. Silently rewriting that is exactly
+what the frozen copy exists to prevent. So Studio gains a **reîncarcă** button
+beside the kit instead — adopting the current brand is now something a person
+does deliberately, once, on a project that is still being edited.
 
 ## Deploy
 
-Repo only, two files.
+**1 · SQL**
 
 ```
-lib/timeline/captions.ts      the reading-speed pass
-app/admin/studio/page.tsx     passes the film length; explains what is left
+supabase/migrations/20260830160000_studio_brand_kit_inherit.sql
 ```
+
+**2 · Repo**
+
+```
+app/admin/studio/page.tsx     the reîncarcă control
+```
+
+## Then, for v3
+
+Open the project → press **reîncarcă** next to the kit → submit v3 → render.
+That render should come back with the typeface line green, and the end card set
+in EB Garamond for the first time.
 
 ## Verification
 
-`_verification/20-reading.cjs` → 17 assertions, run against the **actual cue
-list from the delivered spot**:
+`_verification/14-brand.cjs` → 45 assertions, five of them new and all about
+this failure:
 
-- the number of too-fast cues strictly decreases
-- no cue is made harder to read than it was
-- every cue that had room beside it is now inside the limit
-- the text is byte-identical afterwards
-- nothing overlaps, nothing runs past the end of the film, nothing exceeds 7 s
-- a cue with a neighbour hard against it is left alone and **still reported**,
-  rather than the conform pretending it is fixed
+- an empty kit row resolves to a complete, current kit
+- it follows the code, so it cannot go stale
+- a row that *does* override something keeps that override
+- while inheriting everything it does not mention
+- **a frozen project kit keeps its old face rather than being silently updated**
+  — the behaviour that is correct and was mistaken for the bug
 
-The existing 31 caption assertions still pass unchanged.
+---
+
+*Unrelated, but you should know:* while loading the Studio just now the site
+served Netlify's **“This edge function has crashed — edge function invocation
+failed”** page once, then recovered on reload and has been fine since. That
+smells like a cold start during the deploy swap rather than a fault in the code,
+but it was the live site, so it is worth a look at the edge-function logs if it
+happens again.

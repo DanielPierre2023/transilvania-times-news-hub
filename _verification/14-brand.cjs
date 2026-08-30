@@ -102,6 +102,30 @@ const PAPER = hex(kit.colour.paper)
   ok('with no safe area, the requested position is honoured',
     Math.abs(kitMod.captionY(kit, 0.88, 'none') - 0.88) < 1e-9)
 
+  // THE DRIFT THIS PREVENTS.
+  //
+  // The kit was seeded into SQL by copying every value out of this file. Four
+  // hours later the code changed the display face and the weight; the SQL row
+  // did not, the row is loaded OVER the defaults, and the next render came back
+  // set in the fallback face. A kit row now stores overrides only, so an empty
+  // object must resolve to a complete, current kit.
+  const empty = kitMod.resolveKit({})
+  ok('an empty kit row resolves to a complete kit', empty.type.displayFamily === kit.type.displayFamily
+    && empty.type.displayWeight === kit.type.displayWeight
+    && empty.loudness === kit.loudness && empty.safeArea === kit.safeArea)
+  ok('...and it follows the code, so it cannot go stale',
+    /EB Garamond/.test(empty.type.displayFamily) && empty.type.displayWeight === 400,
+    `${empty.type.displayFamily} ${empty.type.displayWeight}`)
+  ok('a row that DOES override something keeps that override',
+    kitMod.resolveKit({ colour: { accent: '#123456' } }).colour.accent === '#123456')
+  ok('...while inheriting everything it does not mention',
+    kitMod.resolveKit({ colour: { accent: '#123456' } }).type.displayFamily === kit.type.displayFamily)
+  // A project's frozen copy is a FULL kit and must stay frozen — that is the
+  // point of it. Adopting the current brand has to be a deliberate act.
+  const frozen = kitMod.resolveKit({ type: { ...kit.type, displayFamily: 'Playfair Display, serif', displayWeight: 700 } })
+  ok('a frozen project kit keeps its old face rather than being silently updated',
+    frozen.type.displayFamily === 'Playfair Display, serif' && frozen.type.displayWeight === 700)
+
   const cs = kitMod.captionStyle(kit)
   ok('the caption style comes from the kit, not a constant', cs.size === kit.type.caption)
   ok('caption scale multiplies the kit size', kitMod.captionStyle(kit, 1.5).size === kit.type.caption * 1.5)

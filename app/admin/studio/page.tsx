@@ -1717,6 +1717,11 @@ export default function StudioPage() {
                   className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
                   {kitList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
                 </select>
+                <button onClick={() => setKit(kitList.find(k => k.id === kit.id) || TT_KIT)}
+                  title="Adoptă kitul curent din bibliotecă. Un proiect salvat păstrează o COPIE a kitului de la momentul salvării — ca un film aprobat să se randeze la fel și peste un an. Asta e butonul care renunță la copia înghețată, deliberat."
+                  className="text-[11px] px-2 py-1 border border-white/15 text-white/55 hover:border-white/35">
+                  reîncarcă
+                </button>
                 <input type="color" value={kit.colour.accent} aria-label="Culoare accent"
                   onChange={e => setKit(k => ({ ...k, colour: { ...k.colour, accent: e.target.value } }))}
                   className="w-7 h-7 bg-black border border-white/10 p-0.5 cursor-pointer" />
