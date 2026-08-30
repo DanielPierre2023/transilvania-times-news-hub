@@ -16,15 +16,31 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
+          # Pinned to match netlify.toml's NODE_VERSION. If these two ever
+          # disagree, CI is testing a build the site does not perform, which is
+          # worse than having no CI at all.
+          #
+          # NOTE, 30 Aug 2026: several dependencies now declare node >= 22
+          # (@supabase/* 2.112, sanitize-html 2.17) and npm prints EBADENGINE
+          # warnings on 20. They are warnings, not errors — npm does not enforce
+          # engines unless engine-strict is set — so this stays on 20 until the
+          # site's own build environment is moved deliberately. Bumping CI alone
+          # would make CI green on a configuration Netlify never runs.
           node-version: '20'
           cache: 'npm'
 
       # npm ci fails fast if package-lock.json doesn't match package.json —
-      # exactly the drift found and fixed in this repo on 2026-08-14.
+      # exactly the drift found and fixed in this repo on 2026-08-14, and again
+      # on 2026-08-30: package.json gained sanitize-html, mammoth and
+      # @types/sanitize-html on 25 August through a web upload, which cannot run
+      # npm install, so the lock stayed at its 15 August state. Every push since
+      # has failed here. That is the check doing its job — but a red CI that
+      # nobody acts on teaches people to ignore CI, so the lock is regenerated
+      # rather than the check relaxed.
       - name: Install dependencies
         run: npm ci
 
