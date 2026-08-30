@@ -42,7 +42,7 @@ import {
 type Aspect = '9:16' | '1:1' | '4:5' | '16:9'
 type KB = 'none' | 'in' | 'out' | 'left' | 'right'
 type SubPos = 'jos' | 'treime' | 'sus'
-interface Take { url: string; score: number; accepted: boolean; why: string; move: number; shimmer: number }
+interface Take { url: string; score: number; accepted: boolean; why: string; move: number; ratio: number }
 interface Scene {
   id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB
   motion?: 'idle' | 'working' | 'done'; sync?: 'idle' | 'working' | 'done'
@@ -692,7 +692,7 @@ export default function StudioPage() {
 
       // ── the measurement ───────────────────────────────────────────────
       mark({ stage: 'măsor dublele' })
-      let measured: Take[] = urls.map(u => ({ url: u, score: 0, accepted: true, why: 'nemăsurat', move: 0, shimmer: 0 }))
+      let measured: Take[] = urls.map(u => ({ url: u, score: 0, accepted: true, why: 'nemăsurat', move: 0, ratio: 0 }))
       let judged = false
       try {
         const insp = await invokeRaw('render-worker', {
@@ -703,7 +703,7 @@ export default function StudioPage() {
           measured = insp.takes.map((t: {
             url: string
             judgement?: { score?: number; accepted?: boolean; failed?: string[] }
-            analysis?: { motion?: { coherentPercentPerSecond?: number; zoomPercentPerSecond?: number; shimmerPerSecond?: number } }
+            analysis?: { motion?: { coherentPercentPerSecond?: number; zoomPercentPerSecond?: number; shimmerRatio?: number } }
           }) => {
             const j = t.judgement || {}
             const m = t.analysis?.motion || {}
@@ -713,7 +713,10 @@ export default function StudioPage() {
               accepted: !!j.accepted,
               why: (j.failed || []).join(' · ') || 'trece',
               move: Number(m.coherentPercentPerSecond || 0) + Number(m.zoomPercentPerSecond || 0),
-              shimmer: Number(m.shimmerPerSecond || 0),
+              // Instability as a multiple of what a half-pixel misalignment
+              // costs on THIS picture. Raw shimmer is not comparable between a
+              // misty landscape and a plain studio wall; this is.
+              ratio: Number(m.shimmerRatio || 0),
             }
           })
         }
@@ -740,7 +743,7 @@ export default function StudioPage() {
         kb: 'none', motion: 'done', stage: undefined,
         takes: measured.length > 1 ? measured : undefined,
         verdict: judged
-          ? `mișcare ${winner.move.toFixed(2)} %/s · fierbere ${winner.shimmer.toFixed(2)}/s` +
+          ? `mișcare ${winner.move.toFixed(2)} %/s · stabilitate ${winner.ratio.toFixed(2)}×` +
             (measured.length > 1 ? ` · dubla ${measured.indexOf(winner) + 1} din ${measured.length}` : '')
           : undefined,
       })
@@ -1402,7 +1405,7 @@ export default function StudioPage() {
                             className={'text-[10px] px-1.5 py-0.5 border ' + (sc.url === t.url
                               ? 'border-emerald-500/60 text-emerald-300'
                               : t.accepted ? 'border-white/20 text-white/60 hover:border-white/40' : 'border-red-500/30 text-red-300/70 hover:border-red-500/60')}>
-                            dubla {ti + 1} · {t.move.toFixed(2)} %/s · fierbere {t.shimmer.toFixed(2)}
+                            dubla {ti + 1} · {t.move.toFixed(2)} %/s · {t.ratio.toFixed(2)}×
                           </button>
                         ))}
                       </div>
