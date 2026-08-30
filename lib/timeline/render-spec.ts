@@ -101,8 +101,10 @@ function captionClip(clip: Clip, tl: Timeline): ShotstackClip | null {
   const style = clip.source.style
   const centre = evalPoint(clip.transform.position, 0)
   const boxWidth = Math.round(width * (style.maxWidth ?? 0.86))
-  const fontSize = Math.round(height * style.size)
-  const pad = Math.round(height * (style.padding ?? 0.012))
+  // Short edge, so vertical and horizontal masters get the same apparent size.
+  const shortEdge = Math.min(width, height)
+  const fontSize = Math.round(shortEdge * style.size)
+  const pad = Math.round(shortEdge * (style.padding ?? 0.012))
 
   const css = [
     `p{`,

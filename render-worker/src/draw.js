@@ -32,7 +32,12 @@ function wrapText(ctx, text, maxWidth, maxLines) {
 
 function drawText(ctx, op, width, height) {
   const { style, text } = op.source
-  const fontSize = Math.round(height * style.size)
+  // Type scales off the SHORT edge, not the height. Sizing off height makes
+  // the same setting render more than three times larger (relative to frame
+  // width) in a vertical frame than a horizontal one — which is how a caption
+  // that looks right in 16:9 turns into a meme slab in 9:16.
+  const shortEdge = Math.min(width, height)
+  const fontSize = Math.round(shortEdge * style.size)
   const family = style.family.split(',')[0].replace(/['"]/g, '').trim()
   ctx.font = `${style.weight} ${fontSize}px "${family}", sans-serif`
   ctx.textBaseline = 'middle'
@@ -43,7 +48,7 @@ function drawText(ctx, op, width, height) {
   if (!lines.length) return
 
   const lineHeight = fontSize * style.lineHeight
-  const pad = Math.round(height * (style.padding ?? 0.012))
+  const pad = Math.round(shortEdge * (style.padding ?? 0.012))
   // op.dest is the full-frame box recentred on the clip's position.
   const cx = op.dest.x + op.dest.w / 2
   const cy = op.dest.y + op.dest.h / 2
