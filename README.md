@@ -27,3 +27,4 @@ this morning, before any of today's work — verified type-clean).
 The new dropdowns (Camera 2 / intro / outro / pistă regizată) disappear; the
 extra values they saved in presets and browser storage are simply ignored by
 the old code — harmless.
+
