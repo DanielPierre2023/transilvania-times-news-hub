@@ -229,12 +229,50 @@ export function checkCaptions(
  * The minimum is applied AFTER the start has been moved, not before. Applying
  * it first and then shifting the start silently reintroduces a short cue.
  */
+export interface ConformOptions {
+  /**
+   * Last frame the captions may occupy — normally the film's duration. Without
+   * it the final cue has nowhere to grow into, which is exactly where the
+   * slack usually is.
+   */
+  readonly tailFrames?: number
+}
+
+/**
+ * Makes a cue list conform: no overlaps, no flicker gaps, nothing too short,
+ * and — the part that was missing — nothing that has to be read faster than a
+ * person reads.
+ *
+ * WHAT WENT WRONG HERE, ON THE RECORD
+ *
+ * This function handled minimum duration, overlaps and gaps, and a button was
+ * wired to it labelled "Corectează" sitting directly beside a warning that said
+ * five cues exceeded seventeen characters per second. Pressing it changed
+ * nothing, because reading speed was the one rule it did not implement. The
+ * button was not broken; it was solving a different problem next to the label
+ * for this one.
+ *
+ * The reading-speed pass works the way a subtitler does. A cue that is too fast
+ * is first given more time at the END, into the gap before the next cue —
+ * holding a caption after the line has been spoken is free, and nobody notices.
+ * Only if that is not enough does it take time at the START, and then no more
+ * than half a second, because a caption that appears long before the words are
+ * said reads as a mistake. Nothing ever overlaps, and nothing exceeds the
+ * seven-second ceiling. A cue that still cannot fit is left alone and reported,
+ * rather than quietly stretched past the point where it stops being a subtitle.
+ */
 export function conformCues(
   cues: readonly Cue[],
   fps: Rational,
   limits: CaptionLimits = DEFAULT_LIMITS,
+  opts: ConformOptions = {},
 ): Cue[] {
-  const minFrames = Math.ceil((limits.minDuration * fps.n) / fps.d)
+  const perSecond = (sec: number) => Math.ceil((sec * fps.n) / fps.d)
+  const minFrames = perSecond(limits.minDuration)
+  const maxFrames = perSecond(limits.maxDuration)
+  // Standard subtitling lead-in. More than this and the caption is early.
+  const maxLeadIn = perSecond(0.5)
+
   const out: Cue[] = []
   for (const cue of [...cues].sort((a, b) => a.start - b.start)) {
     const text = cue.text.replace(/\s+/g, ' ').trim()
@@ -250,5 +288,31 @@ export function conformCues(
     const end = Math.max(cue.end, start + minFrames)
     out.push({ start, end, text })
   }
+
+  // ── reading speed ────────────────────────────────────────────────────────
+  for (let i = 0; i < out.length; i++) {
+    const cue = out[i]
+    const chars = cue.text.replace(/\s+/g, ' ').trim().length
+    const needed = Math.min(maxFrames, perSecond(chars / limits.maxReadingSpeed))
+    if (cue.end - cue.start >= needed) continue
+
+    // Take time at the end first: a caption held after the line is free.
+    const ceiling = i + 1 < out.length
+      ? out[i + 1].start
+      : (opts.tailFrames ?? cue.end + needed)
+    let end = Math.min(ceiling, cue.start + needed)
+    let start = cue.start
+
+    // Then, if it is still too fast, take a little at the front.
+    if (end - start < needed) {
+      const floor = i > 0 ? out[i - 1].end : 0
+      const wanted = needed - (end - start)
+      start = Math.max(floor, cue.start - Math.min(maxLeadIn, wanted))
+      end = Math.min(ceiling, start + needed)
+    }
+
+    out[i] = { ...cue, start, end }
+  }
+
   return out
 }

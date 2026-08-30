@@ -1,91 +1,75 @@
-# tt-ci-fix — CI has been failing since 25 August, and it is not the code
+# tt-reading — the Corectează button did not correct the thing next to it
 
-## What is actually wrong
+I pressed it on the real film to check, and nothing happened. Here is why, and
+what it does now.
 
-`npm ci` refuses to install when `package.json` and `package-lock.json` disagree.
-They have disagreed for five days.
+## The bug was mine, and it is a nasty shape
 
-```
-npm error `npm ci` can only install packages when your package.json and
-npm error package-lock.json are in sync.
-npm error Missing: @types/sanitize-html@2.16.1 from lock file
-npm error Missing: mammoth@1.12.2 from lock file
-npm error Missing: sanitize-html@2.17.7 from lock file
-        ... and 42 transitive packages
-```
+`conformCues` handled minimum duration, overlaps and flicker gaps. **Reading
+speed was the one rule it did not implement.** I wired a button to it, labelled
+it *Corectează*, and put it directly beside a warning reading *“5 de corectat —
+over the 17 characters per second limit”*.
 
-The commit history says exactly how:
+The button was not broken. It was solving a different problem next to the label
+for this one, which is worse, because it looks fixed.
 
-| file | last changed |
-|---|---|
-| `package.json` | **25 Aug 2026** — gained sanitize-html, mammoth, @types/sanitize-html |
-| `package-lock.json` | **15 Aug 2026** |
+## What it does now
 
-Ten days apart. Both commits are titled *Add files via upload* — files added
-through the GitHub web interface, which cannot run `npm install`, so the lock was
-never regenerated. Every push since has failed at the same step.
+A reading-speed pass, written the way a subtitler works:
 
-**It is not the commit that alerted you.** `dcf52f1` is the tt-typeface drop; I
-checked its file list and it touches no manifest at all. It just happened to be
-the push that made you look.
+- A cue that is too fast is first given more time **at the end**, into the gap
+  before the next cue. Holding a caption after the line has been spoken is free
+  and nobody notices.
+- Only if that is not enough does it take time **at the front**, and never more
+  than half a second, because a caption that appears well before the words are
+  said reads as a mistake.
+- Nothing ever overlaps, nothing passes the seven-second ceiling, and the text
+  is never touched — this changes timing, never words.
+- The call now passes the **film duration** in. The slack is almost always at
+  the end, because the picture outlasts the voice; without that the last cue had
+  nowhere to grow into, which is exactly where the room was.
 
-## The fix, and it is verified rather than asserted
+## And a limit I have to be straight about
 
-I regenerated the lock from the **byte-identical** `package.json` that is on
-`main` — sha256 `7420dc66…`, confirmed against the copy here — and then ran the
-exact command that has been failing:
+Reading speed is characters over time. A cue can be given more time only if
+there **is** time beside it, and it cannot be made slower by splitting, because
+splitting changes neither figure.
 
-```
-npm install --package-lock-only     # 617 packages resolved
-npm ci                              # added 563 packages in 21s, exit 0
-```
+On the delivered spot the first three lines sit 0.2 seconds apart and the voice
+delivers sixty characters in two and a half seconds — 24 characters per second
+of *speech*. No retiming fixes that. The only remaining levers are a shorter
+line or a slower read, and this function touches neither.
 
-That is the whole hotfix: **one file**, `package-lock.json`.
+So the promise is **strictly better, never worse, and honest about the rest**:
+on the real cue list it fixes the ones with room and leaves three, and the panel
+now says why in plain words instead of leaving a button that looks like it
+failed.
 
-## Also in here, and deliberately smaller than it could be
-
-The same run carried a second warning:
-
-> Node.js 20 is deprecated. actions/checkout@v4 and actions/setup-node@v4 target
-> Node.js 20 but are being forced to run on Node.js 24.
-
-Both actions are bumped to their current majors, **v7**. The inputs this workflow
-uses — `node-version`, `cache` — are unchanged across those majors.
-
-**What I did NOT change, on purpose:** the runtime stays on Node **20**.
-
-The log also shows `EBADENGINE` warnings — `@supabase/*` 2.112 and
-`sanitize-html` 2.17 now declare `node >= 22`. They are warnings, not errors;
-npm does not enforce `engines` unless `engine-strict` is set. And `netlify.toml`
-pins `NODE_VERSION = "20"`, so bumping CI alone would make CI green on a
-configuration the site never builds — which is worse than no CI. Moving both to
-22 is a real change to the production build environment and deserves its own
-deploy, not a ride-along on a hotfix.
+*My first version of the test asserted “after conforming, nothing is too fast”.
+That assertion was impossible to satisfy and I had to correct it — which is
+recorded in the test file, because a test that demands the impossible gets
+deleted by the next person rather than understood.*
 
 ## Deploy
 
-Two files, repo only.
+Repo only, two files.
 
 ```
-package-lock.json                 regenerated, verified with npm ci
-.github/workflows/ci.yml          actions v4 → v7, plus why Node stays at 20
+lib/timeline/captions.ts      the reading-speed pass
+app/admin/studio/page.tsx     passes the film length; explains what is left
 ```
 
-## One caveat, stated plainly
+## Verification
 
-I verified the lock by running `npm ci` here. **I cannot run a GitHub Actions
-job from here**, so the action version bump is the one part of this the next push
-verifies rather than I do. If CI goes red on those, reverting `ci.yml` alone
-restores it and keeps the lock fix — they are independent.
+`_verification/20-reading.cjs` → 17 assertions, run against the **actual cue
+list from the delivered spot**:
 
-## Housekeeping, while you are in there
+- the number of too-fast cues strictly decreases
+- no cue is made harder to read than it was
+- every cue that had room beside it is now inside the limit
+- the text is byte-identical afterwards
+- nothing overlaps, nothing runs past the end of the film, nothing exceeds 7 s
+- a cue with a neighbour hard against it is left alone and **still reported**,
+  rather than the conform pretending it is fixed
 
-`START-HERE.md` is being committed to the repository root and overwritten by
-every drop, so the repo now carries one set of notes and has lost the rest. They
-would be better as `docs/2026-08-30-typeface.md` and so on — or not committed at
-all. Your call; I will follow whichever you prefer in the next package.
-
-Worth considering separately: CI runs typecheck, lint, the flight regression and
-the build, but not the 443 assertions in `_verification/`. Those need ffmpeg and
-node-canvas, so it is a heavier job — but it is the difference between CI
-checking that the code compiles and CI checking that the renderer still renders.
+The existing 31 caption assertions still pass unchanged.

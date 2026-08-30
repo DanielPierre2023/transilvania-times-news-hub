@@ -288,6 +288,7 @@ export default function StudioPage() {
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [noteText, setNoteText] = useState('')
   const [noteFrame, setNoteFrame] = useState(0)
+  const [conformed, setConformed] = useState(false)
   const [imgPrompt, setImgPrompt] = useState('')
   const [imgAspect, setImgAspect] = useState('4:5')
   const [refImageUrl, setRefImageUrl] = useState('')   // reference photo -> image-to-image
@@ -558,8 +559,14 @@ export default function StudioPage() {
     const conformed = conformCues(
       cues.map(c => ({ start: toFrames(c.start), end: toFrames(c.end), text: c.text })),
       fps,
+      undefined,
+      // The slack is almost always at the END — the picture usually outlasts the
+      // voice. Without this the last cue has nowhere to grow into, which is
+      // exactly where the room is.
+      { tailFrames: toFrames(totalDur) },
     )
     setCues(conformed.map(c => ({ start: toSeconds(c.start), end: toSeconds(c.end), text: c.text })))
+    setConformed(true)
   }
 
   // Measures the voiceover's programme loudness so the number can be shown and
@@ -952,6 +959,7 @@ export default function StudioPage() {
       if (typeof d.voUrl === 'string') { setVoUrl(d.voUrl); void measureVoice(d.voUrl) }
       if (typeof d.voDur === 'number') setVoDur(d.voDur)
       if (Array.isArray(d.cues)) setCues(d.cues as Cue[])
+      setConformed(false)
       if (Array.isArray(d.words)) setWords(d.words as { word: string; start: number; end: number }[])
       if (d.capMode === 'clasic' || d.capMode === 'karaoke') setCapMode(d.capMode)
       if (typeof d.subsOn === 'boolean') setSubsOn(d.subsOn)
@@ -2192,6 +2200,23 @@ export default function StudioPage() {
                         </button>
                       )}
                     </div>
+                    {/* AFTER a conform, say WHY anything is left. Reading speed
+                        is characters over time: a cue can be given more time
+                        only if there is time beside it, and it cannot be made
+                        slower by splitting, because that changes neither
+                        figure. Where the voice itself delivers the line faster
+                        than the limit, the only remaining lever is a shorter
+                        line — and the conform never touches words. A button
+                        that leaves errors behind without saying that reads as
+                        broken. */}
+                    {conformed && errors.some(x => /per second/.test(x.message)) && (
+                      <p className="mt-2 text-[10.5px] text-white/45 leading-snug">
+                        Replicile rămase sunt <b>rostite</b> mai repede de 17 caractere pe secundă.
+                        Nu au unde să se lungească — vecinele lor sunt lipite. Singura corecție
+                        rămasă e un text mai scurt sau o voce mai rară; sincronizarea nu mai poate
+                        face nimic aici.
+                      </p>
+                    )}
                     {errors.length > 0 && (
                       <ul className="mt-2 space-y-1 max-h-24 overflow-y-auto">
                         {errors.slice(0, 6).map((x, i) => (
