@@ -1,95 +1,86 @@
-# tt-kit-drift — v2 rendered, and the font guard caught its first real failure
+# tt-edit-loop — why the change did not come out, and three fixes so it cannot happen again
 
-## v2 is up, and it is better
+## The short answer
 
-Rendered from the version snapshot. QC:
+**Almost certainly you pressed “Randează” on the version row.** That button
+renders the *frozen snapshot* of that version — deliberately, so an approved
+film re-renders identically a year later. It ignores everything you have just
+edited, and it said the same word as the button that renders your edits.
 
-```
-✓ resolution matches the master — 1080×1920
-✓ frame count is exact — 900, expected 900
-✓ duration matches the timeline — 30.00s
-✓ loudness within 1 LU of -16 LUFS — -15.8 LUFS
-✓ true peak under -1 dBFS — -1.8 dBFS
-✕ every typeface the film asks for exists here
-    missing: Playfair Display 700 — rendered in the fallback face
-```
+To render what is on screen, use the button on the right: **“Randează montajul
+curent”**. Version rows now say **“Randează v3”** so the two can never be
+confused again.
 
-Subtitles went from **five** cues over the reading-speed limit to **one**, and
-that one sits exactly on 17.0. The bed is under the voice. The end card now
-holds together as one block instead of leaving a hole through the middle.
+There is a second reason it may not have changed, and it applies even if you
+used the right button: **editing the script does not regenerate the voice.**
+Nothing can do that automatically — it costs money and takes a minute — so the
+film renders with the previous audio and, until now, nothing said so.
 
-And the typeface is still wrong — which is the interesting part, because
-**nothing told us that before today; the check I shipped this morning did.**
+## The procedure
 
-## Why it was still wrong
+**To change what the voice says**
 
-The migration that created the kit library seeded the house kit by copying every
-value out of `lib/brand/kit.ts` into a `jsonb_build_object`: the display face,
-the type scale, the grade, the loudness.
+1. Edit the text in **Voce (voiceover)**.
+2. Press **Generează voce**. Wait for the player to appear — the length and the
+   LUFS reading underneath both change when it is new.
+3. Press **Auto din voce** in **Subtitrări** — the old subtitles are timed to
+   the old audio and will drift otherwise.
+4. Press **Corectează** if it flags reading speed.
+5. **Salvează**, then **Trimite spre aprobare** → renders as a new version.
 
-Four hours later the code changed — the display face moved to one the renderer
-actually has, and the weight from 700 to 400 because the free bold has no
-Romanian diacritics. **The SQL row did not move, because nothing tells it to.**
-The row is loaded over the code defaults, so the stale value won, and the film
-came back set in the fallback face.
+**To add a background track**
 
-Two copies of the same truth, four hours apart. That is not a bug in either
-copy; it is a bug in having two.
+1. **Muzică → Încarcă track**.
+2. The panel now shows the file name, a player and a volume slider. If you do
+   not see those three things, the upload did not happen.
+3. Volume defaults to 18%. It ducks automatically to −18 dB under the voice and
+   comes back up after.
+4. An uploaded track takes priority over the synthesised **pat muzical**; untick
+   that or leave it, either is fine.
 
-## The fix
+**Then render**
 
-**The kit row holds overrides, not a copy.** `resolveKit()` already fills every
-absent field from the house default, so an empty object means "whatever the code
-says today". A row now stores only what somebody deliberately changed, and the
-code is the single source of truth for the rest. There is nothing left to drift.
+- **Randează montajul curent** (right-hand side) → renders what is on screen.
+- **Randează v3** (version row) → renders that frozen snapshot instead.
+- Or **Trimite spre aprobare** first, which freezes a new version, then render it.
 
-The migration sets the seeded row to `{}` — and only that row: it is guarded so
-a kit anyone has hand-edited is left alone.
+## What I changed so this stops biting
 
-**A saved project is a different question, and I did not touch it.** A project
-carries a *full frozen copy* of the kit, on purpose: an approved film must
-render next year exactly as it was approved. Silently rewriting that is exactly
-what the frozen copy exists to prevent. So Studio gains a **reîncarcă** button
-beside the kit instead — adopting the current brand is now something a person
-does deliberately, once, on a project that is still being edited.
+**1 · The two buttons no longer share a name.** The version row says *Randează
+v3*; the cloud button says *Randează montajul curent*. Both carry a tooltip
+saying which is which. Same word for two different things is how you edit a
+script, press render, and get the old film back with no error anywhere.
+
+**2 · The music panel says whether a track is attached.** File name, an audio
+player, a remove button, the volume as a number, and a line explaining the
+ducking. Previously the only sign of a successful upload was a volume slider
+quietly appearing, so a failed upload and a successful one looked nearly the
+same — and *“I uploaded a track but I cannot see if it is uploaded”* is a
+sentence that has now been said twice in this project.
+
+**3 · The film says when it is out of date with itself.** A banner above the
+render button appears when:
+
+- the script has changed since the voice was generated, or
+- the subtitles were aligned to a previous voice.
+
+It names which, and what to press. Neither can be fixed automatically — both
+cost a call — so the only honest option is to say so before you spend a render
+finding out.
 
 ## Deploy
 
-**1 · SQL**
+One file, no SQL.
 
 ```
-supabase/migrations/20260830160000_studio_brand_kit_inherit.sql
+app/admin/studio/page.tsx
 ```
 
-**2 · Repo**
-
-```
-app/admin/studio/page.tsx     the reîncarcă control
-```
-
-## Then, for v3
-
-Open the project → press **reîncarcă** next to the kit → submit v3 → render.
-That render should come back with the typeface line green, and the end card set
-in EB Garamond for the first time.
-
-## Verification
-
-`_verification/14-brand.cjs` → 45 assertions, five of them new and all about
-this failure:
-
-- an empty kit row resolves to a complete, current kit
-- it follows the code, so it cannot go stale
-- a row that *does* override something keeps that override
-- while inheriting everything it does not mention
-- **a frozen project kit keeps its old face rather than being silently updated**
-  — the behaviour that is correct and was mistaken for the bug
+`tsc` 0 errors, `eslint` 0 errors, 41 warnings (unchanged).
 
 ---
 
-*Unrelated, but you should know:* while loading the Studio just now the site
-served Netlify's **“This edge function has crashed — edge function invocation
-failed”** page once, then recovered on reload and has been fine since. That
-smells like a cold start during the deploy swap rather than a fault in the code,
-but it was the live site, so it is worth a look at the edge-function logs if it
-happens again.
+*A note on v3 itself:* it is already rendered and green, including the typeface
+check. If you re-record the voice, the shots do not need regenerating — they
+cost nothing to reuse. Only the voice, the subtitles and the render change, so a
+new version is about a minute of worker time and no fal spend at all.

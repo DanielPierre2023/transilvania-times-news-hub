@@ -313,6 +313,12 @@ export default function StudioPage() {
   const [syncEngine, setSyncEngine] = useState('latentsync')
   const [voUrl, setVoUrl] = useState('')
   const [voDur, setVoDur] = useState(0)
+  // The script the CURRENT voice was read from, and the voice the CURRENT
+  // subtitles were aligned to. Editing the text does not regenerate anything —
+  // it cannot, that costs money — so without these two the film renders with
+  // yesterday's voice under today's words and nothing says so.
+  const [voScript, setVoScript] = useState('')
+  const [cuesFor, setCuesFor] = useState('')
 
   // ElevenLabs voice engine
   const [elConfigured, setElConfigured] = useState(false)
@@ -523,6 +529,7 @@ export default function StudioPage() {
       const r = await invoke<{ publicUrl: string }>('generate-voiceover', body)
       const d = await audioDuration(r.publicUrl)
       setVoUrl(r.publicUrl); setVoDur(d || Math.ceil(script.length / 14))
+      setVoScript(script); setCuesFor('')
       void measureVoice(r.publicUrl)
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
@@ -530,6 +537,22 @@ export default function StudioPage() {
   // Split a Whisper segment into short display cues (max 2 lines ≈ 42 chars/line)
   // so subtitles never blanket the frame.
   // Caption QC, recomputed only when something that affects captions changes.
+  /**
+   * What in the film is now out of date with what is on screen.
+   *
+   * Editing the script does not regenerate the voice, and regenerating the
+   * voice does not re-time the subtitles — neither can happen automatically,
+   * because both cost money and take a minute. Without saying so, the film
+   * renders with the old voice under the new words and nothing anywhere
+   * mentions it. That is not a hypothetical: it is what happened.
+   */
+  const stale = useMemo(() => {
+    const norm = (x: string) => x.replace(/\s+/g, ' ').trim()
+    const voiceStale = !!voUrl && norm(voScript) !== norm(script)
+    const cuesStale = !!voUrl && cues.length > 0 && cuesFor !== voUrl
+    return { voiceStale, cuesStale, any: voiceStale || cuesStale }
+  }, [voUrl, voScript, script, cues.length, cuesFor])
+
   const captionQc = useMemo(() => {
     if (!cues.length) return null
     const tl = migrateLegacyProject({ aspect, scenes, cues, words, capMode, subPos, subScale, subsOn: true })
@@ -794,7 +817,7 @@ export default function StudioPage() {
     setError(''); setBusy('subs')
     try {
       const r = await invoke<{ segments: Cue[]; words?: { word: string; start: number; end: number }[] }>('align-subtitles', { audio_url: voUrl, language: lang })
-      setCues(splitCues(r.segments || []))
+      setCues(splitCues(r.segments || [])); setCuesFor(voUrl); setConformed(false)
       setWords(r.words || [])
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
@@ -960,6 +983,9 @@ export default function StudioPage() {
       if (typeof d.voDur === 'number') setVoDur(d.voDur)
       if (Array.isArray(d.cues)) setCues(d.cues as Cue[])
       setConformed(false)
+      // A saved project's voice and cues belong together; treat them as current.
+      setVoScript(typeof d.script === 'string' ? d.script : '')
+      setCuesFor(typeof d.voUrl === 'string' ? d.voUrl : '')
       if (Array.isArray(d.words)) setWords(d.words as { word: string; start: number; end: number }[])
       if (d.capMode === 'clasic' || d.capMode === 'karaoke') setCapMode(d.capMode)
       if (typeof d.subsOn === 'boolean') setSubsOn(d.subsOn)
@@ -1881,10 +1907,15 @@ export default function StudioPage() {
                         className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35">
                         {openVersion === v.id ? 'Ascunde' : 'Observații'}
                       </button>
+                      {/* NOT the same word as the button on the right.
+                          This one renders the frozen snapshot; that one renders
+                          what is on screen. Both said "Randează", which is how
+                          you edit the script, press render, and get the old
+                          film back with no error anywhere. */}
                       <button onClick={() => renderVersion(v)} disabled={busy === 'rendering'}
-                        title="Randează exact acest instantaneu, nu montajul curent."
+                        title={`Randează instantaneul v${v.version} exact așa cum a fost înghețat — NU montajul curent. Pentru montajul curent folosește „Randează în cloud” din dreapta.`}
                         className="text-[11px] px-2 py-1 border border-white/15 text-white/60 hover:border-white/35 disabled:opacity-40">
-                        Randează
+                        Randează v{v.version}
                       </button>
                       {v.render_url && (
                         <a href={v.render_url} target="_blank" rel="noreferrer"
@@ -2263,8 +2294,39 @@ export default function StudioPage() {
                 {busy === 'music' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Încarcă track
                 <input type="file" accept="audio/*" hidden onChange={e => onMusic(e.target.files?.[0])} />
               </label>
-              {musicUrl && <div className="flex items-center gap-2 mt-2"><span className="text-[11px] text-white/40">volum</span>
-                <input type="range" min={0} max={0.6} step={0.02} value={musicVol} onChange={e => setMusicVol(Number(e.target.value))} className="flex-1" /></div>}
+              {/* SAY WHETHER A TRACK IS ACTUALLY THERE.
+                  The only feedback used to be a volume slider quietly appearing,
+                  so an upload that failed and an upload that worked looked
+                  nearly identical — and "I uploaded a track but I cannot see if
+                  it is uploaded" is a sentence that has now been said twice. */}
+              {musicUrl ? (
+                <div className="mt-2 border border-white/[0.07] bg-[#111] p-2">
+                  <div className="flex items-center gap-2">
+                    <Music className="w-3.5 h-3.5 text-emerald-400/80 shrink-0" />
+                    <span className="text-[11px] text-white/70 truncate flex-1" title={musicUrl}>
+                      {decodeURIComponent(musicUrl.split('/').pop() || '')}
+                    </span>
+                    <button onClick={() => setMusicUrl('')} className="text-white/30 hover:text-red-400 shrink-0">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <audio src={musicUrl} controls className="w-full mt-2 h-8" />
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-[11px] text-white/40">volum</span>
+                    <input type="range" min={0} max={0.6} step={0.02} value={musicVol}
+                      onChange={e => setMusicVol(Number(e.target.value))} className="flex-1" />
+                    <span className="text-[10px] text-white/30 w-8 text-right tabular-nums">{Math.round(musicVol * 100)}%</span>
+                  </div>
+                  <p className="text-[10px] text-white/35 mt-1.5 leading-snug">
+                    Se atenuează automat sub voce (−18 dB) și se ridică la loc după. Un track încărcat
+                    are întâietate față de patul muzical sintetizat.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[11px] text-white/30 mt-2">
+                  Niciun track. Filmul folosește patul sintetizat dacă e bifat, altfel doar vocea.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -2281,6 +2343,14 @@ export default function StudioPage() {
                 {busy === 'preview' ? <><Square className="w-3.5 h-3.5" /> Stop</> : busy === 'prep' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Play className="w-3.5 h-3.5" /> Preview</>}
               </button>
             </div>
+            {stale.any && (
+              <div className="mt-3 border border-amber-500/40 bg-amber-500/10 p-2">
+                <p className="text-[11px] text-amber-200/90 leading-snug">
+                  {stale.voiceStale && <><b>Textul s-a schimbat de la ultima voce.</b> Apasă „Generează voce”, altfel filmul se randează cu vocea veche.<br /></>}
+                  {stale.cuesStale && <><b>Subtitrările sunt de la vocea anterioară.</b> Apasă „Auto din voce” ca să se re-sincronizeze.</>}
+                </p>
+              </div>
+            )}
             <button onClick={render} disabled={rendering || scenes.length === 0} className="w-full flex items-center justify-center gap-2 bg-brand-red text-white text-sm font-bold py-2.5 mt-2 hover:bg-red-700 disabled:opacity-50">
               {rendering ? <><Loader2 className="w-4 h-4 animate-spin" /> Randez… {renderPct}%</> : <><Film className="w-4 h-4" /> Randează clipul</>}
             </button>
@@ -2334,8 +2404,9 @@ export default function StudioPage() {
                 </div>
               )}
               <button onClick={renderCloud} disabled={cloudBusy || scenes.length === 0}
+                title="Randează ce e pe ecran acum, pe worker. Butonul „Randează vN” de la o versiune randează instantaneul acelei versiuni, nu montajul curent."
                 className="w-full flex items-center justify-center gap-2 bg-[#111] border border-white/[0.07] text-white text-[12px] font-bold py-2.5 hover:border-brand-red/60 disabled:opacity-50">
-                {cloudBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloud: {cloud.status}…</> : <><Film className="w-4 h-4" /> Randează în cloud (MP4 garantat)</>}
+                {cloudBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloud: {cloud.status}…</> : <><Film className="w-4 h-4" /> Randează montajul curent (cloud, MP4)</>}
               </button>
               {cloud.status === 'unconfigured' && (
                 <p className="text-[11px] text-amber-300/80 mt-2 leading-relaxed">{cloud.msg}</p>
