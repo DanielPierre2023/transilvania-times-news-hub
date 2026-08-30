@@ -28,6 +28,10 @@ import { checkCaptions, extractCues, toSRT, toVTT } from '@/lib/timeline/caption
 import { formatLufs, measureAudioBuffer, planNormalisation } from '@/lib/timeline/loudness'
 import type { LoudnessResult } from '@/lib/timeline/loudness'
 import { migrateLegacyProject } from '@/lib/timeline/migrate'
+import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
+import { FPS } from '@/lib/timeline/time'
+import { validate } from '@/lib/timeline/document'
+import type { Timeline } from '@/lib/timeline/types'
 import {
   Clapperboard, ImagePlus, Upload, Mic, Captions, Music, Film,
   Sparkles, Loader2, Play, Square, Trash2, ArrowUp, ArrowDown, Download, AlertCircle, Wand2,
@@ -59,9 +63,18 @@ const MOTION_NEGATIVE = 'text, watermark, logo, subtitles, caption, extra finger
 interface Cue { start: number; end: number; text: string }
 interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 
-const ASPECTS: Record<Aspect, [number, number]> = {
-  '9:16': [720, 1280], '1:1': [1000, 1000], '4:5': [864, 1080], '16:9': [1280, 720],
+// Master resolution. 720p was the only option and it is below every delivery
+// spec a client will hand you — "1080p social cutdowns" was literally
+// unservable. The old sizes are kept as the 720p tier so existing projects
+// render exactly as before if you choose it.
+type Master = '720' | '1080'
+
+const MASTERS: Record<Master, Record<Aspect, [number, number]>> = {
+  '720': { '9:16': [720, 1280], '1:1': [1000, 1000], '4:5': [864, 1080], '16:9': [1280, 720] },
+  '1080': { '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350], '16:9': [1920, 1080] },
 }
+
+const ASPECTS: Record<Aspect, [number, number]> = MASTERS['1080']
 const GEMINI_VOICES: { v: string; label: string }[] = [
   { v: 'Charon', label: 'Charon · bărbat, grav' },
   { v: 'Orus', label: 'Orus · bărbat, ferm' },
@@ -142,6 +155,9 @@ export default function StudioPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
 
   const [aspect, setAspect] = useState<Aspect>('9:16')
+  const [master, setMaster] = useState<Master>('1080')
+  const [fpsOut, setFpsOut] = useState<25 | 30>(30)
+  const [provider, setProvider] = useState<'shotstack' | 'creatomate'>('shotstack')
   const [scenes, setScenes] = useState<Scene[]>([])
   const [imgPrompt, setImgPrompt] = useState('')
   const [imgAspect, setImgAspect] = useState('4:5')
@@ -217,7 +233,7 @@ export default function StudioPage() {
     return out
   }, [words])
 
-  const [W, H] = ASPECTS[aspect]
+  const [W, H] = MASTERS[master][aspect]
   const scenesDur = scenes.reduce((s, x) => s + x.duration, 0)
   const totalDur = Math.min(180, Math.max(scenesDur, voDur))
 
@@ -384,12 +400,23 @@ export default function StudioPage() {
 
   // Caption sidecars. The cue data always existed; it just never left the
   // canvas, so no delivery spec asking for subtitles could be met.
+  // The project as a real timeline, at the chosen master size and frame rate.
+  // Everything downstream — captions, the cloud render, the cost estimate —
+  // reads this one object, so the preview and the export cannot drift apart.
+  function buildTimeline(forceCaptions = false): Timeline {
+    const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
+    const tl = migrateLegacyProject(
+      forceCaptions ? { ...base, subsOn: true } : base,
+      { fps: fpsOut === 25 ? FPS.pal : FPS.web },
+    )
+    return { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
+  }
+
   // A sidecar is independent of whether captions are burned into the picture,
   // so the burn-in switch is forced on here — otherwise turning off the overlay
   // would silently stop the .srt from containing anything.
   function captionTimeline() {
-    const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
-    return migrateLegacyProject({ ...base, subsOn: true })
+    return buildTimeline(true)
   }
 
   function downloadText(name: string, body: string, mime: string) {
@@ -449,7 +476,7 @@ export default function StudioPage() {
 
   // ─── project persistence ────────────────────────────────────────────────
   function projectData() {
-    return { aspect, scenes, script, lang, tone, elVoiceId, geminiVoice, voice, voUrl, voDur, cues, words, capMode, subsOn, subPos, subScale, musicUrl, musicVol }
+    return { aspect, master, fpsOut, provider, scenes, script, lang, tone, elVoiceId, geminiVoice, voice, voUrl, voDur, cues, words, capMode, subsOn, subPos, subScale, musicUrl, musicVol }
   }
   async function refreshProjects() {
     try {
@@ -481,6 +508,9 @@ export default function StudioPage() {
       const d = (data.data || {}) as Record<string, unknown>
       setProjId(String(data.id)); setProjName(String(data.name || ''))
       if (d.aspect) setAspect(d.aspect as Aspect)
+      if (d.master === '720' || d.master === '1080') setMaster(d.master)
+      if (d.fpsOut === 25 || d.fpsOut === 30) setFpsOut(d.fpsOut)
+      if (d.provider === 'shotstack' || d.provider === 'creatomate') setProvider(d.provider)
       if (Array.isArray(d.scenes)) setScenes(d.scenes as Scene[])
       if (typeof d.script === 'string') setScript(d.script)
       if (d.lang === 'ro' || d.lang === 'en') setLang(d.lang)
@@ -776,7 +806,7 @@ export default function StudioPage() {
       await preloadAll()
       const canvas = canvasRef.current!
       const ctx = canvas.getContext('2d')!
-      const fps = 30
+      const fps = fpsOut
       const vstream = canvas.captureStream(fps)
 
       const ac = new AudioContext()
@@ -878,30 +908,44 @@ export default function StudioPage() {
     if (scenes.length === 0) { setError('Adaugă cel puțin o scenă.'); return }
     setError(''); setCloud({ status: 'creating', url: '', msg: '' })
     try {
-      const created = await invokeRaw('render-video', { spec: buildCloudSpec() })
+      const tl = buildTimeline()
+      const problems = validate(tl).filter(x => x.severity === 'error')
+      if (problems.length) {
+        setCloud({ status: 'error', url: '', msg: problems.map(x => `${x.where}: ${x.message}`).join(' · ') })
+        return
+      }
+      const spec = provider === 'shotstack' ? toShotstackEdit(tl) : buildCloudSpec()
+      const created = await invokeRaw('render-video', { spec, provider })
       if (created.configured === false) { setCloud({ status: 'unconfigured', url: '', msg: String(created.message || '') }); return }
       if (created.ok === false) { setCloud({ status: 'error', url: '', msg: 'Provider: ' + JSON.stringify(created.body).slice(0, 300) }); return }
-      const bodyArr = created.body
-      const first = Array.isArray(bodyArr) ? bodyArr[0] : bodyArr
-      const id = (first as { id?: string })?.id
-      if (!id) { setCloud({ status: 'error', url: '', msg: 'Fără id de la provider: ' + JSON.stringify(bodyArr).slice(0, 250) }); return }
+      const id = readJobId(provider, created.body)
+      if (!id) { setCloud({ status: 'error', url: '', msg: 'Fără id de la provider: ' + JSON.stringify(created.body).slice(0, 250) }); return }
       for (let i = 0; i < 120; i++) {
         await sleep(4000)
-        const st = await invokeRaw('render-video', { poll_id: id })
-        const sBody = st.body
-        const s = (Array.isArray(sBody) ? sBody[0] : sBody) as { status?: string; url?: string; error_message?: string }
-        setCloud({ status: s?.status || 'rendering', url: s?.url || '', msg: '' })
-        if (s?.status === 'succeeded' && s?.url) { setCloud({ status: 'succeeded', url: s.url, msg: '' }); return }
-        if (s?.status === 'failed') { setCloud({ status: 'failed', url: '', msg: s?.error_message || 'Randare eșuată la provider.' }); return }
+        const st = await invokeRaw('render-video', { poll_id: id, provider })
+        const job = readJobStatus(provider, st.body)
+        setCloud({ status: job.state, url: job.url || '', msg: '' })
+        if (job.state === 'done' && job.url) { setCloud({ status: 'succeeded', url: job.url, msg: '' }); return }
+        if (job.state === 'failed') { setCloud({ status: 'failed', url: '', msg: job.message || 'Randare eșuată la provider.' }); return }
       }
-      setCloud({ status: 'timeout', url: '', msg: 'Durează neobișnuit de mult — verifică în contul Creatomate.' })
+      setCloud({ status: 'timeout', url: '', msg: 'Durează neobișnuit de mult — verifică în contul providerului.' })
     } catch (e) {
       setCloud({ status: 'error', url: '', msg: (e as Error).message })
     }
   }
 
+
   // ─── UI ─────────────────────────────────────────────────────────────────
   const previewW = aspect === '16:9' ? 360 : aspect === '1:1' ? 300 : 236
+  // What the hosted renderer will drop relative to the timeline. Said out loud,
+  // because a motion curve quietly swapped for a preset is the kind of thing
+  // that gets noticed after delivery rather than before.
+  const cloudLimits = useMemo(
+    () => (scenes.length && provider === 'shotstack' ? describeLimitations(buildTimeline()) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scenes, provider, cues, subsOn, subPos, subScale, musicUrl, musicVol, voUrl, aspect, master, fpsOut],
+  )
+
   const cloudBusy = ['creating', 'planned', 'waiting', 'transcribing', 'rendering'].includes(cloud.status)
   return (
     <div>
@@ -920,6 +964,22 @@ export default function StudioPage() {
           <button key={a} onClick={() => setAspect(a)}
             className={'px-3 py-1.5 text-[12px] border ' + (aspect === a ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/60 border-white/[0.07]')}>{a}</button>
         ))}
+        <span className="w-px h-5 bg-white/10 mx-1" />
+        <span className="font-sans text-[11px] uppercase tracking-widest text-white/40">Master</span>
+        {(['1080', '720'] as Master[]).map(m => (
+          <button key={m} onClick={() => setMaster(m)}
+            className={'px-2.5 py-1.5 text-[12px] border ' + (master === m ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/60 border-white/[0.07]')}>
+            {m}p
+          </button>
+        ))}
+        <span className="font-sans text-[11px] uppercase tracking-widest text-white/40 ml-2">Cadre</span>
+        {([30, 25] as const).map(f => (
+          <button key={f} onClick={() => setFpsOut(f)} title={f === 25 ? 'TV / EBU' : 'social'}
+            className={'px-2.5 py-1.5 text-[12px] border ' + (fpsOut === f ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/60 border-white/[0.07]')}>
+            {f}
+          </button>
+        ))}
+        <span className="font-mono text-[11px] text-white/30">{W}×{H}</span>
         <span className="ml-auto font-sans text-[12px] text-white/50">Durată: <b className="text-white">{fmt(totalDur)}</b> / 3:00 · {scenes.length} scene</span>
       </div>
 
@@ -1301,8 +1361,37 @@ export default function StudioPage() {
                 </a>
               </div>
             )}
-            {/* Cloud render (Creatomate) */}
+            {/* Cloud render — deterministic MP4 at the chosen master size */}
             <div className="mt-4 pt-4 border-t border-white/[0.07]">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="text-[11px] text-white/40">Serviciu</span>
+                {(['shotstack', 'creatomate'] as const).map(pv => (
+                  <button key={pv} onClick={() => setProvider(pv)}
+                    className={'px-2.5 py-1 text-[11px] border capitalize ' + (provider === pv ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>
+                    {pv}
+                  </button>
+                ))}
+                {scenes.length > 0 && (
+                  <span className="ml-auto font-mono text-[11px] text-white/40">
+                    ≈ ${estimateCostUsd(buildTimeline()).toFixed(2)}
+                  </span>
+                )}
+              </div>
+              {cloudLimits.length > 0 && (
+                <div className="mb-2 border border-amber-500/25 bg-amber-500/[0.06] px-2.5 py-2">
+                  <p className="text-[10.5px] font-bold uppercase tracking-wider text-amber-300/70 mb-1">
+                    Randarea în cloud nu poate reda tot
+                  </p>
+                  <ul className="space-y-0.5 max-h-24 overflow-y-auto">
+                    {cloudLimits.slice(0, 5).map((l, i) => (
+                      <li key={i} className="text-[10.5px] text-amber-200/60 leading-snug">{l.where} — {l.message}</li>
+                    ))}
+                    {cloudLimits.length > 5 && (
+                      <li className="text-[10.5px] text-amber-200/40">…și încă {cloudLimits.length - 5}</li>
+                    )}
+                  </ul>
+                </div>
+              )}
               <button onClick={renderCloud} disabled={cloudBusy || scenes.length === 0}
                 className="w-full flex items-center justify-center gap-2 bg-[#111] border border-white/[0.07] text-white text-[12px] font-bold py-2.5 hover:border-brand-red/60 disabled:opacity-50">
                 {cloudBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloud: {cloud.status}…</> : <><Film className="w-4 h-4" /> Randează în cloud (MP4 garantat)</>}

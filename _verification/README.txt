@@ -1,7 +1,8 @@
 DO NOT COMMIT THIS FOLDER. Evidence, not repo code.
 
-112 assertions across three suites, all passing.
+164 assertions across five suites, all passing.
 
-Suite 2 compares this loudness implementation against ffmpeg's ebur128 —
-a trusted reference — on five generated signals including a 44.1 kHz file
-to prove the filter derivation is not hard-coded to 48 kHz.
+Suite 2 compares the loudness implementation against ffmpeg's ebur128.
+Suite 4 checks the render spec against the Shotstack schema, including the
+track-order inversion and the flipped Y axis — the two things that are silently
+wrong if you assume they match the timeline's own conventions.

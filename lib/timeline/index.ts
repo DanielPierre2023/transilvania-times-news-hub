@@ -104,3 +104,23 @@ export {
   measureLoudness,
   planNormalisation,
 } from './loudness'
+
+export type {
+  JobState,
+  JobStatus,
+  Limitation,
+  RenderProvider,
+  ShotstackAsset,
+  ShotstackClip,
+  ShotstackEdit,
+  ShotstackOptions,
+} from './render-spec'
+export {
+  RENDER_RATES,
+  billableSeconds,
+  describeLimitations,
+  estimateCostUsd,
+  readJobId,
+  readJobStatus,
+  toShotstackEdit,
+} from './render-spec'
