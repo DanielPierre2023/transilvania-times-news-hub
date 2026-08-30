@@ -41,7 +41,9 @@ const nextConfig: NextConfig = {
       // was blocked: the composed-bulletin player rendered blank, and picking a
       // presenter clip could not be previewed. img-src already allowed blob:,
       // which is why images always worked and only video appeared broken.
-      "media-src 'self' data: blob: https://zimpimoierpsocnmnizm.supabase.co https://v3.fal.media https://fal.media",
+      "media-src 'self' data: blob: https://zimpimoierpsocnmnizm.supabase.co https://v3.fal.media https://fal.media " +
+        // The render worker serves finished masters from its own origin.
+        "https://transilvania-times-news-hub-production.up.railway.app",
       // The Studio renders MP4 in the browser; that uses blob: workers.
       "worker-src 'self' blob:",
       "child-src 'self' blob:",
@@ -53,7 +55,9 @@ const nextConfig: NextConfig = {
       // blob:/data: are needed to read a locally picked file back before upload.
       // queue.fal.run / fal.media — the Studio submits and polls fal directly
       // from the browser; without them those calls are blocked by CSP.
-      "connect-src 'self' data: blob: https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co https://api.open-meteo.com https://queue.fal.run https://fal.run https://v3.fal.media https://fal.media https://pagead2.googlesyndication.com https://adservice.google.com",
+      "connect-src 'self' data: blob: https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co https://api.open-meteo.com https://queue.fal.run https://fal.run https://v3.fal.media https://fal.media " +
+        "https://transilvania-times-news-hub-production.up.railway.app " +
+        "https://pagead2.googlesyndication.com https://adservice.google.com",
       "frame-src https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com",
     ].join('; ')
 
