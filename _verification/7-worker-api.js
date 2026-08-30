@@ -97,6 +97,33 @@ const tl = (() => {
   ok('delivered at the broadcast target of -23 LUFS', Math.abs(I - (-23)) <= 1, String(I))
   console.log(`  broadcast delivery measured ${I} LUFS`)
 
+  // ---- one-time download key (how the browser gets the file) ----
+  ok('status carries a download key once finished', typeof final.downloadKey === 'string' && final.downloadKey.length > 30,
+     String(final.downloadKey))
+  ok('status carries the file path', final.path === `/jobs/${job.id}/file`, String(final.path))
+
+  const noKey = await fetch(`${BASE}/jobs/${job.id}/file`)
+  ok('file refuses with neither token nor key', noKey.status === 401, String(noKey.status))
+
+  const badKey = await fetch(`${BASE}/jobs/${job.id}/file?key=${'x'.repeat(final.downloadKey.length)}`)
+  ok('file refuses a wrong key of the same length', badKey.status === 401, String(badKey.status))
+
+  const shortKey = await fetch(`${BASE}/jobs/${job.id}/file?key=abc`)
+  ok('file refuses a short key without throwing', shortKey.status === 401, String(shortKey.status))
+
+  const byKey = await fetch(`${BASE}/jobs/${job.id}/file?key=${encodeURIComponent(final.downloadKey)}`)
+  ok('file downloads with the job key and NO token', byKey.status === 200, String(byKey.status))
+  ok('key download is not cacheable', (byKey.headers.get('cache-control') || '').includes('no-store'),
+     byKey.headers.get('cache-control'))
+  ok('key download is CORS-readable by the browser',
+     byKey.headers.get('access-control-allow-origin') === '*', byKey.headers.get('access-control-allow-origin'))
+  const keyBytes = Buffer.from(await byKey.arrayBuffer())
+  ok('key download is the same file as the token download', keyBytes.length === bytes.length,
+     `${keyBytes.length} vs ${bytes.length}`)
+
+  const otherJob = await fetch(`${BASE}/jobs/00000000-0000-0000-0000-000000000000/file?key=${encodeURIComponent(final.downloadKey)}`)
+  ok("a job's key does not open another job", otherJob.status === 401, String(otherJob.status))
+
   const missing = await fetch(`${BASE}/jobs/00000000-0000-0000-0000-000000000000`, { headers: H })
   ok('unknown job is a 404', missing.status === 404, String(missing.status))
 

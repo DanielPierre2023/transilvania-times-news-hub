@@ -60,7 +60,29 @@ const SYNC_ENGINES: { key: string; label: string }[] = [
 ]
 // Kept out of every clip unless you ask for it. Text and logos hallucinated
 // into a marketing clip are the single most common reason to reshoot.
-const MOTION_NEGATIVE = 'text, watermark, logo, subtitles, caption, extra fingers, deformed hands, warped face, identity change, cut, shot change, morphing background'
+// The motion model re-renders the picture, and left to itself it drifts — a
+// warm golden-hour still came back as a cold blue night. Asking the positive
+// prompt to "preserve the colour grade" is not enough; the drift has to be
+// named and forbidden here, where the model actually listens.
+const MOTION_NEGATIVE = [
+  'text, watermark, logo, subtitles, caption',
+  'extra fingers, deformed hands, warped face, identity change',
+  'cut, shot change, morphing background',
+  // colour and lighting drift — the failure that cost a whole render
+  'night, nighttime, moonlight, blue hour, twilight, dusk',
+  'colour shift, color shift, changed lighting, changed time of day',
+  'cold colour grade, blue cast, teal tint, desaturated, washed out',
+  'season change, snow, rain added',
+].join(', ')
+
+// Sent as the positive prompt so the instruction to hold the grade travels with
+// every job instead of relying on the edge function's generic default.
+const MOTION_PROMPT =
+  'Subtle cinematic motion only: a slow gentle camera drift and small natural movement ' +
+  'in the scene — drifting haze, moving leaves, people walking softly. ' +
+  'KEEP THE ORIGINAL PHOTOGRAPH EXACTLY: same composition, same colours, same warm ' +
+  'lighting, same time of day. Do NOT change the time of day, do NOT make it night, ' +
+  'do NOT cool or desaturate the colours. No cuts, no shot changes, no text.'
 interface Cue { start: number; end: number; text: string }
 interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 
@@ -582,6 +604,7 @@ export default function StudioPage() {
         // its opening pose and can repeat with no visible seam. This is the one
         // thing that forced you onto kling.ai; it is a single field.
         ...(motionLoop && mm.endFrame ? { end_image_url: sc.url } : {}),
+        prompt: MOTION_PROMPT,
         negative_prompt: MOTION_NEGATIVE,
         generate_audio: false,
       })

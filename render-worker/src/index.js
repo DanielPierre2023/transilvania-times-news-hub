@@ -131,18 +131,60 @@ function sweep() {
 }
 setInterval(sweep, 15 * 60 * 1000).unref()
 
-function sendFile(res, job) {
+/**
+ * Serves the master, with byte-range support.
+ *
+ * Without ranges a browser can start a video but cannot SCRUB it — every seek
+ * silently snaps back to zero. That makes the preview useless for review, which
+ * is exactly when you need to check a frame at 0:12. Range handling is the
+ * difference between a player and a download.
+ *
+ * Disposition is `inline` so the file plays in a tab as well as downloading;
+ * `attachment` forced a download and made in-browser review impossible.
+ */
+function sendFile(res, job, req) {
   if (!job || !job.file || !fs.existsSync(job.file)) {
     return json(res, 409, { error: `Job is ${job ? job.state : 'unknown'}` })
   }
   const stat = fs.statSync(job.file)
-  res.writeHead(200, {
+  const total = stat.size
+  const name = path.basename(job.file)
+  const base = {
     'Content-Type': job.file.endsWith('.mov') ? 'video/quicktime' : 'video/mp4',
-    'Content-Length': stat.size,
-    'Content-Disposition': `attachment; filename="${path.basename(job.file)}"`,
+    'Content-Disposition': `inline; filename="${name}"`,
+    'Accept-Ranges': 'bytes',
     // The key is a capability, not a session. Never let a proxy keep the file.
     'Cache-Control': 'private, no-store',
-  })
+  }
+
+  const header = req && req.headers ? req.headers.range : null
+  const match = header ? /^bytes=(\d*)-(\d*)$/.exec(String(header).trim()) : null
+
+  if (match) {
+    const hasStart = match[1] !== ''
+    const hasEnd = match[2] !== ''
+    let start
+    let end
+    if (!hasStart && hasEnd) {
+      // "bytes=-500" means the LAST 500 bytes, not the first 500.
+      const suffix = Number(match[2])
+      start = Math.max(0, total - suffix)
+      end = total - 1
+    } else {
+      start = hasStart ? Number(match[1]) : 0
+      end = hasEnd ? Math.min(Number(match[2]), total - 1) : total - 1
+    }
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) {
+      res.writeHead(416, { ...base, 'Content-Range': `bytes */${total}` })
+      return res.end()
+    }
+
+    res.writeHead(206, { ...base, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` })
+    return fs.createReadStream(job.file, { start, end }).pipe(res)
+  }
+
+  res.writeHead(200, { ...base, 'Content-Length': total })
   return fs.createReadStream(job.file).pipe(res)
 }
 
@@ -172,7 +214,7 @@ const server = http.createServer(async (req, res) => {
       suppliedKey.length === expected.length &&
       crypto.timingSafeEqual(Buffer.from(suppliedKey), Buffer.from(expected))
     if (!keyOk) return json(res, 401, { error: 'Unauthorized' })
-    return sendFile(res, job)
+    return sendFile(res, job, req)
   }
 
   if (!authorised(req)) return json(res, 401, { error: 'Unauthorized' })
@@ -215,7 +257,7 @@ const server = http.createServer(async (req, res) => {
     const job = jobs.get(match[1])
     if (!job) return json(res, 404, { error: 'No such job' })
     if (!match[2]) return json(res, 200, publicJob(job))
-    return sendFile(res, job)
+    return sendFile(res, job, req)
   }
 
   return json(res, 404, { error: 'Not found' })
