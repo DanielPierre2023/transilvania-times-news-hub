@@ -84,6 +84,20 @@ function post(port, route, body, token = TOKEN) {
   await new Promise(r => (server.listening ? r() : server.once('listening', r)))
   const wPort = server.address().port
 
+  // ── health reports which gate is actually deployed ──────────────────────
+  // Railway has served a stale build more than once here, and /health said
+  // "ok" either way. The thresholds are the fingerprint.
+  const health = await new Promise((resolve, reject) => {
+    http.get({ port: wPort, path: '/health' }, r => {
+      let d = ''; r.on('data', c => { d += c }); r.on('end', () => resolve(JSON.parse(d)))
+    }).on('error', reject)
+  })
+  ok('health needs no token', health.ok === true)
+  ok('health names the live movement floor', typeof health.spec.minCoherentMotion === 'number')
+  ok('health names the live stability ceiling', typeof health.spec.maxShimmerRatio === 'number')
+  ok('and it is the ratio gate, not the absolute shimmer one that rejected good takes',
+    health.spec.maxShimmer === undefined, JSON.stringify(health.spec))
+
   // ── auth ────────────────────────────────────────────────────────────────
   const noAuth = await post(wPort, '/inspect', { clips: [{ url: url(CLIPS.pan) }] }, '')
   ok('inspect refuses an unauthenticated caller', noAuth.status === 401, String(noAuth.status))

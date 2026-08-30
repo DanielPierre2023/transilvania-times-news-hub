@@ -17,7 +17,7 @@ const crypto = require('crypto')
 
 const { renderTimeline } = require('./render')
 const { inspect } = require('./qc')
-const { analyseClip, judge, selectBest } = require('./vision')
+const { analyseClip, judge, selectBest, DEFAULT_SPEC } = require('./vision')
 const timeline = require('./timeline')
 
 const PORT = Number(process.env.PORT || 8080)
@@ -36,6 +36,7 @@ function isFetchable(u) {
   } catch { return false }
 }
 
+const STARTED_AT = Date.now()
 const jobs = new Map()
 const queue = []
 let running = false
@@ -211,7 +212,24 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
 
   if (url.pathname === '/health') {
-    return json(res, 200, { ok: true, running, queued: queue.length, jobs: jobs.size })
+    // WHICH CODE IS ACTUALLY RUNNING.
+    //
+    // Railway has silently served a stale build more than once in this
+    // project's life — a GitHub App without repo access, auto-deploy off, a
+    // Redeploy that rebuilt the same snapshot. Every one of those cost an hour
+    // of debugging the wrong thing, because /health said "ok" either way.
+    //
+    // So health now reports the live gate thresholds. They change whenever the
+    // measurement changes, which makes them a fingerprint of the deployed
+    // code that needs no build metadata and cannot drift out of date.
+    return json(res, 200, {
+      ok: true,
+      running,
+      queued: queue.length,
+      jobs: jobs.size,
+      startedAt: new Date(STARTED_AT).toISOString(),
+      spec: DEFAULT_SPEC,
+    })
   }
 
   // The finished file may also be fetched with the job's own download key, so
