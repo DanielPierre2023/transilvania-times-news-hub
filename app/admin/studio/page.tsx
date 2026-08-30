@@ -383,6 +383,17 @@ export default function StudioPage() {
   const [W, H] = MASTERS[master][aspect]
   const scenesDur = scenes.reduce((s, x) => s + x.duration, 0)
   const totalDur = Math.min(180, Math.max(scenesDur, voDur))
+  /**
+   * The film's REAL length. An end card at 26s for 4s makes a 30-second film,
+   * and the browser recorder stopped at 26 — so the branding was recorded by
+   * nobody and the last thing anyone saw was the final shot cutting to black.
+   * The worker never had this bug: it renders tl.duration, which buildTimeline
+   * already extends past the overlays. This is the browser path catching up.
+   */
+  const filmDur = useMemo(() => {
+    const ends = overlays.map(o => o.at + o.dur)
+    return Math.min(180, Math.max(totalDur, ...(ends.length ? ends : [0])))
+  }, [overlays, totalDur])
 
   // ─── helpers ────────────────────────────────────────────────────────────
   async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<T> {
@@ -1256,7 +1267,7 @@ export default function StudioPage() {
     for (const sc of scenes) { if (t < acc + sc.duration) return { scene: sc, p: (t - acc) / sc.duration }; acc += sc.duration }
     const last = scenes[scenes.length - 1]; return { scene: last, p: 1 }
   }
-  function drawFrame(ctx: CanvasRenderingContext2D, t: number) {
+  function drawFrame(ctx: CanvasRenderingContext2D, t: number, guides = true) {
     ctx.fillStyle = '#150b06'; ctx.fillRect(0, 0, W, H)
     const a = activeSceneAt(t)
     if (a) {
@@ -1340,8 +1351,14 @@ export default function StudioPage() {
       }
     }
 
-    // Safe area — a guide, never rendered into the file.
-    if (showSafe && kit.safeArea !== 'none') {
+    // Safe area — a guide, and `guides` is why this argument exists.
+    //
+    // This function draws the preview AND feeds the browser recorder. The
+    // comment here used to read "never rendered into the file", which was true
+    // of the worker and false of the recorder: the dashed amber box was being
+    // captured into every browser render. Same shape of bug as the wordmark,
+    // found the same way — by someone watching their own film.
+    if (guides && showSafe && kit.safeArea !== 'none') {
       const b = safeBox(kit)
       ctx.save()
       ctx.strokeStyle = 'rgba(255,211,122,0.75)'
@@ -1379,7 +1396,7 @@ export default function StudioPage() {
     let raf = 0
     const loop = () => {
       const t = (performance.now() - start) / 1000
-      if (t >= totalDur) { stop(); return }
+      if (t >= filmDur) { stop(); return }
       // keep active video scene playing near its local time
       drawFrame(ctx, t)
       raf = requestAnimationFrame(loop)
@@ -1450,13 +1467,27 @@ export default function StudioPage() {
       rec.start(200)
       const t0 = ac.currentTime + 0.08
       voSrc?.start(t0); muSrc?.start(t0)
-      const start = performance.now()
       await new Promise<void>(resolve => {
         const loop = () => {
-          const t = (performance.now() - start) / 1000
-          setRenderPct(Math.min(99, Math.round((t / totalDur) * 100)))
-          drawFrame(ctx, t)
-          if (t >= totalDur) { resolve(); return }
+          // ONE CLOCK, AND IT IS THE AUDIO CLOCK.
+          //
+          // The picture used to be driven by performance.now() while the voice
+          // played on the AudioContext's clock. Those are two different clocks,
+          // and this is a REAL-TIME capture: at 1080×1920 the browser drops
+          // frames under load, wall-clock keeps running, and the picture slides
+          // away from the sound. What you see is the subtitles drifting off the
+          // words — which is exactly what was reported.
+          //
+          // Reading the time from the same clock the voice is playing on cannot
+          // remove the dropped frames, but it stops the error accumulating: a
+          // late frame is drawn at the time it is actually shown, so captions
+          // and voice stay together instead of parting company.
+          const t = ac.currentTime - t0
+          setRenderPct(Math.min(99, Math.round((t / filmDur) * 100)))
+          // `false` = no guides. The safe-area box is for the person editing,
+          // not for the film.
+          drawFrame(ctx, Math.max(0, t), false)
+          if (t >= filmDur) { resolve(); return }
           requestAnimationFrame(loop)
         }
         loop()
@@ -2351,10 +2382,20 @@ export default function StudioPage() {
                 </p>
               </div>
             )}
-            <button onClick={render} disabled={rendering || scenes.length === 0} className="w-full flex items-center justify-center gap-2 bg-brand-red text-white text-sm font-bold py-2.5 mt-2 hover:bg-red-700 disabled:opacity-50">
+            {/* The REAL-TIME capture is no longer the red button. It is free and
+                instant and it drifts under load; the deterministic render is the
+                one you deliver. Emphasis should match that. */}
+            <button onClick={render} disabled={rendering || scenes.length === 0} className="w-full flex items-center justify-center gap-2 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold py-2.5 mt-2 hover:border-white/20 disabled:opacity-50">
               {rendering ? <><Loader2 className="w-4 h-4 animate-spin" /> Randez… {renderPct}%</> : <><Film className="w-4 h-4" /> Randează clipul</>}
             </button>
-            {rendering && <p className="text-[11px] text-white/40 mt-2 text-center">Randarea rulează în timp real (~{fmt(totalDur)}). Ține fila deschisă.</p>}
+            {rendering && <p className="text-[11px] text-white/40 mt-2 text-center">Randarea rulează în timp real (~{fmt(filmDur)}). Ține fila deschisă și nu comuta tab-ul.</p>}
+            <p className="text-[10px] text-white/30 mt-2 leading-snug">
+              „Randează clipul” înregistrează pânza în <b>timp real</b>, în browser: e gratis și
+              instant, dar dacă mașina pierde cadre, imaginea rămâne în urma sunetului. Pentru
+              livrare folosește <b>randarea în cloud</b> — e deterministă, cadru cu cadru, cu
+              gradare, R128 și raport QC. Patul muzical sintetizat există doar în cloud;
+              înregistrarea din browser redă doar vocea și trackul încărcat.
+            </p>
             {outUrl && (
               <div className="mt-4 border border-white/[0.07]">
                 <video src={outUrl} controls className="w-full" />
@@ -2405,7 +2446,7 @@ export default function StudioPage() {
               )}
               <button onClick={renderCloud} disabled={cloudBusy || scenes.length === 0}
                 title="Randează ce e pe ecran acum, pe worker. Butonul „Randează vN” de la o versiune randează instantaneul acelei versiuni, nu montajul curent."
-                className="w-full flex items-center justify-center gap-2 bg-[#111] border border-white/[0.07] text-white text-[12px] font-bold py-2.5 hover:border-brand-red/60 disabled:opacity-50">
+                className="w-full flex items-center justify-center gap-2 bg-brand-red text-white text-sm font-bold py-2.5 hover:bg-red-700 disabled:opacity-50">
                 {cloudBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Cloud: {cloud.status}…</> : <><Film className="w-4 h-4" /> Randează montajul curent (cloud, MP4)</>}
               </button>
               {cloud.status === 'unconfigured' && (

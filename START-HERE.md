@@ -1,72 +1,55 @@
-# tt-edit-loop — why the change did not come out, and three fixes so it cannot happen again
+# tt-browser-render — three faults, one cause
 
-## The short answer
+All three come from the same fact: **“Randează clipul” records the preview
+canvas, live, in real time.** It is not a renderer; it is a screen capture of
+the editor.
 
-**Almost certainly you pressed “Randează” on the version row.** That button
-renders the *frozen snapshot* of that version — deliberately, so an approved
-film re-renders identically a year later. It ignores everything you have just
-edited, and it said the same word as the button that renders your edits.
+## The strange rectangle
 
-To render what is on screen, use the button on the right: **“Randează montajul
-curent”**. Version rows now say **“Randează v3”** so the two can never be
-confused again.
+That is the **safe-area guide** — the dashed amber box that shows where TikTok's
+own caption bar will cover your frame. It is drawn by the preview painter, and
+the preview painter is what the recorder captures. So the editor's guide was
+being burned into the film.
 
-There is a second reason it may not have changed, and it applies even if you
-used the right button: **editing the script does not regenerate the voice.**
-Nothing can do that automatically — it costs money and takes a minute — so the
-film renders with the previous audio and, until now, nothing said so.
+I wrote the comment on that code myself: *“Safe area — a guide, never rendered
+into the file.”* True of the worker, false of the recorder. Same shape as the
+wordmark last time, found the same way — by someone watching their own film.
 
-## The procedure
+The painter now takes a `guides` flag. The preview passes true, the recorder
+passes false.
 
-**To change what the voice says**
+## The missing branding
 
-1. Edit the text in **Voce (voiceover)**.
-2. Press **Generează voce**. Wait for the player to appear — the length and the
-   LUFS reading underneath both change when it is new.
-3. Press **Auto din voce** in **Subtitrări** — the old subtitles are timed to
-   the old audio and will drift otherwise.
-4. Press **Corectează** if it flags reading speed.
-5. **Salvează**, then **Trimite spre aprobare** → renders as a new version.
+The recording stopped at **26 seconds** — the length of the five shots. The end
+card sits at 26 for 4, so the film is **30**. The last thing recorded was the
+final shot cutting to black, and the branding was never reached.
 
-**To add a background track**
+The worker never had this: it renders `tl.duration`, which already includes the
+overlays. There is now a `filmDur` that does the same for the browser, and the
+preview uses it too — so you can watch the end card instead of only rendering it.
 
-1. **Muzică → Încarcă track**.
-2. The panel now shows the file name, a player and a volume slider. If you do
-   not see those three things, the upload did not happen.
-3. Volume defaults to 18%. It ducks automatically to −18 dB under the voice and
-   comes back up after.
-4. An uploaded track takes priority over the synthesised **pat muzical**; untick
-   that or leave it, either is fine.
+## The subtitles drifting off the words
 
-**Then render**
+The picture was drawn on `performance.now()` while the voice played on the
+AudioContext's clock. Two clocks, and a real-time capture: at 1080×1920 the
+browser drops frames under load, wall-clock keeps running, and the picture
+slides away from the sound. What you see is the text arriving late.
 
-- **Randează montajul curent** (right-hand side) → renders what is on screen.
-- **Randează v3** (version row) → renders that frozen snapshot instead.
-- Or **Trimite spre aprobare** first, which freezes a new version, then render it.
+The loop now reads its time from **the same clock the voice is playing on**.
+That cannot un-drop a frame, but it stops the error accumulating — a late frame
+is drawn at the time it is actually shown, so words and captions stay together.
 
-## What I changed so this stops biting
+## And a change of emphasis
 
-**1 · The two buttons no longer share a name.** The version row says *Randează
-v3*; the cloud button says *Randează montajul curent*. Both carry a tooltip
-saying which is which. Same word for two different things is how you edit a
-script, press render, and get the old film back with no error anywhere.
+The real-time capture was the big red button and the deterministic render was a
+grey one underneath. That is backwards, and it is why these three faults were
+found in a delivery rather than in a draft.
 
-**2 · The music panel says whether a track is attached.** File name, an audio
-player, a remove button, the volume as a number, and a line explaining the
-ducking. Previously the only sign of a successful upload was a volume slider
-quietly appearing, so a failed upload and a successful one looked nearly the
-same — and *“I uploaded a track but I cannot see if it is uploaded”* is a
-sentence that has now been said twice in this project.
-
-**3 · The film says when it is out of date with itself.** A banner above the
-render button appears when:
-
-- the script has changed since the voice was generated, or
-- the subtitles were aligned to a previous voice.
-
-It names which, and what to press. Neither can be fixed automatically — both
-cost a call — so the only honest option is to say so before you spend a render
-finding out.
+**Randează montajul curent (cloud)** is now the primary action. *Randează
+clipul* is secondary, with a line under it saying what it is: free, instant, and
+liable to drift under load — a draft, not a master. It also notes that the
+synthesised music bed exists only in the cloud render, because the browser has
+no way to make it.
 
 ## Deploy
 
@@ -76,11 +59,23 @@ One file, no SQL.
 app/admin/studio/page.tsx
 ```
 
-`tsc` 0 errors, `eslint` 0 errors, 41 warnings (unchanged).
+## Verification
+
+`_verification/21-browser-render.cjs` → 20 assertions. The Studio page is a
+React component and cannot be imported into a test, so these read its **source
+with comments stripped** — a commented-out line can never pass — plus the film-
+length arithmetic, which is pure:
+
+- the guide is drawn only when guides are on, the recorder asks for none
+- the recording stops at the film, not the scenes, and nothing anywhere still
+  ends a capture at `totalDur`
+- an end card past the last shot extends the film to 30s; one inside it does not
+- the recorder reads `ac.currentTime`, and no wall-clock remains in that loop
+- the cloud render carries the primary style and the capture does not
 
 ---
 
-*A note on v3 itself:* it is already rendered and green, including the typeface
-check. If you re-record the voice, the shots do not need regenerating — they
-cost nothing to reuse. Only the voice, the subtitles and the render change, so a
-new version is about a minute of worker time and no fal spend at all.
+*If it still drifts after this:* the remaining cause is genuinely the machine —
+a real-time capture of a 1080×1920 canvas is heavy, and nothing in the browser
+can guarantee it. That is the argument for the cloud render, which draws frame
+by frame with no clock at all.
