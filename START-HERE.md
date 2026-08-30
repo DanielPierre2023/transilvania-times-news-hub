@@ -1,75 +1,91 @@
-# tt-wordmark — why the label came back, and why it was never in the film
+# tt-ci-fix — CI has been failing since 25 August, and it is not the code
 
-## The answer
+## What is actually wrong
 
-It is painted by the Studio's **preview** function, and it was never part of the
-timeline.
+`npm ci` refuses to install when `package.json` and `package-lock.json` disagree.
+They have disagreed for five days.
 
 ```
-app/admin/studio/page.tsx  ·  drawFrame(ctx, t)
-    ctx.fillText(kit.name, wm.x * W, (wm.y + 0.03) * H)
-    ctx.fillRect(...)                      // the crimson rule under it
+npm error `npm ci` can only install packages when your package.json and
+npm error package-lock.json are in sync.
+npm error Missing: @types/sanitize-html@2.16.1 from lock file
+npm error Missing: mammoth@1.12.2 from lock file
+npm error Missing: sanitize-html@2.17.7 from lock file
+        ... and 42 transitive packages
 ```
 
-That one function feeds two things: the live preview, and the **browser
-recorder**. It does not feed the worker. So:
+The commit history says exactly how:
 
-| where | wordmark |
+| file | last changed |
 |---|---|
-| Studio preview | **yes** |
-| “Randează clipul” (browser recording) | **yes, baked into the file** |
-| worker render — the cloud button, and a version’s Randează | **no** |
+| `package.json` | **25 Aug 2026** — gained sanitize-html, mammoth, @types/sanitize-html |
+| `package-lock.json` | **15 Aug 2026** |
 
-I checked the delivered spot before answering: sampled the top-left of v1 at 1s,
-8s and 15s. Clean picture, no mark. **The film you have does not contain it.**
+Ten days apart. Both commits are titled *Add files via upload* — files added
+through the GitHub web interface, which cannot run `npm install`, so the lock was
+never regenerated. Every push since has failed at the same step.
 
-It has been in that function since long before this month — the original was a
-hard-coded `'Transilvania Times'` at 5% / 7% of the frame. In tt-brand I changed
-it to read the name and the accent from the kit and left it in place, with a
-comment saying "from the kit, so changing the kit changes the film." That comment
-was wrong. It changed the preview. The film is drawn by the worker, which had
-never heard of it.
+**It is not the commit that alerted you.** `dcf52f1` is the tt-typeface drop; I
+checked its file list and it touches no manifest at all. It just happened to be
+the push that made you look.
 
-So this is the same defect as the red/blue channel swap: the preview and the
-render disagreeing about what the film is. That one made the file wrong. This one
-makes the *preview* wrong — and makes the browser render disagree with the cloud
-render, which is worse, because both are called "render".
+## The fix, and it is verified rather than asserted
 
-## The fix
+I regenerated the lock from the **byte-identical** `package.json` that is on
+`main` — sha256 `7420dc66…`, confirmed against the copy here — and then ran the
+exact command that has been failing:
 
-A standing masthead is a legitimate broadcast device, so it is kept — but as a
-real thing rather than a painted one:
+```
+npm install --package-lock-only     # 617 packages resolved
+npm ci                              # added 563 packages in 21s, exit 0
+```
 
-- **`kit.wordmark`**: `none` · `topLeft` · `bottomLeft`, in the kit, in the
-  **Brand și titluri** panel under **siglă**.
-- **Off by default**, including for the house kit. A client's spot should not
-  carry a watermark nobody asked for, and the film you already have does not.
-- When it is on, `lib/brand/templates.ts` emits it as **ordinary clips** — a text
-  and a rule on the graphics track, spanning the film — so the preview and the
-  file cannot disagree about it, it can be nudged like anything else, and it is
-  excluded from the grade along with the rest of the type.
-- The paint call is deleted.
+That is the whole hotfix: **one file**, `package-lock.json`.
+
+## Also in here, and deliberately smaller than it could be
+
+The same run carried a second warning:
+
+> Node.js 20 is deprecated. actions/checkout@v4 and actions/setup-node@v4 target
+> Node.js 20 but are being forced to run on Node.js 24.
+
+Both actions are bumped to their current majors, **v7**. The inputs this workflow
+uses — `node-version`, `cache` — are unchanged across those majors.
+
+**What I did NOT change, on purpose:** the runtime stays on Node **20**.
+
+The log also shows `EBADENGINE` warnings — `@supabase/*` 2.112 and
+`sanitize-html` 2.17 now declare `node >= 22`. They are warnings, not errors;
+npm does not enforce `engines` unless `engine-strict` is set. And `netlify.toml`
+pins `NODE_VERSION = "20"`, so bumping CI alone would make CI green on a
+configuration the site never builds — which is worse than no CI. Moving both to
+22 is a real change to the production build environment and deserves its own
+deploy, not a ride-along on a hotfix.
 
 ## Deploy
 
-Repo only, three files, no SQL.
+Two files, repo only.
 
 ```
-lib/brand/kit.ts             the wordmark setting, defaulting to none
-lib/brand/templates.ts       wordmark() → clips
-app/admin/studio/page.tsx    the paint call removed, the control added
+package-lock.json                 regenerated, verified with npm ci
+.github/workflows/ci.yml          actions v4 → v7, plus why Node stays at 20
 ```
 
-## Verification
+## One caveat, stated plainly
 
-`_verification/19-wordmark.cjs` → 11 assertions, and they check the fix from both
-ends, because half a fix here is invisible:
+I verified the lock by running `npm ci` here. **I cannot run a GitHub Actions
+job from here**, so the action version bump is the one part of this the next push
+verifies rather than I do. If CI goes red on those, reverting `ci.yml` alone
+restores it and keeps the lock fix — they are independent.
 
-- the preview no longer paints the name onto the canvas at all — asserted
-  against the source with comments stripped, so a commented-out line cannot pass
-- the house kit is off, and an old kit row with no such field resolves to off
-- with it **on**, a real film is rendered and the pixels are read: the mark is
-  present in the top-left of the **file**, and absent from the opposite corner
-- with it **off**, the same corner of the same film is clean
+## Housekeeping, while you are in there
 
-432 → 443 assertions. `tsc` 0 errors, `eslint` 0 errors.
+`START-HERE.md` is being committed to the repository root and overwritten by
+every drop, so the repo now carries one set of notes and has lost the rest. They
+would be better as `docs/2026-08-30-typeface.md` and so on — or not committed at
+all. Your call; I will follow whichever you prefer in the next package.
+
+Worth considering separately: CI runs typecheck, lint, the flight regression and
+the build, but not the 443 assertions in `_verification/`. Those need ffmpeg and
+node-canvas, so it is a heavier job — but it is the difference between CI
+checking that the code compiles and CI checking that the renderer still renders.
