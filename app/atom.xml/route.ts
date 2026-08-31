@@ -38,11 +38,27 @@ function toIso(iso: string | null): string {
   try { return new Date(iso).toISOString() } catch { return new Date().toISOString() }
 }
 
+/** Served when Supabase is unreachable: a valid, empty feed. Readers see no
+ *  items for one cache window instead of a 500 — and the build never breaks. */
+const EMPTY_FEED = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Transilvania Times</title><updated>${new Date().toISOString()}</updated><id>https://transilvaniatimes.com/</id></feed>`
+
 export async function GET() {
-  const supabase = createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  // A prerendered route must never throw. createClient() throws synchronously
+  // on a missing url ("supabaseUrl is required"), and an unguarded throw here
+  // fails the ENTIRE Netlify build — which is how the 31 Aug 2026 deploy died.
+  // An empty feed is a bad hour; a failed build is a dead site.
+  const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const SB_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!SB_URL || !SB_KEY) {
+    console.warn('[atom.xml] Supabase env vars missing — empty feed')
+    return new NextResponse(EMPTY_FEED, {
+      status: 200,
+      headers: { 'Content-Type': 'application/atom+xml; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+    })
+  }
+
+  const supabase = createClient<Database>(SB_URL, SB_KEY)
 
   const { data: posts, error } = await supabase
     .from('blog_posts')

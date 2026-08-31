@@ -101,6 +101,11 @@ export default function PageTracker() {
       utm_source:   searchParams.get('utm_source') || (searchParams.get('fbclid') ? 'facebook' : null),
       utm_medium:   searchParams.get('utm_medium') || null,
       utm_campaign: searchParams.get('utm_campaign') || null,
+      // ADDED 31 Aug 2026. tt-social-seo stamps every social link with
+      // utm_content=hookA|hookB so the two headline variants can be compared.
+      // Until now that value arrived and was thrown away — the A/B was written
+      // but never measured.
+      utm_content:  searchParams.get('utm_content') || null,
       event_type:   'pageview',
     }
 

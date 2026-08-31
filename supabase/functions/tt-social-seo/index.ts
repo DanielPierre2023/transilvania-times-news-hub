@@ -126,8 +126,32 @@ async function requireAdmin(req: Request): Promise<Response | null> {
 }
 const SITE = 'https://transilvaniatimes.com';
 const BRAND = 'Transilvania Times';
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
-const OPENAI_MODEL = 'gpt-4o-2024-11-20';
+// Model ids are overridable by Supabase secrets of the same name, so the next
+// retirement is one secret edit rather than a redeploy. claude-sonnet-5 is the
+// canonical pinned id for its release (dateless from the 4.6 generation on —
+// one fixed snapshot, never silently updated), not a floating alias.
+const CLAUDE_MODEL = Deno.env.get('CLAUDE_MODEL')?.trim() || 'claude-sonnet-5';
+const OPENAI_MODEL = Deno.env.get('OPENAI_MODEL')?.trim() || 'gpt-4o-2024-11-20';
+
+// USD per MILLION tokens, every current model, so switching CLAUDE_MODEL by
+// secret stays correctly costed. Sonnet 5 is $2/$10 — cheaper than Sonnet 4.5's
+// $3/$15, so the old constants would have overstated spend by ~50%.
+const PRICE_PER_MTOK: Record<string, { in: number; out: number }> = {
+  'claude-fable-5': { in: 10.00, out: 50.00 },
+  'claude-opus-5': { in: 5.00, out: 25.00 },
+  'claude-sonnet-5': { in: 2.00, out: 10.00 },
+  'claude-haiku-4-5-20251001': { in: 1.00, out: 5.00 },
+  'claude-sonnet-4-5-20250929': { in: 3.00, out: 15.00 },
+  'gpt-4o-2024-11-20': { in: 2.50, out: 10.00 },
+};
+/** Unknown model falls back to the Sonnet-5 rate — never to $0. */
+function usdFor(model: string, inTok: number, outTok: number): number {
+  // Unknown model -> price it at the MOST EXPENSIVE rate we know, not the
+  // cheapest. A ledger that under-reports is worse than one that over-reports:
+  // an unpriced call must never look cheaper than it might actually be.
+  const rate = PRICE_PER_MTOK[model] ?? { in: 10.00, out: 50.00 };
+  return (inTok / 1e6) * rate.in + (outTok / 1e6) * rate.out;
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // PLATFORM SPECS
@@ -626,7 +650,7 @@ async function generatePack(
             const inTok = Number(d?.usage?.input_tokens || 0);
             const outTok = Number(d?.usage?.output_tokens || 0);
             // Sonnet list price at time of writing: $3 / MTok in, $15 / MTok out.
-            const usd = (inTok / 1e6) * 3 + (outTok / 1e6) * 15;
+            const usd = usdFor(CLAUDE_MODEL, inTok, outTok);
             return { data: parsed, model: CLAUDE_MODEL, usd };
           }
           notes.push('claude: unparseable JSON');
@@ -662,7 +686,7 @@ async function generatePack(
   if (!parsed) throw new Error('Could not parse the caption pack from either model');
   const inTok = Number(d?.usage?.prompt_tokens || 0);
   const outTok = Number(d?.usage?.completion_tokens || 0);
-  const usd = (inTok / 1e6) * 2.5 + (outTok / 1e6) * 10;
+  const usd = usdFor(OPENAI_MODEL, inTok, outTok);
   return { data: parsed, model: OPENAI_MODEL, usd };
 }
 
@@ -937,7 +961,8 @@ async function logSpend(
       model: row.model,
       usd: Number(row.usd.toFixed(6)),
       units: row.units ?? 1,
-      unit_kind: row.unit_kind ?? 'request',
+      // 'requests' — plural. The live CHECK constraint rejects 'request'.
+      unit_kind: row.unit_kind ?? 'requests',
       caller: 'newsroom',
       meta: row.meta ?? null,
     });
@@ -1023,7 +1048,7 @@ serve(async (req) => {
 
     for (const lang of languages) {
       const kw = await extractKeywords(stories, lang, geminiKey);
-      if (geminiKey) await logSpend(db, { provider: 'google', model: 'gemini-2.5-flash', usd: 0.0004, unit_kind: 'extract' });
+      if (geminiKey) await logSpend(db, { provider: 'google', model: 'gemini-2.5-flash', usd: 0.0004, unit_kind: 'requests', units: 1, meta: { kind: 'extract' } });
 
       const dateLabel = new Date(publishDate).toLocaleDateString(
         lang === 'ro' ? 'ro-RO' : 'en-GB',
@@ -1034,7 +1059,8 @@ serve(async (req) => {
       totalUsd += usd;
       await logSpend(db, {
         provider: model.startsWith('claude') ? 'anthropic' : 'openai',
-        model, usd, unit_kind: 'caption_pack', meta: { language: lang, stories: stories.length },
+        model, usd, unit_kind: 'requests', units: 1,
+        meta: { kind: 'caption_pack', language: lang, stories: stories.length },
       });
 
       const chapters = buildChapters(stories, introOffset, duration, lang);

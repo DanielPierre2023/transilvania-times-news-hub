@@ -38,6 +38,7 @@ interface TrackPagePayload {
   utm_source?: string | null
   utm_medium?: string | null
   utm_campaign?: string | null
+  utm_content?: string | null
   event_type?: string | null
 }
 
@@ -76,6 +77,11 @@ export async function POST(request: Request) {
       utm_source: body.utm_source || null,
       utm_medium: body.utm_medium || null,
       utm_campaign: body.utm_campaign || null,
+      // Requires site_analytics.utm_content — added by
+      // supabase/sql/03_ab_tracking_and_view.sql. Run that FIRST: without the
+      // column, PostgREST rejects the whole insert and you lose the pageview,
+      // not just the attribution.
+      utm_content: body.utm_content || null,
       event_type: body.event_type || 'pageview',
       country: geo.country,
       city: geo.city,

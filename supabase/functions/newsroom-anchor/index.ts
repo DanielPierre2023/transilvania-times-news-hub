@@ -4,8 +4,9 @@
 //
 // Actions:
 //   { action:'script', language:'ro'|'en', target_seconds, articles:[{title,summary}] }
-//       -> { script }   (Claude claude-sonnet-4-5-20250929 via CLAUDE_API_KEY,
-//                        fallback OpenAI gpt-4o-2024-11-20)
+//       -> { script }   (Claude via CLAUDE_API_KEY, OpenAI fallback. Model ids
+//                        are the CLAUDE_MODEL / OPENAI_MODEL constants below,
+//                        overridable by Supabase secrets of the same name.)
 //   { action:'avatars' }
 //       -> { configured, avatars:[{avatar_id, avatar_name, preview_image_url}] }
 //   { action:'upload_photo', image_url, consent:{granted, person_name} }
@@ -21,6 +22,48 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// ── MODEL CONFIGURATION ───────────────────────────────────────────────────
+// ADDED 31 Aug 2026. claude-sonnet-4-5-20250929 was hard-coded in EIGHT places
+// in this file and retires on 29 September 2026. A hard-coded model id is an
+// outage with a calendar entry: the day it retires, every call here returns
+// 404 and the newsroom stops.
+//
+// Both ids are now single constants AND overridable by a Supabase secret, so
+// the next migration is one secret edit — no redeploy, no code review, no risk
+// of missing an occurrence.
+//
+// claude-sonnet-5 is the canonical pinned id for its release: from the 4.6
+// generation on, Anthropic dropped the dated suffix and the dateless id maps to
+// one fixed snapshot whose weights are never changed underneath you. This is a
+// pin, not a floating alias.
+const CLAUDE_MODEL = Deno.env.get('CLAUDE_MODEL')?.trim() || 'claude-sonnet-5';
+const OPENAI_MODEL = Deno.env.get('OPENAI_MODEL')?.trim() || 'gpt-4o-2024-11-20';
+
+// USD per MILLION tokens, list price. Covers every current model so that
+// switching CLAUDE_MODEL by secret stays correctly costed. Sonnet 5 is $2/$10
+// — CHEAPER than the
+// $3/$15 of Sonnet 4.5, so keeping the old numbers would have overstated every
+// future row in ai_spend_log by roughly 50%.
+const PRICE_PER_MTOK: Record<string, { in: number; out: number }> = {
+  'claude-fable-5': { in: 10.00, out: 50.00 },
+  'claude-opus-5': { in: 5.00, out: 25.00 },
+  'claude-sonnet-5': { in: 2.00, out: 10.00 },
+  'claude-haiku-4-5-20251001': { in: 1.00, out: 5.00 },
+  'claude-sonnet-4-5-20250929': { in: 3.00, out: 15.00 },
+  'gpt-4o-2024-11-20': { in: 2.50, out: 10.00 },
+};
+
+/** Cost of one call. An unknown model (someone set the secret to something new)
+ *  falls back to the Sonnet-5 rate rather than logging $0 — an unpriced call
+ *  must never look like a free one. */
+function usdFor(model: string, inTok: number, outTok: number): number {
+  // Unknown model -> price it at the MOST EXPENSIVE rate we know, not the
+  // cheapest. A ledger that under-reports is worse than one that over-reports:
+  // an unpriced call must never look cheaper than it might actually be.
+  const rate = PRICE_PER_MTOK[model] ?? { in: 10.00, out: 50.00 };
+  return (inTok / 1e6) * rate.in + (outTok / 1e6) * rate.out;
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -270,7 +313,7 @@ ${coverageEn}`;
           method: 'POST',
           headers: { 'x-api-key': claudeKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-5-20250929', max_tokens: scriptMaxTokens,
+            model: CLAUDE_MODEL, max_tokens: scriptMaxTokens,
             system: sys, messages: [{ role: 'user', content: user }],
             // Structured outputs: the API enforces this schema AT GENERATION
             // TIME, so the response cannot contain the unescaped-quote
@@ -304,18 +347,25 @@ ${coverageEn}`;
         if (res.ok) {
           const data = await res.json();
           await logSpend({
-            provider: 'anthropic', model: 'claude-sonnet-4-5-20250929', unit_kind: 'script',
-            usd: (Number(data?.usage?.input_tokens || 0) / 1e6) * 3
-               + (Number(data?.usage?.output_tokens || 0) / 1e6) * 15,
-            meta: { language, target_seconds: target, articles: articles.length },
+            provider: 'anthropic', model: CLAUDE_MODEL,
+            // unit_kind is CONSTRAINED by the live table to
+            // tokens|chars|seconds|images|minutes|requests. The descriptive
+            // label goes in meta.kind, never here.
+            unit_kind: 'tokens',
+            units: Number(data?.usage?.input_tokens || 0) + Number(data?.usage?.output_tokens || 0),
+            usd: usdFor(CLAUDE_MODEL, Number(data?.usage?.input_tokens || 0),
+                        Number(data?.usage?.output_tokens || 0)),
+            meta: { kind: 'script', language, target_seconds: target, articles: articles.length,
+                    input_tokens: Number(data?.usage?.input_tokens || 0),
+                    output_tokens: Number(data?.usage?.output_tokens || 0) },
           });
           const text = (data?.content?.[0]?.text || '').trim();
           const parsed = parseSections(text);
-          if (parsed) return json({ ...parsed, model: 'claude-sonnet-4-5-20250929', ...coverageMeta(parsed) });
+          if (parsed) return json({ ...parsed, model: CLAUDE_MODEL, ...coverageMeta(parsed) });
           const salvaged = salvageProse(text);
           if (salvaged) {
             console.warn('[script] claude JSON unparseable — salvaged prose from the values');
-            return json({ script: salvaged, sections: null, model: 'claude-sonnet-4-5-20250929', note: 'JSON invalid — text recuperat, burtierele lipsesc' });
+            return json({ script: salvaged, sections: null, model: CLAUDE_MODEL, note: 'JSON invalid — text recuperat, burtierele lipsesc' });
           }
           console.warn('[script] claude output unusable, falling through to OpenAI');
         } else {
@@ -328,25 +378,29 @@ ${coverageEn}`;
         method: 'POST',
         headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-4o-2024-11-20', max_tokens: scriptMaxTokens, response_format: { type: 'json_object' },
+          model: OPENAI_MODEL, max_tokens: scriptMaxTokens, response_format: { type: 'json_object' },
           messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
         }),
       });
       if (!res.ok) return json({ error: `OpenAI ${res.status}: ${(await res.text()).substring(0, 200)}` }, 502);
       const data = await res.json();
       await logSpend({
-        provider: 'openai', model: 'gpt-4o-2024-11-20', unit_kind: 'script',
-        usd: (Number(data?.usage?.prompt_tokens || 0) / 1e6) * 2.5
-           + (Number(data?.usage?.completion_tokens || 0) / 1e6) * 10,
-        meta: { language, target_seconds: target, articles: articles.length },
+        provider: 'openai', model: OPENAI_MODEL,
+        unit_kind: 'tokens',
+        units: Number(data?.usage?.prompt_tokens || 0) + Number(data?.usage?.completion_tokens || 0),
+        usd: usdFor(OPENAI_MODEL, Number(data?.usage?.prompt_tokens || 0),
+                    Number(data?.usage?.completion_tokens || 0)),
+        meta: { kind: 'script', language, target_seconds: target, articles: articles.length,
+                input_tokens: Number(data?.usage?.prompt_tokens || 0),
+                output_tokens: Number(data?.usage?.completion_tokens || 0) },
       });
       const text = (data?.choices?.[0]?.message?.content || '').trim();
       const parsed = parseSections(text);
-      if (parsed) return json({ ...parsed, model: 'gpt-4o-2024-11-20', ...coverageMeta(parsed) });
+      if (parsed) return json({ ...parsed, model: OPENAI_MODEL, ...coverageMeta(parsed) });
       const salvaged2 = salvageProse(text);
       if (salvaged2) {
         console.warn('[script] openai JSON unparseable — salvaged prose from the values');
-        return json({ script: salvaged2, sections: null, model: 'gpt-4o-2024-11-20', note: 'JSON invalid — text recuperat, burtierele lipsesc' });
+        return json({ script: salvaged2, sections: null, model: OPENAI_MODEL, note: 'JSON invalid — text recuperat, burtierele lipsesc' });
       }
       // Never hand raw JSON back: it would be spoken aloud by the anchor.
       return json({ error: 'Scriptul generat nu a putut fi interpretat (JSON invalid). Reîncearcă — dacă persistă, reduce numărul de știri selectate.' }, 502);
@@ -399,16 +453,19 @@ ${coverageEn}`;
             method: 'POST',
             headers: { 'x-api-key': secKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-5-20250929', max_tokens: 900, system: secSys,
+              model: CLAUDE_MODEL, max_tokens: 900, system: secSys,
               messages: [{ role: 'user', content: storyTexts.map((t, i) => `[${i + 1}]\n${t}`).join('\n\n') }],
             }),
           });
           if (secRes.ok) {
             const secData = await secRes.json();
             await logSpend({
-              provider: 'anthropic', model: 'claude-sonnet-4-5-20250929', unit_kind: 'sectionize',
-              usd: (Number(secData?.usage?.input_tokens || 0) / 1e6) * 3
-                 + (Number(secData?.usage?.output_tokens || 0) / 1e6) * 15,
+              provider: 'anthropic', model: CLAUDE_MODEL,
+              unit_kind: 'tokens',
+              units: Number(secData?.usage?.input_tokens || 0) + Number(secData?.usage?.output_tokens || 0),
+              usd: usdFor(CLAUDE_MODEL, Number(secData?.usage?.input_tokens || 0),
+                          Number(secData?.usage?.output_tokens || 0)),
+              meta: { kind: 'sectionize' },
             });
             const raw = String(secData?.content?.[0]?.text || '');
             const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
@@ -453,7 +510,7 @@ ${coverageEn}`;
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'x-api-key': claudeKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-sonnet-4-5-20250929', max_tokens: 1200, system: sys, messages: [{ role: 'user', content: user }] }),
+          body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1200, system: sys, messages: [{ role: 'user', content: user }] }),
         });
         if (res.ok) {
           const data = await res.json();
@@ -466,7 +523,7 @@ ${coverageEn}`;
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gpt-4o-2024-11-20', max_tokens: 1200, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] }),
+        body: JSON.stringify({ model: OPENAI_MODEL, max_tokens: 1200, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] }),
       });
       if (!res.ok) return json({ error: `OpenAI ${res.status}: ${(await res.text()).substring(0, 200)}` }, 502);
       const data = await res.json();
@@ -602,10 +659,11 @@ ${coverageEn}`;
             const lipsyncSeconds = Number(body.audio_seconds) || 0;
             if (lipsyncSeconds > 0) {
               await logSpend({
-                provider: 'fal', model: step.model, unit_kind: 'lipsync_minutes',
+                provider: 'fal', model: step.model,
+                unit_kind: 'minutes',
                 units: Number((lipsyncSeconds / 60).toFixed(3)),
                 usd: (lipsyncSeconds / 60) * step.usd,
-                meta: { tier_requested: chosenTier, tier_used: step.key },
+                meta: { kind: 'lipsync', tier_requested: chosenTier, tier_used: step.key },
               });
             }
             return json({ engine, model: label, usd_per_min: step.usd, quality,
@@ -873,7 +931,8 @@ async function logSpend(row: {
       model: row.model,
       usd: Number(row.usd.toFixed(6)),
       units: row.units ?? 1,
-      unit_kind: row.unit_kind ?? 'request',
+      // 'requests' — plural. The live CHECK constraint rejects 'request'.
+      unit_kind: row.unit_kind ?? 'requests',
       caller: 'newsroom',
       meta: row.meta ?? null,
     });

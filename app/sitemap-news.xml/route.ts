@@ -61,11 +61,27 @@ function sanitizeKeywords(tags: string[] | null, category: string | null): strin
   return ''
 }
 
+/** Served when Supabase is unreachable: a valid, empty urlset. Google treats
+ *  an empty news sitemap as "nothing new", which is correct and harmless. */
+const EMPTY_FEED = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"></urlset>`
+
 export async function GET() {
-  const supabase = createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  // A prerendered route must never throw. createClient() throws synchronously
+  // on a missing url ("supabaseUrl is required"), and an unguarded throw here
+  // fails the ENTIRE Netlify build — which is how the 31 Aug 2026 deploy died.
+  // An empty feed is a bad hour; a failed build is a dead site.
+  const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const SB_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!SB_URL || !SB_KEY) {
+    console.warn('[sitemap-news.xml] Supabase env vars missing — empty feed')
+    return new NextResponse(EMPTY_FEED, {
+      status: 200,
+      headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+    })
+  }
+
+  const supabase = createClient<Database>(SB_URL, SB_KEY)
 
   // PREVIOUSLY fetched the 200 most recent articles with no date cutoff.
   // Google's News sitemap spec requires only articles published in the last
@@ -104,10 +120,7 @@ export async function GET() {
     // client rejects this table at compile time. An untyped client for this
     // one query is honest; adding invented entries to lib/database.types.ts
     // would be a lie the next `supabase gen types` silently erases.
-    const untyped = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const untyped = createClient(SB_URL, SB_KEY)
     const { data: bulletins } = await untyped
       .from('newsroom_bulletins')
       .select('slug, published_at, poster_url, story_titles, edition')

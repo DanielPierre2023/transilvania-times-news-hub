@@ -42,11 +42,26 @@ function coverMimeType(url: string): string {
   return 'image/jpeg'
 }
 
+/** Served when Supabase is unreachable: a valid, empty channel. */
+const EMPTY_FEED = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Transilvania Times</title><link>https://transilvaniatimes.com/</link><description>Stiri din inima Transilvaniei</description></channel></rss>`
+
 export async function GET() {
-  const supabase = createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  // A prerendered route must never throw. createClient() throws synchronously
+  // on a missing url ("supabaseUrl is required"), and an unguarded throw here
+  // fails the ENTIRE Netlify build — which is how the 31 Aug 2026 deploy died.
+  // An empty feed is a bad hour; a failed build is a dead site.
+  const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const SB_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!SB_URL || !SB_KEY) {
+    console.warn('[rss.xml] Supabase env vars missing — empty feed')
+    return new NextResponse(EMPTY_FEED, {
+      status: 200,
+      headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+    })
+  }
+
+  const supabase = createClient<Database>(SB_URL, SB_KEY)
 
   const { data: posts, error } = await supabase
     .from('blog_posts')
