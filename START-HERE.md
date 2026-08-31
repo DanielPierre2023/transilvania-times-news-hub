@@ -1,113 +1,111 @@
-# tt-captions — the captions you watch are now the captions you receive
+# tt-camera — "they are too static" had a cause in the code
 
-## What was wrong
+Supersedes **tt-captions**; if that zip is still unopened, this one contains it.
 
-There were **three** caption painters in this app, and no two of them agreed.
+## The finding
 
-| | family | weight | case | size on 9:16 | size on 16:9 | position | plate |
-|---|---|---|---|---|---|---|---|
-| preview (canvas) | Inter | 700 | UPPERCASE | **61 px** | **35 px** | 0.88 | rounded, `rgba(21,11,6,0.72)` |
-| preview, karaoke | Inter | 700 | UPPERCASE | **69 px** | **39 px** | 0.88 | rounded |
-| our worker (the file) | Inter | 600 | Mixed case | **49 px** | **49 px** | 0.76 | square, `rgba(0,0,0,0.55)` |
-| hosted provider | Inter | 700 | Mixed case | **61 px** | **35 px** | 0.88 | rounded |
+Three of your five shots measure 0.51, 0.48 and 0.37 %/s. You called them
+static. They are — and it was not the model's fault. `lib/timeline/migrate.ts`
+read:
 
-Read the size columns across. The preview sized captions off frame **height**,
-so the same setting gave 61 px on a vertical master and 35 px on a horizontal
-one — the caption changed size when you changed aspect, for no reason anyone
-asked for. The file sized them off the **short edge**, which is the measurement
-that keeps a caption the same visual weight in every aspect: 49 px in both.
+```ts
+transform: scene.kind === 'image' ? kenBurns(scene.kb, duration) : IDENTITY_TRANSFORM,
+```
 
-On the 9:16 master you actually publish, the preview was showing captions **25%
-larger** than the ones being delivered, drawn **230 px lower** (0.88 against
-0.76 of a 1920-tall frame — the file clamps into the reels safe area, the
-preview did not), in a heavier weight, in capitals the file never used.
+**A camera move was only ever given to a scene of kind `image`.** Every shot in
+this film is kind `video`. So no generated clip has ever had a camera move, in
+any film, whatever was selected — and a film made entirely of generated clips
+could not be anything but locked off.
 
-That is the "the subtitles are too big" note from the first film. It was fixed
-in the renderer months ago and left standing in the preview, so it stayed true
-of the only thing anyone actually looks at.
+The control was hidden too. In `page.tsx` the *static / zoom in / zoom out /
+pan ← / pan →* select sat inside a `{sc.kind === 'image' && …}` branch, so it
+was never even drawn beside a clip. You were not missing it. It was not there.
 
-## And karaoke was not real
+## And two more, found while fixing that
 
-`lib/timeline/draw.ts` ignored `source.words` entirely. The renderer drew plain
-text. So *cuvânt cu cuvânt* was a mode you could select, watch working in the
-preview, and never receive in a file. Not a mismatch — a feature that existed
-only on screen.
+**The pan showed black.** A pan draws the picture oversized and slides it. The
+spare picture each side is `(scale − 1) / 2`. The values were scale **1.08** —
+overscan 0.04 — with a slide of **±0.06**. The slide is bigger than the
+overscan, so at each end of the move the frame ran out of picture. Measured
+through the real `fitRect`: **21.6 px of black down one edge** on a 1080-wide
+master, at the start and again at the end, on every panning scene ever
+rendered. It is now ±0.04 against scale 1.10, leaving 10.8 px in hand.
 
-## What this package does
+**The preview had its own camera, and it disagreed three ways at once.**
 
-**One painter.** The preview's subtitle code is deleted. Captions are now built
-as real clips on the shared overlay timeline, styled by `captionStyle(kit,
-subScale)` and clamped by `captionY(kit, SUB_POS[subPos])` — the same two
-functions the worker calls. There is no longer a place for them to drift apart,
-because there is no longer a second implementation to drift.
+| | preview | renderer |
+|---|---|---|
+| static | scale **1.02** | scale **1.00** |
+| zoom in | 1.02 → 1.12 | 1.00 → 1.12 |
+| pan | ±0.06 at 1.10 → 10.8 px black | ±0.06 at 1.08 → 21.6 px black |
 
-**Karaoke is implemented in the renderer.** `drawKaraoke` in the shared drawer:
-word layout with wrapping, the word being spoken picked out in the kit accent,
-words already spoken in the full caption colour, words not yet reached dimmed.
-It reads `op.localFrame` — a compiled op now knows how far into its own clip it
-is, which is what makes per-word timing possible at all.
+Every static shot you have ever previewed was framed 2% tighter than the one
+delivered. The preview now evaluates the **same keyframe curves** and lays out
+with the **same `fitRect`**, so there is no second camera left to drift.
 
-**The hosted-provider export was the third painter, and it is fixed too.** When
-the provider is not our worker, `buildCloudSpec` used to carry its own hard-coded
-Inter 700, its own plate colour and an unclamped Y. It now reads the kit and
-sizes off `Math.min(W, H)` like everything else.
+## What you get
+
+- a camera move can be given to **any** shot, clip or still
+- the control is visible on every scene card, and lights amber when set
+- **mișcare pe toate** in the timeline header puts a move on every shot that
+  has none, cycling *zoom in → pan ← → zoom out → pan →* so four shots in a row
+  do not drift the same way. Shots you have already set are left alone.
+- **toate static** undoes it, and a counter reads `n din 5 static`
+- the pan no longer bleeds
+- preview and render use one camera
+
+It costs nothing in sharpness, which is the part worth knowing: the sources are
+2160×3840 into a 1080×1920 master, so even at the pan's 1.10 overscan the draw
+is still a **1.85:1 reduction**. Nothing is being enlarged.
+
+## One honest limit
+
+The `mișcare %/s` figure on each take will **not** change. That number measures
+the clip the model returned, before the timeline touches it — and the module's
+own calibration says a zoom reads as `move 0.00`, because it aligns out scale
+by design. A keyframed pan is real translation and would register, but the
+figure you see is the *source's*, not the film's. The shots will stop being
+static; the take badges will keep reporting what the model gave you. That is
+the right behaviour — it is a diagnostic for dead generations, not a score for
+the edit.
 
 ## Deploy
 
-Four files, no SQL.
+Six files, no SQL. Includes the caption-parity work from tt-captions.
 
 ```
 app/admin/studio/page.tsx
+lib/timeline/migrate.ts
+lib/timeline/index.ts
 lib/timeline/draw.ts
 lib/timeline/compile.ts
 lib/timeline/types.ts
 ```
 
-The worker does not need a separate deploy for this — its Dockerfile compiles
-`lib/timeline` from the repository at build time, which is exactly why that
-arrangement exists. Redeploying the worker picks up `drawKaraoke` automatically.
+The worker needs no separate change — its Dockerfile compiles `lib/timeline`
+from the repo at build time. Redeploy it to pick this up.
 
 ## Verification
 
-`_verification/22-captions-parity.cjs` → **18 assertions, all passing.** It reads
-the page source with comments stripped, so a commented-out line cannot pass, and
-it renders actual pixels for the karaoke half.
+`_verification/23-motion.cjs` → **26 assertions, all passing.**
 
-- nothing upper-cases a cue for drawing any more
-- no caption font anywhere is sized off frame height
-- the old karaoke painter and the word-grouping memo only it used are gone
-- captions are built into the shared overlay timeline, styled by the kit,
-  clamped into the safe area
-- the shared drawer implements karaoke and `drawText` hands off to it when a
-  clip carries word timings
-- **rendered pixels**: at frame 3, 12 and 22 of a three-word line, the accent
-  colour is present and the count of accent pixels *changes* — the highlight
-  moves; already-spoken words are in the full caption colour; the identical clip
-  with the word timings removed has **zero** accent pixels
-- the hosted-provider spec takes the kit style, clamps Y, sizes off the short
-  edge, and retains no hard-coded family, weight, colour or plate
+- a video scene with each of the four moves carries a move, and it is byte-for-byte the move a still gets
+- `none` is still genuinely identity
+- every frame of every move is walked through the real `fitRect`: **zero** pixels of frame showing, on all four moves
+- the old values are re-run and confirmed to bleed by exactly the 21.6 px claimed, so this test would have caught it
+- overscan is proved greater than throw
+- a pan measures over 1 %/s — more than twice the 0.35 floor
+- the preview's own painter, its 1.02 baseline and its 0.12 pan are gone; it calls `kenBurns` and `fitRect`
+- the move control is no longer inside the image-only branch
+- **mișcare pe toate** exists and skips shots that already move
 
-## Full regression after the change
+Full suite after the change:
 
 ```
-10-vision            35/35     17-sound             25/25
-11-payload           35/35     18-fonts             15/15
-12-inspect           30/30     19-wordmark          11/11
-13-resample           8/8      20-reading           17/17
-14-brand             45/45     21-browser-render    23/23
-15-colour            10/10     22-captions-parity   18/18
-16-layers            11/11
+10-vision 35/35   14-brand  45/45   18-fonts    15/15   22-captions 18/18
+11-payload 35/35  15-colour 10/10   19-wordmark 11/11   23-motion   26/26
+12-inspect 30/30  16-layers 11/11   20-reading  17/17
+13-resample 8/8   17-sound  25/25   21-browser  23/23
 ```
 
-Plus a real end-to-end encode (250 frames, 1920×1080, 25 fps) — 16/16, delivered
-at −15.2 LUFS / −7.7 dBTP with the music sitting 36.4 dB under the voice — and
-the caption/loudness suite at 31/31. `tsc` 0 errors, `eslint app lib` 0 errors.
-
-## What I would look at first after deploying
-
-Turn subtitles on, set *cuvânt cu cuvânt*, and compare the preview against a
-worker render of the same project. They should now be indistinguishable. If the
-captions look **smaller than you remember**, that is correct — you were being
-shown 61 px and delivered 49 px, and 49 px is the one the kit specifies. If you
-want them larger, the *mărime* slider is the honest way to do it, and it will
-now move both.
+`tsc` 0 errors, `eslint app lib` 0 errors.

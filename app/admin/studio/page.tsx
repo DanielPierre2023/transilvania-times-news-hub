@@ -27,13 +27,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkCaptions, conformCues, extractCues, toSRT, toVTT } from '@/lib/timeline/captions'
 import { formatLufs, measureAudioBuffer, planNormalisation } from '@/lib/timeline/loudness'
 import type { LoudnessResult } from '@/lib/timeline/loudness'
-import { migrateLegacyProject } from '@/lib/timeline/migrate'
+import { kenBurns, migrateLegacyProject } from '@/lib/timeline/migrate'
 import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
 import { framesToSeconds, formatTimecode } from '@/lib/timeline/time'
 import { FPS } from '@/lib/timeline/time'
 import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
-import { compileFrame } from '@/lib/timeline/compile'
+import { compileFrame, fitRect } from '@/lib/timeline/compile'
 import { drawFrame as drawCompiled } from '@/lib/timeline/draw'
+import { evalNumber, evalPoint } from '@/lib/timeline/animate'
 import type { Timeline, Clip, TextStyle } from '@/lib/timeline/types'
 // tt-brand — the kit and the typography it dictates.
 import {
@@ -1275,13 +1276,30 @@ export default function StudioPage() {
   const setDur = (id: string, v: number) => setScenes(s => s.map(x => x.id === id ? { ...x, duration: Math.min(30, Math.max(1, v)) } : x))
   const setKb = (id: string, kb: KB) => setScenes(s => s.map(x => x.id === id ? { ...x, kb } : x))
 
+  /**
+   * Give every locked-off shot a camera.
+   *
+   * Generated clips come back at whatever motion the model felt like: this film
+   * measured 3.56, 0.51, 0.48, 5.31 and 0.37 %/s, so three of its five shots
+   * were photographs with a shimmer. Reshooting them is a lottery and costs
+   * money; a keyframed move costs nothing and is deterministic.
+   *
+   * It is free in sharpness too, which is the part worth knowing: the sources
+   * are 2160×3840 into a 1080×1920 master, so even at the pan's 1.10 overscan
+   * the draw is still a 1.85:1 reduction. Nothing is being blown up.
+   *
+   * Shots that already carry a move are left alone — this is a floor, not a
+   * house style. The cycle alternates axis and direction so four shots in a row
+   * do not all drift the same way, which is what makes a montage feel machined.
+   */
+  const CAMERA_CYCLE: KB[] = ['in', 'left', 'out', 'right']
+  const cameraOnAll = () => setScenes(s => {
+    let n = 0
+    return s.map(x => x.kb !== 'none' ? x : { ...x, kb: CAMERA_CYCLE[n++ % CAMERA_CYCLE.length] })
+  })
+  const cameraOffAll = () => setScenes(s => s.map(x => ({ ...x, kb: 'none' as KB })))
+
   // ─── drawing ────────────────────────────────────────────────────────────
-  function drawCover(ctx: CanvasRenderingContext2D, m: HTMLImageElement | HTMLVideoElement, mW: number, mH: number, scale: number, ox: number, oy: number) {
-    const mr = mW / mH, cr = W / H
-    let dw: number, dh: number
-    if (mr > cr) { dh = H * scale; dw = dh * mr } else { dw = W * scale; dh = dw / mr }
-    ctx.drawImage(m, (W - dw) / 2 + ox, (H - dh) / 2 + oy, dw, dh)
-  }
   function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
     const words = text.split(' '); const lines: string[] = []; let line = ''
     for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w } else line = t }
@@ -1302,13 +1320,27 @@ export default function StudioPage() {
         const mW = m instanceof HTMLVideoElement ? m.videoWidth : m.naturalWidth
         const mH = m instanceof HTMLVideoElement ? m.videoHeight : m.naturalHeight
         if (mW && mH) {
-          const p = a.p, k = a.scene.kb
-          let scale = 1.02, ox = 0; const oy = 0
-          if (k === 'in') scale = 1.02 + 0.10 * p
-          else if (k === 'out') scale = 1.12 - 0.10 * p
-          else if (k === 'left') { scale = 1.1; ox = (0.5 - p) * W * 0.12 }
-          else if (k === 'right') { scale = 1.1; ox = (p - 0.5) * W * 0.12 }
-          drawCover(ctx, m, mW, mH, scale, ox, oy)
+          // THE PREVIEW USED TO HAVE ITS OWN CAMERA, AND IT DISAGREED WITH THE
+          // RENDERER IN THREE SEPARATE WAYS.
+          //
+          //   static : preview 1.02, renderer 1.00 — every still shot in the
+          //            preview was two per cent tighter than the delivered one
+          //   zoom in: preview 1.02 → 1.12, renderer 1.00 → 1.12
+          //   pan    : preview slid ±0.06 at scale 1.10, renderer ±0.06 at 1.08
+          //            — both ran out of picture, by different amounts
+          //
+          // So it now evaluates the SAME keyframe curves the renderer does and
+          // lays the picture out with the SAME fitRect. There is no second
+          // camera left to drift.
+          const durF = Math.max(1, Math.round(a.scene.duration * fpsOut))
+          const tr = kenBurns(a.scene.kb, durF)
+          const local = a.p * durF
+          const scale = evalNumber(tr.scale, local)
+          const centre = evalPoint(tr.position, local)
+          const dest = fitRect('cover', mW / mH, {
+            x: (centre.x - 0.5) * W, y: (centre.y - 0.5) * H, w: W, h: H,
+          }, scale)
+          ctx.drawImage(m, dest.x, dest.y, dest.w, dest.h)
         }
       }
     }
@@ -2020,6 +2052,21 @@ export default function StudioPage() {
           <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40">Cronologie</p>
+              <div className="flex items-center gap-2">
+                <button onClick={cameraOnAll}
+                  title="Pune o mișcare de cameră pe fiecare plan care nu are una. Nu atinge planurile cărora le-ai dat deja o mișcare."
+                  className="text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10">
+                  mișcare pe toate
+                </button>
+                <button onClick={cameraOffAll}
+                  title="Scoate mișcarea de pe toate planurile."
+                  className="text-[11px] px-2 py-1 border border-white/10 text-white/40 hover:bg-white/5">
+                  toate static
+                </button>
+                <span className="text-[10px] text-white/25">
+                  {scenes.filter(x => x.kb === 'none').length} din {scenes.length} static
+                </span>
+              </div>
               {/* ── MOTOR VIDEO ────────────────────────────────────────────
                   The same Kling engine the kling.ai site runs, driven from
                   here. `buclă` sends the source still as BOTH the start and
@@ -2071,12 +2118,19 @@ export default function StudioPage() {
                   <div className="min-w-0 flex-1">
                     <p className="text-[12px] text-white truncate">{sc.name}</p>
                     <div className="flex items-center gap-2 mt-1">
+                      {/* THE CAMERA MOVE BELONGS TO EVERY SHOT, NOT ONLY TO STILLS.
+                          This control sat inside the `kind === 'image'` branch,
+                          so a generated clip had no way to be given one — and a
+                          film made entirely of generated clips could therefore
+                          never be anything but locked off. */}
+                      <select value={sc.kb} onChange={e => setKb(sc.id, e.target.value as KB)}
+                        title="Mișcare de cameră adăugată peste cadru, pe cadre-cheie. Sursele sunt la 2160×3840 într-un master de 1080×1920, deci supra-scanarea nu costă claritate."
+                        className={`bg-black border text-[11px] px-1.5 py-1 ${sc.kb === 'none' ? 'border-white/10 text-white/40' : 'border-amber-500/40 text-amber-300/90'}`}>
+                        <option value="none">static</option><option value="in">zoom in</option><option value="out">zoom out</option><option value="left">pan ←</option><option value="right">pan →</option>
+                      </select>
                       {sc.kind === 'image' && <>
                         <input type="number" min={1} max={30} value={sc.duration} onChange={e => setDur(sc.id, Number(e.target.value))}
                           className="w-14 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" /><span className="text-[10px] text-white/30">sec</span>
-                        <select value={sc.kb} onChange={e => setKb(sc.id, e.target.value as KB)} className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
-                          <option value="none">static</option><option value="in">zoom in</option><option value="out">zoom out</option><option value="left">pan ←</option><option value="right">pan →</option>
-                        </select>
                         <button onClick={() => animateScene(sc.id)} disabled={sc.motion === 'working'}
                           title="Transformă fotografia într-un clip cu mișcare reală (Kling, prin fal.ai)"
                           className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10 disabled:opacity-60">

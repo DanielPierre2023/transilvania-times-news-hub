@@ -93,10 +93,25 @@ const SUBTITLE_STYLE: TextStyle = {
 }
 
 /**
- * Ken Burns as keyframes. The old renderer moved by a fixed amount over the
- * whole scene; these curves reproduce that motion and can then be edited.
+ * Ken Burns as keyframes.
+ *
+ * THE PAN USED TO PUT BLACK DOWN ONE EDGE, AND THE ARITHMETIC SAYS SO.
+ *
+ * A pan works by drawing the picture larger than the frame and sliding it. The
+ * spare picture either side is (scale - 1) / 2 of the frame width; the slide
+ * has to stay inside that, or the far edge runs out of picture and the frame
+ * shows through. The old values were scale 1.08 with a slide of +/-0.06: the
+ * overscan is 0.04 and the slide is 0.06, so at each end of the move the frame
+ * was short by 0.02 of its width. On a 1080-wide master that is a **21.6 px
+ * black bar** down one side at the start and the other at the end, on every
+ * panning scene ever rendered. Measured, not deduced — fitRect returns
+ * x = +21.6 at centre 0.56, scale 1.08.
+ *
+ * Now the slide is +/-0.04 against scale 1.10, so the overscan is 0.05 and
+ * there is 10.8 px of picture still in hand at the extremes. The move is
+ * slightly smaller and it is a move rather than a defect.
  */
-function kenBurns(kb: LegacyKenBurns, durationFrames: number): Transform {
+export function kenBurns(kb: LegacyKenBurns, durationFrames: number): Transform {
   const d = Math.max(1, durationFrames)
   switch (kb) {
     case 'in':
@@ -106,20 +121,24 @@ function kenBurns(kb: LegacyKenBurns, durationFrames: number): Transform {
     case 'left':
       return {
         ...IDENTITY_TRANSFORM,
-        scale: 1.08,
-        position: ramp({ x: 0.56, y: 0.5 }, { x: 0.44, y: 0.5 }, d),
+        scale: PAN_SCALE,
+        position: ramp({ x: 0.5 + PAN_THROW, y: 0.5 }, { x: 0.5 - PAN_THROW, y: 0.5 }, d),
       }
     case 'right':
       return {
         ...IDENTITY_TRANSFORM,
-        scale: 1.08,
-        position: ramp({ x: 0.44, y: 0.5 }, { x: 0.56, y: 0.5 }, d),
+        scale: PAN_SCALE,
+        position: ramp({ x: 0.5 - PAN_THROW, y: 0.5 }, { x: 0.5 + PAN_THROW, y: 0.5 }, d),
       }
     case 'none':
     default:
       return IDENTITY_TRANSFORM
   }
 }
+
+/** Overscan for a pan, and the slide it can afford. PAN_THROW < (PAN_SCALE-1)/2. */
+export const PAN_SCALE = 1.10
+export const PAN_THROW = 0.04
 
 export interface MigrateOptions {
   /** Defaults to 25 — European broadcast. Pass FPS.web for social-only work. */
@@ -158,7 +177,16 @@ export function migrateLegacyProject(
       start: playhead,
       duration,
       sourceIn: 0,
-      transform: scene.kind === 'image' ? kenBurns(scene.kb, duration) : IDENTITY_TRANSFORM,
+      // A CAMERA MOVE IS NOT A PROPERTY OF BEING A STILL.
+      //
+      // This read `scene.kind === 'image' ? kenBurns(...) : IDENTITY_TRANSFORM`,
+      // so a generated CLIP could never be given one — and generated clips are
+      // most of a film. A model that returns a locked-off five seconds then had
+      // no way to be rescued, which is exactly how a timeline ends up measuring
+      // 0.51, 0.48 and 0.37 %/s and reading as a slideshow. The preview, mean-
+      // while, applied the move to any cached media, image or video: one more
+      // way for what you watch and what you receive to disagree.
+      transform: kenBurns(scene.kb, duration),
       fit: 'cover',
       fadeIn: 0,
       fadeOut: 0,

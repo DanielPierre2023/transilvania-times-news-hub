@@ -84,7 +84,7 @@ export type {
   LegacySubPos,
   MigrateOptions,
 } from './migrate'
-export { isLegacyProject, migrateLegacyProject, withExtraTrack } from './migrate'
+export { PAN_SCALE, PAN_THROW, isLegacyProject, kenBurns, migrateLegacyProject, withExtraTrack } from './migrate'
 
 export type { AudioOp, CompiledFrame, DrawOp, PixelRect } from './compile'
 export { DUCK_GAIN, compileFrame, cutFrames, fitRect, frameRange } from './compile'
