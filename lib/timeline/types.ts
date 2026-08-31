@@ -56,6 +56,10 @@ export interface TextStyle {
   readonly maxLines?: number
   /** Drop shadow behind the type, for legibility over picture without a plate. */
   readonly shadow?: string
+  /** Karaoke: the word being spoken right now. */
+  readonly activeColor?: string
+  /** Karaoke: words not yet spoken, as a CSS colour (usually the same, faded). */
+  readonly pendingColor?: string
 }
 
 export interface MediaSource {

@@ -366,19 +366,12 @@ export default function StudioPage() {
   const mediaCache = useRef<Map<string, HTMLImageElement | HTMLVideoElement>>(new Map())
   const db = useMemo(() => supabase as unknown as SupabaseClient, [supabase])
 
-  // Karaoke groups: ≤4 words / ≤26 chars, split at sentence ends.
-  const karaoke = useMemo(() => {
-    const out: { start: number; end: number; ws: { word: string; start: number; end: number }[] }[] = []
-    let g: typeof words = []
-    const flush = () => { if (g.length) { out.push({ start: g[0].start, end: g[g.length - 1].end, ws: g }); g = [] } }
-    for (const w of words) {
-      g.push(w)
-      const chars = g.reduce((a, x) => a + x.word.length + 1, 0)
-      if (g.length >= 4 || chars > 26 || /[.!?]$/.test(w.word)) flush()
-    }
-    flush()
-    return out
-  }, [words])
+  // The karaoke grouping that used to live here is gone with the painter that
+  // used it. Word timings now travel on the caption clip itself and are drawn
+  // by lib/timeline/draw, so the preview and the file group and colour them
+  // identically instead of the preview inventing its own grouping that the
+  // renderer never saw.
+
 
   const [W, H] = MASTERS[master][aspect]
   const scenesDur = scenes.reduce((s, x) => s + x.duration, 0)
@@ -681,14 +674,47 @@ export default function StudioPage() {
     const fps = fpsOut === 25 ? FPS.pal : FPS.web
     const filmFrames = Math.max(1, Math.round((totalDur * fps.n) / fps.d))
     const clips = overlayClips(fps, filmFrames)
-    if (!clips.length) return null
+
+    // THE CAPTIONS COME THROUGH HERE TOO, and that is the point of this memo.
+    //
+    // The preview used to draw subtitles with its own code: uppercase, sized
+    // off frame HEIGHT, a rounded plate, two lines maximum. The file got the
+    // kit's caption style: mixed case, sized off the SHORT edge, a square
+    // plate, clamped into the safe area. On a 9:16 master the preview drew them
+    // at 69 px and the file at 49 — the preview was showing captions forty per
+    // cent larger than the ones being delivered, which is exactly the "the
+    // subtitles are too big" note from the very first film. It was fixed in the
+    // renderer and left standing here.
+    //
+    // Karaoke was worse than a mismatch: the renderer ignored the word timings
+    // completely and drew plain text, so it was a mode you could select, watch
+    // working, and never receive.
+    const captionTl = migrateLegacyProject(
+      { aspect, scenes: [], cues, words, capMode, subPos, subScale, subsOn },
+      { fps },
+    )
+    const capStyle: TextStyle = captionStyle(kit, subScale)
+    const capY = captionY(kit, SUB_POS[subPos])
+    const captionClips: Clip[] = (captionTl.tracks.find(t => t.kind === 'video' && t.z === 10)?.clips ?? [])
+      .filter(c => c.source.kind === 'text')
+      .map(c => ({
+        ...c,
+        source: c.source.kind === 'text'
+          ? { ...c.source, style: { ...capStyle, ...(c.source.words ? { maxLines: 1, activeColor: kit.colour.accent } : {}) } }
+          : c.source,
+        transform: { ...c.transform, position: { x: 0.5, y: capY } },
+      }))
+
+    const all = [...captionClips, ...clips]
+    if (!all.length) return null
+
     let tl = migrateLegacyProject({ aspect, scenes: [] }, { fps })
     tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
-    const track = emptyTrack('video', 'Titluri', 20)
+    const track = emptyTrack('video', 'Grafică', 20)
     tl = { ...tl, tracks: [track] }
-    for (const c of clips) tl = addClip(tl, track.id, c)
-    return { ...tl, duration: Math.max(1, ...clips.map(c => c.start + c.duration)) }
-  }, [overlayClips, fpsOut, aspect, W, H, totalDur])
+    for (const c of all) tl = addClip(tl, track.id, c)
+    return { ...tl, duration: Math.max(1, ...all.map(c => c.start + c.duration)) }
+  }, [overlayClips, fpsOut, aspect, W, H, totalDur, cues, words, capMode, subPos, subScale, subsOn, kit])
 
   function buildTimeline(forceCaptions = false): Timeline {
     const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
@@ -1286,49 +1312,14 @@ export default function StudioPage() {
         }
       }
     }
-    // subtitles — max 2 lines, positionable, scalable, anchored so they never
-    // blanket the frame (bottom-anchored for jos/treime, top-anchored for sus).
-    if (subsOn) {
-      const anchor = H * SUB_POS[subPos]
-      if (capMode === 'karaoke' && karaoke.length) {
-        const grp = karaoke.find(g => t >= g.start && t <= g.end + 0.12)
-        if (grp) {
-          const fs = Math.round(H * 0.036 * subScale)
-          ctx.font = `800 ${fs}px Inter, system-ui, sans-serif`; ctx.textBaseline = 'middle'
-          const gap = fs * 0.4
-          const widths = grp.ws.map(w => ctx.measureText(w.word.toUpperCase()).width)
-          const totalW = widths.reduce((a, b) => a + b, 0) + gap * (grp.ws.length - 1)
-          const lh = fs * 1.55
-          ctx.fillStyle = 'rgba(21,11,6,0.8)'
-          roundRect(ctx, W / 2 - totalW / 2 - 16, anchor - lh / 2, totalW + 32, lh, 6); ctx.fill()
-          let x = W / 2 - totalW / 2
-          ctx.textAlign = 'left'
-          grp.ws.forEach((w, i) => {
-            const spoken = t >= w.start, active = t >= w.start && t <= w.end
-            ctx.fillStyle = active ? '#FFD37A' : spoken ? '#FFFFFF' : 'rgba(255,255,255,0.42)'
-            ctx.fillText(w.word.toUpperCase(), x, anchor)
-            x += widths[i] + gap
-          })
-        }
-      } else {
-        const cue = cues.find(c => t >= c.start && t <= c.end)
-        if (cue) {
-          const fs = Math.round(H * 0.032 * subScale)
-          ctx.font = `700 ${fs}px Inter, system-ui, sans-serif`
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-          const lines = wrap(ctx, cue.text.toUpperCase(), W * 0.84).slice(0, 2)
-          const lh = fs * 1.45
-          let y = subPos === 'sus' ? anchor : anchor - (lines.length - 1) * lh
-          for (const ln of lines) {
-            const tw = ctx.measureText(ln).width
-            ctx.fillStyle = 'rgba(21,11,6,0.72)'
-            roundRect(ctx, W / 2 - tw / 2 - 14, y - lh / 2, tw + 28, lh * 0.92, 6); ctx.fill()
-            ctx.fillStyle = '#fff'; ctx.fillText(ln, W / 2, y)
-            y += lh
-          }
-        }
-      }
-    }
+    // SUBTITLES ARE NOT DRAWN HERE ANY MORE.
+    //
+    // They used to be, with their own font, their own case, their own plate and
+    // their own sizing — off frame height, which is the bug that made a caption
+    // render at 69 px in the preview and 49 px in the file on the same 9:16
+    // master. They now arrive through the same compile-and-draw path as the
+    // titles, from the same kit, so what you watch is what you get.
+
     // THE WORDMARK USED TO BE PAINTED HERE, and that was the bug.
     //
     // It was hard-coded into this function, which draws the preview AND feeds
@@ -1383,11 +1374,6 @@ export default function StudioPage() {
       ctx.restore()
     }
   }
-  function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r)
-    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath()
-  }
-
   async function preloadAll() {
     for (const sc of scenes) {
       if (sc.kind === 'image') await loadImage(sc.url)
@@ -1538,13 +1524,30 @@ export default function StudioPage() {
     }
     if (voUrl) elements.push({ type: 'audio', source: voUrl, track: 2, time: 0 })
     if (musicUrl) elements.push({ type: 'audio', source: musicUrl, track: 3, time: 0, loop: true, volume: Math.round(musicVol * 100) })
-    if (subsOn) for (const c of cues) elements.push({
-      type: 'text', track: 4, time: c.start, duration: Math.max(0.4, c.end - c.start),
-      text: c.text, y: `${Math.round(SUB_POS[subPos] * 100)}%`, width: '86%',
-      x_alignment: '50%', y_alignment: '50%',
-      font_family: 'Inter', font_weight: '700', font_size: Math.round(H * 0.032 * subScale),
-      fill_color: '#ffffff', background_color: 'rgba(21,11,6,0.72)',
-    })
+    // Captions come from the kit, exactly as the preview and our own worker
+    // take them. This block used to carry its own hard-coded style — Inter 700
+    // sized off frame HEIGHT, its own plate colour, its own unclamped Y — so a
+    // film sent to a hosted provider came back with captions that matched
+    // neither the preview nor the worker. Sizing off the short edge is what
+    // makes 9:16 and 16:9 agree: H * 0.032 is 61 px on a 1080x1920 master and
+    // 35 px on 1920x1080, for the same requested size.
+    if (subsOn) {
+      const capStyle = captionStyle(kit, subScale)
+      const shortEdge = Math.min(W, H)
+      const family = (capStyle.family.split(',')[0] || 'Inter').trim().replace(/^['"]|['"]$/g, '')
+      const capYPct = Math.round(captionY(kit, SUB_POS[subPos]) * 100)
+      for (const c of cues) elements.push({
+        type: 'text', track: 4, time: c.start, duration: Math.max(0.4, c.end - c.start),
+        text: c.text,
+        y: `${capYPct}%`, width: `${Math.round((capStyle.maxWidth ?? 0.86) * 100)}%`,
+        x_alignment: '50%', y_alignment: '50%',
+        font_family: family, font_weight: String(capStyle.weight),
+        font_size: Math.round(shortEdge * capStyle.size),
+        line_height: `${Math.round(capStyle.lineHeight * 100)}%`,
+        fill_color: capStyle.color,
+        background_color: capStyle.background ?? 'rgba(0,0,0,0.55)',
+      })
+    }
     return { source: { output_format: 'mp4', width: W, height: H, elements } }
   }
 

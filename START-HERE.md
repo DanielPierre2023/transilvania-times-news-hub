@@ -1,74 +1,113 @@
-# tt-browser-render (2) — the previous fix is not on the site
+# tt-captions — the captions you watch are now the captions you receive
 
-## First, the thing to check
+## What was wrong
 
-I read the JavaScript the site is serving right now. It is the **tt-edit-loop**
-build — it has `Randează v3`, `Niciun track` and the `siglă` control. It does
-**not** contain `filmDur`, the `guides` flag, or the audio-clock loop.
+There were **three** caption painters in this app, and no two of them agreed.
 
-So the grid and the missing end card are still there because **the fix has not
-been deployed**, not because it did not work. If `tt-browser-render.zip` is
-still sitting unopened, that is the whole story — this package supersedes it and
-contains everything from it.
+| | family | weight | case | size on 9:16 | size on 16:9 | position | plate |
+|---|---|---|---|---|---|---|---|
+| preview (canvas) | Inter | 700 | UPPERCASE | **61 px** | **35 px** | 0.88 | rounded, `rgba(21,11,6,0.72)` |
+| preview, karaoke | Inter | 700 | UPPERCASE | **69 px** | **39 px** | 0.88 | rounded |
+| our worker (the file) | Inter | 600 | Mixed case | **49 px** | **49 px** | 0.76 | square, `rgba(0,0,0,0.55)` |
+| hosted provider | Inter | 700 | Mixed case | **61 px** | **35 px** | 0.88 | rounded |
 
-*How to confirm after deploying:* the big red button on the right should read
-**“Randează montajul curent (cloud, MP4)”**. If it still says “Randează clipul”
-in red, the build has not landed yet.
+Read the size columns across. The preview sized captions off frame **height**,
+so the same setting gave 61 px on a vertical master and 35 px on a horizontal
+one — the caption changed size when you changed aspect, for no reason anyone
+asked for. The file sized them off the **short edge**, which is the measurement
+that keeps a caption the same visual weight in every aspect: 49 px in both.
 
-## Second — and this is on me either way
+On the 9:16 master you actually publish, the preview was showing captions **25%
+larger** than the ones being delivered, drawn **230 px lower** (0.88 against
+0.76 of a 1920-tall frame — the file clamps into the reels safe area, the
+preview did not), in a heavier weight, in capitals the file never used.
 
-Even once it is deployed, the guide **still shows in the preview**. That is
-correct: it is there to show you where TikTok's caption bar will cover the
-frame. But a dashed rectangle sitting on the picture looks exactly like
-something the film contains, which is why it has now been described twice — as
-“a strange rectangle” and as “a grid”.
+That is the "the subtitles are too big" note from the first film. It was fixed
+in the renderer months ago and left standing in the preview, so it stayed true
+of the only thing anyone actually looks at.
 
-So it no longer looks like that. The safe area is now drawn the way an editor
-draws it: **everything outside the box is dimmed**, with a thin line and a small
-label reading `ZONĂ SIGURĂ · reels · nu apare în film`. Nothing in a film dims
-its own edges, so it cannot be mistaken for content again. Untick **arată
-ghidul** to remove it entirely.
+## And karaoke was not real
 
-## What is in this package
+`lib/timeline/draw.ts` ignored `source.words` entirely. The renderer drew plain
+text. So *cuvânt cu cuvânt* was a mode you could select, watch working in the
+preview, and never receive in a file. Not a mismatch — a feature that existed
+only on screen.
 
-Everything from tt-browser-render, plus the mask:
+## What this package does
 
-- **the guide is not recorded** — the painter takes a `guides` flag; the preview
-  passes true, the recorder passes false
-- **the recording runs to the end of the film**, not the end of the shots, so
-  the end card is captured (26s of shots + a 4s card = a 30s film; the recorder
-  stopped at 26)
-- **one clock** — the picture is drawn off the AudioContext clock the voice
-  plays on, instead of wall-clock, so the captions stop sliding off the words
-- **the deterministic cloud render is the primary button**, the real-time
-  capture is secondary and says what it is
-- **the guide is a dimmed mask**, labelled, unmistakable
+**One painter.** The preview's subtitle code is deleted. Captions are now built
+as real clips on the shared overlay timeline, styled by `captionStyle(kit,
+subScale)` and clamped by `captionY(kit, SUB_POS[subPos])` — the same two
+functions the worker calls. There is no longer a place for them to drift apart,
+because there is no longer a second implementation to drift.
 
-## A shortcut while you wait
+**Karaoke is implemented in the renderer.** `drawKaraoke` in the shared drawer:
+word layout with wrapping, the word being spoken picked out in the kit accent,
+words already spoken in the full caption colour, words not yet reached dimmed.
+It reads `op.localFrame` — a compiled op now knows how far into its own clip it
+is, which is what makes per-word timing possible at all.
 
-The cloud render already has all of this and always did — v3 rendered from the
-worker has the end card, no guide, and perfect sync, because the worker draws
-the timeline rather than capturing a screen. If you need a correct file today,
-press the cloud button rather than the capture one.
+**The hosted-provider export was the third painter, and it is fixed too.** When
+the provider is not our worker, `buildCloudSpec` used to carry its own hard-coded
+Inter 700, its own plate colour and an unclamped Y. It now reads the kit and
+sizes off `Math.min(W, H)` like everything else.
 
 ## Deploy
 
-One file, no SQL.
+Four files, no SQL.
 
 ```
 app/admin/studio/page.tsx
+lib/timeline/draw.ts
+lib/timeline/compile.ts
+lib/timeline/types.ts
 ```
+
+The worker does not need a separate deploy for this — its Dockerfile compiles
+`lib/timeline` from the repository at build time, which is exactly why that
+arrangement exists. Redeploying the worker picks up `drawKaraoke` automatically.
 
 ## Verification
 
-`_verification/21-browser-render.cjs` → 23 assertions, reading the page source
-with comments stripped so a commented-out line can never pass:
+`_verification/22-captions-parity.cjs` → **18 assertions, all passing.** It reads
+the page source with comments stripped, so a commented-out line cannot pass, and
+it renders actual pixels for the karaoke half.
 
-- the recorder asks for no guides; the preview still gets them
-- the guide dims what falls outside the safe area instead of drawing a box on it
-- it labels itself `nu apare în film`
-- the old dashed-box style is gone entirely
-- nothing anywhere still ends a capture at `totalDur`
-- an end card past the last shot extends the film to 30s; one inside does not
-- the capture loop reads `ac.currentTime` and no wall-clock remains in it
-- the cloud button carries the primary style and the capture does not
+- nothing upper-cases a cue for drawing any more
+- no caption font anywhere is sized off frame height
+- the old karaoke painter and the word-grouping memo only it used are gone
+- captions are built into the shared overlay timeline, styled by the kit,
+  clamped into the safe area
+- the shared drawer implements karaoke and `drawText` hands off to it when a
+  clip carries word timings
+- **rendered pixels**: at frame 3, 12 and 22 of a three-word line, the accent
+  colour is present and the count of accent pixels *changes* — the highlight
+  moves; already-spoken words are in the full caption colour; the identical clip
+  with the word timings removed has **zero** accent pixels
+- the hosted-provider spec takes the kit style, clamps Y, sizes off the short
+  edge, and retains no hard-coded family, weight, colour or plate
+
+## Full regression after the change
+
+```
+10-vision            35/35     17-sound             25/25
+11-payload           35/35     18-fonts             15/15
+12-inspect           30/30     19-wordmark          11/11
+13-resample           8/8      20-reading           17/17
+14-brand             45/45     21-browser-render    23/23
+15-colour            10/10     22-captions-parity   18/18
+16-layers            11/11
+```
+
+Plus a real end-to-end encode (250 frames, 1920×1080, 25 fps) — 16/16, delivered
+at −15.2 LUFS / −7.7 dBTP with the music sitting 36.4 dB under the voice — and
+the caption/loudness suite at 31/31. `tsc` 0 errors, `eslint app lib` 0 errors.
+
+## What I would look at first after deploying
+
+Turn subtitles on, set *cuvânt cu cuvânt*, and compare the preview against a
+worker render of the same project. They should now be indistinguishable. If the
+captions look **smaller than you remember**, that is correct — you were being
+shown 61 px and delivered 49 px, and 49 px is the one the kit specifies. If you
+want them larger, the *mărime* slider is the honest way to do it, and it will
+now move both.

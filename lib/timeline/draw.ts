@@ -103,6 +103,64 @@ function fontOf(style: TextStyle, px: number): string {
   return `${style.weight} ${px}px "${family}", sans-serif`
 }
 
+/**
+ * Karaoke: the caption, word by word, with the one being spoken picked out.
+ *
+ * This lived only in the Studio preview. The renderer ignored the word timings
+ * entirely and drew the line as plain text, so "karaoke" was a mode you could
+ * select, watch working in the preview, and never receive in the file. The word
+ * timings were always in the document; nothing consumed them.
+ */
+function drawKaraoke(
+  ctx: Ctx2D, op: DrawOp, style: TextStyle,
+  words: readonly { word: string; start: number; end: number }[],
+  width: number, height: number, fontSize: number, spacing: number,
+): void {
+  const gap = fontSize * 0.34
+  const maxWidth = (style.maxWidth ?? 0.86) * width
+  const advance = (s: string) =>
+    ctx.measureText(s).width + (spacing ? spacing * Math.max(0, Array.from(s).length - 1) : 0)
+
+  // Lay the words into lines the same way the plain caption wraps, so a long
+  // cue does not run off the frame.
+  const lines: { word: string; start: number; end: number }[][] = [[]]
+  let lineWidth = 0
+  for (const w of words) {
+    const wide = advance(w.word)
+    if (lineWidth > 0 && lineWidth + gap + wide > maxWidth) { lines.push([]); lineWidth = 0 }
+    lines[lines.length - 1].push(w)
+    lineWidth += (lineWidth > 0 ? gap : 0) + wide
+  }
+
+  const lineHeight = fontSize * style.lineHeight
+  const cx = op.dest.x + op.dest.w / 2
+  const cy = op.dest.y + op.dest.h / 2
+  const top = cy - (lines.length * lineHeight) / 2
+  const pad = Math.round(Math.min(width, height) * (style.padding ?? 0.012))
+
+  lines.forEach((line, li) => {
+    const widths = line.map(w => advance(w.word))
+    const total = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, line.length - 1)
+    const y = top + lineHeight * (li + 0.5)
+
+    if (style.background) {
+      ctx.fillStyle = style.background
+      ctx.fillRect(cx - total / 2 - pad * 2, y - lineHeight / 2, total + pad * 4, lineHeight * 0.92)
+    }
+
+    let x = cx - total / 2
+    line.forEach((w, i) => {
+      const spoken = op.localFrame >= w.start
+      const active = op.localFrame >= w.start && op.localFrame <= w.end
+      ctx.fillStyle = active
+        ? (style.activeColor ?? '#FFD37A')
+        : spoken ? style.color : (style.pendingColor ?? 'rgba(255,255,255,0.42)')
+      drawTracked(ctx, w.word, x, y, spacing, 'left')
+      x += widths[i] + gap
+    })
+  })
+}
+
 export function drawText(ctx: Ctx2D, op: DrawOp, width: number, height: number): void {
   const source = op.source
   if (source.kind !== 'text') return
@@ -118,6 +176,11 @@ export function drawText(ctx: Ctx2D, op: DrawOp, width: number, height: number):
   const spacing = (style.letterSpacing ?? 0) * fontSize
   const advance = (s: string) =>
     ctx.measureText(s).width + (spacing ? spacing * Math.max(0, Array.from(s).length - 1) : 0)
+
+  if (source.words && source.words.length) {
+    drawKaraoke(ctx, op, style, source.words, width, height, fontSize, spacing)
+    return
+  }
 
   const maxWidth = (style.maxWidth ?? 0.86) * width
   const lines = wrapText(ctx, source.text, maxWidth, style.maxLines ?? 2, advance)

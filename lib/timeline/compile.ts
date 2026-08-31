@@ -33,6 +33,8 @@ export interface DrawOp {
    * happen somewhere. It happens here.
    */
   readonly z: number
+  /** Frames since this clip started. Karaoke captions need it; nothing else does. */
+  readonly localFrame: number
   readonly source: Source
   /** Seconds into the source media. Zero for stills, text and shapes. */
   readonly sourceTime: number
@@ -182,6 +184,7 @@ function compileClip(
   return {
     clipId: clip.id,
     z,
+    localFrame: local,
     source: clip.source,
     sourceTime: clip.source.kind === 'video' ? fpsSeconds(clip.sourceIn + local) : 0,
     dest,
