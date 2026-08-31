@@ -66,6 +66,7 @@ function usdFor(model: string, inTok: number, outTok: number): number {
 }
 
 
+
 // ══════════════════════════════════════════════════════════════════════════
 // ROMANIAN BROADCAST NUMBERS — runs at SCRIPT time, not at voice time.
 //
@@ -106,8 +107,11 @@ const TTS_TENS: Record<number, string> = {
   5: 'cinzeci',                      // canonical "cincizeci" splits as cinci|zeci
   6: 'șaizeci', 7: 'șaptezeci', 8: 'optzeci', 9: 'nouăzeci',
 };
-/** Tens whose "X și Y" compound must be JOINED into a single token. */
-const TTS_JOIN_TENS = new Set<number>([5]);
+// JOINING applies to EVERY tens compound, not only the five-forms. The engine
+// inserts a seam at "X | și | Y" wherever it occurs: 29 read as "douăzeci și
+// nouă" comes out in three pieces. Written as one token it flows.
+// CONTRACTION (cinci -> cin) is separate and applies only to the five-forms.
+const TTS_JOIN_TENS = new Set<number>([2, 3, 4, 5, 6, 7, 8, 9]);
 
 const TTS_TEENS_M = ['zece', 'unsprezece', 'doisprezece', 'treisprezece', 'paisprezece',
   'cinsprezece',                     // canonical "cincisprezece" splits as cinci|sprezece
@@ -751,6 +755,24 @@ ${coverageEn}`;
     // lower-third labels are written by the model. With no CLAUDE_API_KEY the
     // labels fall back to a truncation of each block's own first sentence, so
     // the action still works.
+    // ══════════════════════════════════════════════════════════════════════
+    // ACTION: normalize
+    //
+    // Converts digits to spoken Romanian ON DEMAND, for text the operator has
+    // typed or pasted himself. Deterministic, free, no model call.
+    //
+    // This exists because the automatic pass runs ONLY on freshly generated
+    // script. Anything you write into the box afterwards is yours and is never
+    // touched — but when you do want "56%" turned into words, you press the
+    // button instead of having it done behind your back.
+    // ══════════════════════════════════════════════════════════════════════
+    if (action === 'normalize') {
+      const text = String(body.text || '');
+      if (!text.trim()) return json({ error: 'text is required' }, 400);
+      const out = roBroadcast(text);
+      return json({ text: out, changed: out !== text });
+    }
+
     if (action === 'sectionize') {
       const language = String(body.language || 'ro') === 'en' ? 'en' : 'ro';
       const text = String(body.script || '').replace(/\r\n?/g, '\n').trim();

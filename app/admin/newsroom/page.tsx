@@ -16,7 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   Tv, Newspaper, FileText, Mic, User, Film, Loader2, Wand2, Upload,
   ShieldCheck, Download, AlertCircle, CheckCircle2, RefreshCw,
-  Clapperboard, Share2, Copy, Image as ImageIcon, Archive,
+  Clapperboard, Share2, Copy, Image as ImageIcon, Archive, Hash,
 } from 'lucide-react'
 
 interface Post { id: string; slug?: string | null; county?: string | null; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null; cover_image: string | null }
@@ -142,6 +142,8 @@ export default function NewsroomPage() {
   // this the anchor runs one story straight into the next. 700ms ≈ a real
   // newsreader's beat before the next item.
   const [pauseMs, setPauseMs] = useState(700)
+  // One-step undo for the normalize button, so a conversion is never a trap.
+  const [lastScriptBeforeNormalize, setLastScriptBeforeNormalize] = useState<string | null>(null)
   const [voUrl, setVoUrl] = useState('')
 
   const [falConfigured, setFalConfigured] = useState(false)
@@ -590,6 +592,32 @@ export default function NewsroomPage() {
   // rewriting a word of it. Calls newsroom-anchor's `sectionize` action, which
   // splits on the blank lines the script already uses as story boundaries and
   // only writes the short lower-third labels.
+  // ── NORMALIZE, ON DEMAND ──────────────────────────────────────────────────
+  // The script box is YOURS. Nothing rewrites what you type — not the voice
+  // function, not the sectionizer, nothing. The automatic number conversion
+  // runs once, on freshly generated script, and never again.
+  //
+  // This button is the opposite of that: when you HAVE typed digits yourself
+  // and want them turned into the spoken spelling, you ask for it, you see the
+  // result in the box, and you can edit or undo it. Deterministic, no model
+  // call, no cost.
+  async function normalizeScript() {
+    const text = script
+    if (!text.trim()) { setError('Nu există script de normalizat.'); return }
+    setError(''); setBusy('normalize')
+    try {
+      const r = await invokeRaw('newsroom-anchor', { action: 'normalize', text })
+      if (r.error) throw new Error(String(r.error))
+      const out = String(r.text || '')
+      if (!out) { setNotice('Normalizarea nu a returnat text — scriptul a rămas neschimbat.'); return }
+      setLastScriptBeforeNormalize(text)      // one-step undo
+      setScript(out)
+      setNotice(r.changed
+        ? 'Cifrele au fost scrise în litere. Verifică textul — poți edita orice, sau apasă „anulează".'
+        : 'Nu era nimic de convertit — scriptul a rămas neschimbat.')
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
   async function resyncSections() {
     const text = script.trim()
     if (!text) { setError('Nu există script de sincronizat.'); return }
@@ -2869,6 +2897,19 @@ export default function NewsroomPage() {
               descriu textul VECHI — înainte asta se întâmpla în tăcere. */}
           {script.trim() && (
             <div className="flex items-center gap-2 flex-wrap mt-2">
+              <button onClick={normalizeScript} disabled={!!busy || !script.trim()}
+                title="Scrie cifrele în litere, cu ortografia pe care vocea o pronunță corect. Se aplică doar când apeși — nimic nu-ți rescrie textul singur."
+                className="flex items-center gap-1.5 bg-[#111] border border-white/25 text-white/80 text-[11px] font-bold px-2.5 py-1.5 hover:border-white/50 disabled:opacity-40">
+                {busy === 'normalize' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Hash className="w-3.5 h-3.5" />}
+                cifre → litere
+              </button>
+              {lastScriptBeforeNormalize !== null && (
+                <button onClick={() => { setScript(lastScriptBeforeNormalize); setLastScriptBeforeNormalize(null); setNotice('Normalizarea a fost anulată.') }}
+                  disabled={!!busy}
+                  className="flex items-center gap-1.5 bg-[#111] border border-white/20 text-white/60 text-[11px] px-2.5 py-1.5 hover:border-white/40 disabled:opacity-40">
+                  anulează
+                </button>
+              )}
               {sectionsInSync ? (
                 <span className="text-[10.5px] text-green-400/85 flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" /> burtiere sincronizate cu scriptul ({sections?.stories.length} știri)

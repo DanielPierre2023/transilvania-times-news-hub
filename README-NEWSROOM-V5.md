@@ -4,9 +4,31 @@ Three files. Deploy in this order.
 
 ```
 1. FUNCTION   supabase/functions/generate-voiceover/index.ts   ← revert (do first)
-2. FUNCTION   supabase/functions/newsroom-anchor/index.ts
-3. GITHUB     app/admin/newsroom/page.tsx
+2. FUNCTION   supabase/functions/newsroom-anchor/index.ts       ← + the normalize action
+3. GITHUB     app/admin/newsroom/page.tsx                       ← + the cifre → litere button
 ```
+
+---
+
+# Your text is yours
+
+**Nothing rewrites what you type.** Not the voice function, not the sectionizer,
+nothing. That was the actual defect in the version that reached your air: the
+rewrite sat *downstream* of the script box, so whatever you typed was silently
+replaced on the way to the voice. You could not hand-fix anything.
+
+Now the automatic conversion runs in exactly one place — on **freshly generated**
+script, once, before it ever reaches you. From the moment it is in the box it is
+yours. Type anything. It is spoken as written.
+
+And when you *do* want digits converted, there is a button under the script box:
+
+```
+  [ cifre → litere ]   [ anulează ]
+```
+
+You press it, you see the result in the box, you edit it or undo it. It is
+deterministic, costs nothing, and never runs on its own.
 
 ---
 
@@ -52,17 +74,28 @@ bulletin, and worse at scale: 50.000 is *cincizeci de mii*, 50.000.000 is
 
 So only the five-forms are contracted and joined, exactly as you proved on air:
 
-| | emitted |
-|---|---|
-| 15 | `cinsprezece` |
-| 50 | `cinzeci` |
-| 56 | `cinzecișișase` |
-| 50.000 | `cinzeci de mii` |
-| 50.000.000 | `cinzeci de milioane` |
+Two separate rules, and I had them confused:
 
-Everything else keeps its canonical spelling — degrading numerals that already
-sound right would be a loss. `TTS_TENS` and `TTS_JOIN_TENS` at the top of the
-file are the **one place to tune** when you want to adapt another tens value.
+**JOINING applies to every tens compound.** The engine puts a seam at
+`X | și | Y` wherever it occurs — 29 came out as *douăzeci și nouă* in three
+pieces. Written as one token it flows:
+
+```
+21 douăzecișiunu     45 patruzecișicinci   74 șaptezecișipatru
+29 douăzecișinouă    56 cinzecișișase      99 nouăzecișinouă
+```
+
+**CONTRACTION applies only to the five-forms**, which is the part you said to
+keep narrow:
+
+```
+15 cinsprezece    50 cinzeci    50.000 cinzeci de mii    50.000.000 cinzeci de milioane
+```
+
+Round tens and teens are untouched — `douăzeci`, `treizeci`, `nouăsprezece`.
+`TTS_TENS` and `TTS_JOIN_TENS` at the top of the file are the **one place to
+tune**: contraction and joining are separate sets, so you can change either
+without touching the other.
 
 ### The three bugs that reached your air, fixed
 

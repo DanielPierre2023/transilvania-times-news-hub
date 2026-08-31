@@ -1,69 +1,102 @@
-# tt-scrub — the playhead was drawing a black rectangle
+# tt-grade — the last divergence, closed
 
-Small, and found by testing the deploy rather than by reading it.
+The audit named one thing still open in the preview-versus-renderer class:
 
-## What I checked
+> The worker applies a per-shot adaptive grade computed from each shot's
+> measured mean; the preview does not. Faking it with a canvas filter would
+> create a new divergence, so it is left honest.
 
-tt-level is live. I probed the served bundle cache-busted: `Cap de citire`,
-`nu fixa lumina`, `toate formatele`, `Feed vertical` all present. The worker is
-live too, and says so in its own words — `/health` now reports
-`concurrency: 2` and `retention: 604800000`, which is seven days. Both of those
-fields exist only in the new code, and `running` is a number rather than a
-boolean, so the durability work is genuinely deployed.
+It is no longer left. It is done properly, and it is the most visible of all the
+divergences that have been fixed: **every film anyone watched was ungraded and
+every file delivered was graded** — a colour difference on every frame of every
+shot.
 
-Then I opened the real project and scrubbed the new playhead, sampling the
-canvas at six positions:
+## Why it could not run in the browser before
+
+The maths lived in `render-worker/src/grade.js`: CommonJS, next to ffmpeg
+spawns, requiring node-canvas. It has moved to **`lib/timeline/grade.ts`**, and
+the worker requires it back — the same pattern as the timeline module itself.
+The worker's copies of `LOOKS`, `planGains`, `lutExpr`, `residual`,
+`normaliseLook` and its own sRGB conversion are deleted.
+
+## Why the browser reproduces it exactly rather than approximating it
+
+`lutExpr` is: sRGB → linear → multiply by gain → clip → sRGB.
+
+An SVG filter declared `color-interpolation-filters="linearRGB"` does the
+sRGB↔linear conversion itself, and `<feFuncR type="linear" slope="g">` is the
+multiply. Same three steps, same three gains. A CSS `filter: brightness()` would
+have been the approximation — it works in sRGB and cannot express a per-channel
+gain in linear light — and an approximation here would have been a new
+divergence wearing the clothes of a fix.
+
+**And the preview draws in two passes when a grade is active, because that is
+what the renderer does.** The worker splits the layers so the grade lands on the
+picture and not on the type; a graded caption is a caption in the wrong colour.
+Reproducing the grade and breaking the titles would not have been parity.
+
+## Verified against the real encoder, not against itself
+
+The first version of this suite evaluated the ffmpeg expression with a
+hand-rolled string rewrite. **It threw, and eighteen assertions were skipped
+inside an `if` — the suite passed by not running.** That is the failure mode I
+keep warning about, in my own test.
+
+It now runs the actual encoder: an exact PNG in, `lutrgb` over it, the pixel read
+back and compared with the arithmetic the browser applies.
 
 ```
-t=2s    10 non-black pixels of 4080     mean 0
-t=7s    10                               mean 0
-t=12s   10                               mean 0
-t=18s   10                               mean 0
-t=24s   10                               mean 0
-t=28s   4080                             mean 194   ← the end card
+rgb(128,96,160) · gains 0.94235 / 1.00593 / 1.19292
+  ffmpeg   124, 96, 173
+  browser  125, 96, 173      within one level
 ```
 
-## The fault, and it was mine
+One level is ffmpeg's 256-entry integer table rounding, and the tolerance says
+so. Four colour and gain combinations, including a near-black and a near-white.
 
-Media was only ever fetched by `preloadAll()`, which runs when you press
-Preview. That was fine when the canvas stayed blank until then. The moment there
-is a scrubber it is a defect: parking on shot three drew the captions and the
-titles over nothing at all. The ten non-black pixels are the safe-area guide.
+## One more thing the suite caught
 
-Frame 28 proves the rest of the work is sound — the end card is drawn entirely
-from compiled ops and it paints perfectly. The picture was missing, not the
-pipeline.
+`residual` is exported from the shared index as `gradeResidual`, so the worker's
+`require` destructured `undefined` and `gradeFilm` broke. My own assertion for
+this was `'residual' in worker`, which **passes for a key whose value is
+undefined** — the exact shape of a mis-spelled re-export. It slipped through and
+was caught one suite later by `16-layers`. The assertion is now
+`typeof worker[k] === 'function'`, for all six.
 
-## The fix
+## Also in this drop
 
-A frame that asks for a source the cache does not have now starts fetching it —
-once per URL, tracked in a ref so a redraw storm cannot queue the same file
-forty times — and redraws when it lands. A dead URL is caught and dropped rather
-than wedging the painter: a broken link in the library is the library's problem,
-not the canvas's.
+Dead code the earlier work left behind, removed rather than left to mislead:
+`MOTION_NEGATIVE` (the combined list, dead since it was split per shot),
+`wrap()` (the caption painter that used it is gone), and a redundant `gradeTick`
+that duplicated `mediaTick`.
 
 ## Deploy
 
-One file, no SQL.
-
 ```
 app/admin/studio/page.tsx
+lib/timeline/grade.ts            ← new
+lib/timeline/index.ts
+render-worker/src/grade.js       ← needs a worker redeploy
+_verification/*
 ```
+
+No SQL. **The worker redeploy is not optional this time** — `grade.js` now
+requires the shared module, so the worker must be rebuilt to have it.
 
 ## Verification
 
-`26-one-path.cjs` grew five assertions and is now 27:
+`30-grade-parity.cjs` → **44 assertions.** Full suite **494 assertions, 21
+suites, 0 failures**, plus the end-to-end encode at 16/16, −15.2 LUFS.
+`tsc` 0 errors, `eslint` 0 errors.
 
-- a frame that wants a source it has not got fetches it
-- exactly once per url
-- redraws when it lands
-- a dead url does not wedge the painter
-- the parked frame redraws on new media
+## What is left
 
-Full suite **450 assertions, 20 suites, 0 failures**.
+The preview/renderer divergence class is now **empty**. What remains on the
+audit is tenancy, seats, a public API and metering — a different project — and
+the four notes on the film itself.
 
 ## After deploying
 
-Drag the playhead without pressing Preview. Every position should show a
-picture. If a shot takes a moment to appear the first time, that is the fetch —
-it is cached from then on.
+Open the project and scrub. The picture should now carry the kit's warm look,
+and the captions and the end card should **not** — that split is the part worth
+looking at, because getting it wrong is the obvious way to implement this.

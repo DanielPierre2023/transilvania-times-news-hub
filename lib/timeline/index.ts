@@ -61,6 +61,20 @@ export {
 export type { AspectPreset, Insets, RetargetSpec } from './retarget'
 export { ASPECT_PRESETS, otherAspects, retarget, retargetMaxWidth } from './retarget'
 
+export {
+  LOOKS,
+  LUMA,
+  applyGains,
+  linearToSrgb,
+  lutExpr,
+  meanLinearFromRGBA,
+  normaliseLook,
+  planGains,
+  residual as gradeResidual,
+  srgbToLinear,
+  svgGradeFilter,
+} from './grade'
+
 export { GRAPHICS_Z, isGraphic } from './compile'
 export { evalNumber, evalPoint, isCurve, mapAnimatable, ramp } from './animate'
 

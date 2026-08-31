@@ -29,22 +29,19 @@ const { spawn } = require('child_process')
 const { loadImage, createCanvas } = require('canvas')
 const { FFMPEG } = require('./sources')
 
-const LUMA = [0.2126, 0.7152, 0.0722]
+// THE GRADE MATHS NOW LIVES IN lib/timeline/grade.ts, AND THIS REQUIRES IT BACK.
+//
+// It was defined here, in CommonJS, next to the ffmpeg spawns — which meant the
+// browser could not run it, which meant the preview showed an ungraded film
+// while every delivered file was graded. A colour difference on every frame of
+// every shot, and the last divergence of its kind.
+//
+// Same pattern as the timeline module: one implementation, compiled once,
+// required by the worker and imported by the page.
+const {
+  LUMA, LOOKS, normaliseLook, planGains, gradeResidual: residual, lutExpr, meanLinearFromRGBA,
+} = require('./timeline')
 
-/** Named looks, as chromaticity ratios. Normalised so a grade never changes exposure. */
-const LOOKS = {
-  golden: [1.16, 1.0, 0.74],
-  warm: [1.08, 1.0, 0.88],
-  neutral: [1.0, 1.0, 1.0],
-  cool: [0.92, 1.0, 1.1],
-}
-
-function normaliseLook(rgb) {
-  const l = rgb[0] * LUMA[0] + rgb[1] * LUMA[1] + rgb[2] * LUMA[2]
-  return rgb.map(v => v / l)
-}
-
-const srgbToLinear = s => (s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4))
 
 function run(args) {
   return new Promise((resolve, reject) => {
@@ -56,7 +53,12 @@ function run(args) {
   })
 }
 
-/** Trimmed mean in linear light for one extracted frame. */
+/**
+ * Trimmed mean in linear light for one extracted frame.
+ *
+ * node-canvas gets the pixels; the shared module does the arithmetic, so the
+ * browser measuring the same shot arrives at the same three numbers.
+ */
 async function measureFrame(file) {
   const img = await loadImage(file)
   const w = Math.min(240, img.width)
@@ -64,23 +66,7 @@ async function measureFrame(file) {
   const canvas = createCanvas(w, h)
   const ctx = canvas.getContext('2d')
   ctx.drawImage(img, 0, 0, w, h)
-  const data = ctx.getImageData(0, 0, w, h).data
-
-  const px = []
-  for (let i = 0; i < data.length; i += 4) {
-    const r = srgbToLinear(data[i] / 255)
-    const g = srgbToLinear(data[i + 1] / 255)
-    const b = srgbToLinear(data[i + 2] / 255)
-    px.push([r, g, b, r * LUMA[0] + g * LUMA[1] + b * LUMA[2]])
-  }
-  px.sort((a, b) => a[3] - b[3])
-  const lo = Math.floor(px.length * 0.1)
-  const hi = Math.ceil(px.length * 0.9)
-  const keep = hi - lo > 40 ? px.slice(lo, hi) : px
-
-  const mean = [0, 0, 0]
-  for (const p of keep) { mean[0] += p[0]; mean[1] += p[1]; mean[2] += p[2] }
-  return mean.map(v => v / keep.length)
+  return meanLinearFromRGBA(ctx.getImageData(0, 0, w, h).data)
 }
 
 async function sampleAt(file, seconds, dir, tag) {
@@ -90,37 +76,8 @@ async function sampleAt(file, seconds, dir, tag) {
   return out
 }
 
-/**
- * Per-shot channel gains that move each shot onto the target look while holding
- * its own luminance. Clamped, because a channel that recorded almost nothing
- * cannot be recovered — it can only be amplified into noise.
- */
-function planGains(meanLinear, look, strength = 1, clamp = [0.45, 2.6]) {
-  const target = normaliseLook(LOOKS[look] || LOOKS.neutral)
-  const lum = meanLinear[0] * LUMA[0] + meanLinear[1] * LUMA[1] + meanLinear[2] * LUMA[2]
-  return meanLinear.map((m, i) => {
-    const desired = target[i] * lum
-    const raw = desired / Math.max(m, 1e-6)
-    const g = 1 + (raw - 1) * strength
-    return Math.min(clamp[1], Math.max(clamp[0], g))
-  })
-}
 
-/** How far a shot still is from the look after correction, in linear units. */
-function residual(meanLinear, gains, look) {
-  const target = normaliseLook(LOOKS[look] || LOOKS.neutral)
-  const after = meanLinear.map((m, i) => m * gains[i])
-  const lum = after[0] * LUMA[0] + after[1] * LUMA[1] + after[2] * LUMA[2]
-  return Math.hypot(...after.map((v, i) => v - target[i] * lum))
-}
 
-/** sRGB -> linear -> gain -> sRGB, baked into one lutrgb expression per channel. */
-function lutExpr(gain) {
-  const s = '(val/255)'
-  const lin = `if(lte(${s},0.04045),${s}/12.92,pow((${s}+0.055)/1.055,2.4))`
-  const out = `clip(${lin}*${gain.toFixed(5)},0,1)`
-  return `if(lte(${out},0.0031308),${out}*12.92,1.055*pow(${out},0.41666)-0.055)*255`
-}
 
 /**
  * @param input    silent picture, already assembled

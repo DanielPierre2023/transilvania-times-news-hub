@@ -38,6 +38,8 @@ import { FPS } from '@/lib/timeline/time'
 import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
 import { compileFrame } from '@/lib/timeline/compile'
 import { ASPECT_PRESETS, otherAspects, retarget } from '@/lib/timeline/retarget'
+import { meanLinearFromRGBA, planGains, svgGradeFilter } from '@/lib/timeline/grade'
+import { GRAPHICS_Z } from '@/lib/timeline/compile'
 import type { DrawOp } from '@/lib/timeline/compile'
 import { drawFrame as drawCompiled } from '@/lib/timeline/draw'
 import type { Timeline, Clip, TextStyle } from '@/lib/timeline/types'
@@ -128,8 +130,6 @@ const MOTION_NEGATIVE_KEEP_COLD = [
   'colour shift, color shift, changed lighting, changed time of day',
   'oversaturated, warm colour grade',
 ]
-
-const MOTION_NEGATIVE = [...MOTION_NEGATIVE_ALWAYS, ...MOTION_NEGATIVE_KEEP_WARM].join(', ')
 
 function motionNegativeFor(look: SceneLook): string {
   const hold = look === 'cold' ? MOTION_NEGATIVE_KEEP_COLD
@@ -1495,6 +1495,73 @@ export default function StudioPage() {
    *
    * Each video is now driven from its own clip's local time.
    */
+  /**
+   * THE GRADE, IN THE PREVIEW, USING THE RENDERER'S OWN ARITHMETIC.
+   *
+   * The worker measures each shot's mean in linear light and works out the
+   * channel gains that move it onto the kit's look. The preview applied nothing,
+   * so every film anyone watched was ungraded while every file delivered was
+   * graded — a colour difference on every frame of every shot, and the last
+   * divergence of its kind.
+   *
+   * `planGains` and `meanLinearFromRGBA` now live in lib/timeline and the worker
+   * requires them back, so there is one implementation. The browser reproduces
+   * the LUT exactly rather than approximating it: an SVG filter declared
+   * `linearRGB` does the sRGB↔linear conversion and `feFunc type="linear"` does
+   * the multiply — the same three steps `lutExpr` writes out by hand. A CSS
+   * `brightness()` would have been the approximation, and an approximation here
+   * is a new divergence wearing the clothes of a fix.
+   */
+  const gradeCache = useRef<Map<string, number[]>>(new Map())
+
+  /**
+   * One <svg><filter> in the document, rewritten as the shot changes.
+   *
+   * Canvas 2D takes `filter: url(#id)`. Creating a filter element per frame
+   * would leak one node per drawn frame; reusing a single node and rewriting its
+   * three slopes costs nothing and keeps the DOM at one element.
+   */
+  const gradeFilterUrl = useCallback((gains: number[]): string => {
+    const ID = 'tt-grade-preview'
+    let host = document.getElementById(ID + '-host') as HTMLElement | null
+    if (!host) {
+      host = document.createElement('div')
+      host.id = ID + '-host'
+      host.setAttribute('aria-hidden', 'true')
+      host.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden'
+      document.body.appendChild(host)
+    }
+    host.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0">${svgGradeFilter(gains, ID)}</svg>`
+    return `url(#${ID})`
+  }, [])
+
+  const gainsFor = useCallback((url: string): number[] | null => {
+    const spec = kit.grade
+    if (!spec || spec.look === 'none') return null
+    const key = `${url}|${spec.look}|${spec.strength}`
+    const hit = gradeCache.current.get(key)
+    if (hit) return hit
+    const m = mediaCache.current.get(url)
+    if (!m) return null
+    try {
+      // 240 px wide, like the worker's measureFrame — the mean of a picture does
+      // not need more, and measuring the full frame per shot would stall the UI.
+      const w = 240
+      const mw = m instanceof HTMLVideoElement ? m.videoWidth : m.naturalWidth
+      const mh = m instanceof HTMLVideoElement ? m.videoHeight : m.naturalHeight
+      if (!mw || !mh) return null
+      const h = Math.max(1, Math.round((mh / mw) * w))
+      const c = document.createElement('canvas')
+      c.width = w; c.height = h
+      const cx = c.getContext('2d', { willReadFrequently: true })
+      if (!cx) return null
+      cx.drawImage(m, 0, 0, w, h)
+      const gains = planGains(meanLinearFromRGBA(cx.getImageData(0, 0, w, h).data), spec.look, spec.strength)
+      gradeCache.current.set(key, gains)
+      return gains
+    } catch { return null }   // a tainted canvas is not worth a broken preview
+  }, [kit.grade])
+
   const resolveMedia = useCallback((op: DrawOp): unknown => {
     const src = op.source
     if (src.kind !== 'image' && src.kind !== 'video') return null
@@ -1536,11 +1603,7 @@ export default function StudioPage() {
   }, [fpsOut])
 
   // ─── drawing ────────────────────────────────────────────────────────────
-  function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-    const words = text.split(' '); const lines: string[] = []; let line = ''
-    for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w } else line = t }
-    if (line) lines.push(line); return lines
-  }
+
 
   function drawFrame(ctx: CanvasRenderingContext2D, t: number, guides = true) {
     // ONE PATH. The picture, the camera move, the titles, the captions and the
@@ -1551,10 +1614,29 @@ export default function StudioPage() {
     } else {
       const fps = fpsOut === 25 ? 25 : 30
       const f = Math.max(0, Math.min(filmTl.duration - 1, Math.round(t * fps)))
-      drawCompiled(
-        ctx as unknown as Parameters<typeof drawCompiled>[0],
-        compileFrame(filmTl, f), W, H, resolveMedia,
-      )
+      const frame = compileFrame(filmTl, f)
+      const Ctx = ctx as unknown as Parameters<typeof drawCompiled>[0]
+
+      // TWO PASSES WHEN THE FILM IS GRADED, WHICH IS WHAT THE RENDERER DOES.
+      //
+      // The worker splits the layers precisely so the grade lands on the picture
+      // and not on the type — a graded caption is a caption in the wrong colour.
+      // Doing it any other way here would have reproduced the grade and broken
+      // the titles, which is not parity.
+      const pic = frame.video.find(o => o.z < GRAPHICS_Z &&
+        (o.source.kind === 'image' || o.source.kind === 'video'))
+      const gains = pic && (pic.source.kind === 'image' || pic.source.kind === 'video')
+        ? gainsFor(pic.source.url) : null
+
+      if (gains) {
+        ctx.save()
+        ctx.filter = gradeFilterUrl(gains)
+        drawCompiled(Ctx, frame, W, H, resolveMedia, { filter: o => o.z < GRAPHICS_Z })
+        ctx.restore()
+        drawCompiled(Ctx, frame, W, H, resolveMedia, { clear: false, filter: o => o.z >= GRAPHICS_Z })
+      } else {
+        drawCompiled(Ctx, frame, W, H, resolveMedia)
+      }
     }
 
     // ── SAFE AREA ────────────────────────────────────────────────────────
