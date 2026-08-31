@@ -56,7 +56,14 @@ export async function generateMetadata(
       siteName: BRAND,
       images: [{ url: image, width: 1280, height: 720, alt: title }],
       locale: b.language === 'en' ? 'en_GB' : 'ro_RO',
-      publishedTime: b.published_at || b.created_at,
+    },
+    // NOTE: `publishedTime` is only valid on openGraph.type === 'article'.
+    // This page is a VIDEO object, so the timestamp is emitted as a plain meta
+    // tag instead. Google reads the publication date from the VideoObject /
+    // NewsArticle JSON-LD below anyway; this is a secondary signal.
+    other: {
+      'article:published_time': b.published_at || b.created_at,
+      'og:video:release_date': b.published_at || b.created_at,
     },
     twitter: {
       card: 'summary_large_image',

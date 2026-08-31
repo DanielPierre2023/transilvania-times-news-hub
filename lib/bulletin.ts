@@ -56,13 +56,26 @@ export interface Bulletin {
 }
 
 /** Anon, cookie-free client. These pages are cached and must never depend on
- *  a session — the "public read published" RLS policy is what grants access. */
+ *  a session — the "public read published" RLS policy is what grants access.
+ *
+ *  Returns null instead of throwing when the env vars are absent. createClient()
+ *  throws synchronously on a missing URL ("supabaseUrl is required"), and these
+ *  pages are prerendered, so an unguarded throw here fails the whole Netlify
+ *  build — which is exactly how /sitemap.xml breaks when an env var goes
+ *  missing. A bulletin page is never worth taking the site down for. */
 export function publicClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } },
-  )
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) {
+    console.warn('[bulletin] Supabase env vars missing — bulletin pages will render empty')
+    return null
+  }
+  try {
+    return createClient(url, key, { auth: { persistSession: false } })
+  } catch (e) {
+    console.warn('[bulletin] Supabase client unavailable:', (e as Error).message)
+    return null
+  }
 }
 
 const SELECT =
@@ -72,27 +85,39 @@ const SELECT =
 
 export async function getBulletin(slug: string): Promise<Bulletin | null> {
   const db = publicClient()
-  const { data, error } = await db
-    .from('newsroom_bulletins')
-    .select(SELECT)
-    .eq('slug', slug)
-    .eq('status', 'published')
-    .maybeSingle()
-  if (error || !data) return null
-  return data as unknown as Bulletin
+  if (!db) return null
+  try {
+    const { data, error } = await db
+      .from('newsroom_bulletins')
+      .select(SELECT)
+      .eq('slug', slug)
+      .eq('status', 'published')
+      .maybeSingle()
+    if (error || !data) return null
+    return data as unknown as Bulletin
+  } catch (e) {
+    console.warn('[bulletin] getBulletin failed:', (e as Error).message)
+    return null
+  }
 }
 
 export async function listBulletins(limit = 30): Promise<Bulletin[]> {
   const db = publicClient()
-  const { data, error } = await db
-    .from('newsroom_bulletins')
-    .select(SELECT)
-    .eq('status', 'published')
-    .not('published_at', 'is', null)
-    .order('published_at', { ascending: false })
-    .limit(limit)
-  if (error || !Array.isArray(data)) return []
-  return data as unknown as Bulletin[]
+  if (!db) return []
+  try {
+    const { data, error } = await db
+      .from('newsroom_bulletins')
+      .select(SELECT)
+      .eq('status', 'published')
+      .not('published_at', 'is', null)
+      .order('published_at', { ascending: false })
+      .limit(limit)
+    if (error || !Array.isArray(data)) return []
+    return data as unknown as Bulletin[]
+  } catch (e) {
+    console.warn('[bulletin] listBulletins failed:', (e as Error).message)
+    return []
+  }
 }
 
 /**
@@ -108,11 +133,21 @@ export async function getBulletinStories(b: Bulletin): Promise<BulletinStory[]> 
   const slugs = (b.story_slugs || []).filter(Boolean)
   const db = publicClient()
 
+  // No client (env vars absent) — still return the stories the bulletin row
+  // itself carries, so the page renders titles instead of failing the build.
+  if (!db) {
+    return (slugs.length ? slugs.map((sl, i) => ({ slug: sl, title: String(titles[i] || '') }))
+                         : titles.filter(Boolean).map(t => ({ slug: null, title: t })))
+      .filter(x => x.title)
+      .map(x => ({ ...x, cover_image: null, category: null, published_at: null }))
+  }
+
   if (slugs.length) {
     const { data } = await db
       .from('blog_posts')
       .select('slug, title_ro, title_en, cover_image, category, published_at')
       .in('slug', slugs)
+      .then(r => r, (e: Error) => { console.warn('[bulletin] stories by slug failed:', e.message); return { data: null }; })
     const bySlug = new Map<string, Record<string, unknown>>(
       (data || []).map((r: Record<string, unknown>) => [String(r.slug), r] as [string, Record<string, unknown>]),
     )
@@ -133,6 +168,7 @@ export async function getBulletinStories(b: Bulletin): Promise<BulletinStory[]> 
     .from('blog_posts')
     .select('slug, title_ro, cover_image, category, published_at')
     .in('title_ro', titles.filter(Boolean))
+    .then(r => r, (e: Error) => { console.warn('[bulletin] stories by title failed:', e.message); return { data: null }; })
   const byTitle = new Map<string, Record<string, unknown>>(
     (data || []).map((r: Record<string, unknown>) => [String(r.title_ro), r] as [string, Record<string, unknown>]),
   )
