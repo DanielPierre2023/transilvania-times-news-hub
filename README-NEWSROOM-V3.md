@@ -1,4 +1,4 @@
-# Newsroom v3 — deploy pack
+# Newsroom v3.2 — deploy pack
 
 Everything is applied through the **Supabase dashboard** and the **GitHub web UI**.
 No terminal, no CLI.
@@ -217,13 +217,91 @@ quoting a volume I cannot source would be fabrication.
   29 September 2026**, and it is hard-coded in six places across your functions. Not
   changed here — swapping a model is a behaviour change and I am not making it silently.
 
+---
+
+# v3.1 — the Netlify build failure, fixed
+
+v3.0 broke your build:
+
+```
+./app/buletin/[slug]/page.tsx:59:7
+Type error: Object literal may only specify known properties, and
+'publishedTime' does not exist in type 'OpenGraphMetadata | OpenGraphVideoOther'.
+```
+
+`publishedTime` is only valid when `openGraph.type === 'article'`. That page is a
+**video** object (`type: 'video.other'`), which does not accept it. The timestamp is now
+emitted as plain meta tags instead — `article:published_time` and `og:video:release_date`.
+Nothing is lost: Google takes the publication date from the `VideoObject` / `NewsArticle`
+JSON-LD on the page, which was always the primary signal.
+
+**Why it got through.** I ran `tsc` and then filtered the output for `TS2304` (undefined
+names) only, so every other class of type error was invisible to me. That was a bad check
+dressed up as a good one. It has been replaced: v3.1 was verified by installing your repo's
+real dependencies and running your actual `next build`.
+
+### And one thing the real build exposed that I then hardened
+
+Your existing `/sitemap.xml` dies during prerender when a Supabase env var is missing
+(`Error: supabaseUrl is required`) — `createClient()` throws synchronously, and an
+unguarded throw in a prerendered route fails the whole deploy. My new `/buletin` pages had
+the same shape. They no longer do:
+
+- `publicClient()` returns `null` instead of throwing when the env vars are absent.
+- `getBulletin()`, `listBulletins()` and `getBulletinStories()` each catch and degrade —
+  empty list, or story titles without their article links.
+
+**A bulletin page can now never take your site build down.** Proven, not asserted: the
+full build was run with `NEXT_PUBLIC_SUPABASE_URL` pointed at an unreachable host and
+completed green, with `/buletin`, `/buletin/[slug]` and `/admin/newsroom` all built.
+
+(Your `/sitemap.xml` still has the original unguarded pattern. It is not mine to change in
+this pack, but it is the same latent failure and worth a two-line guard.)
+
+---
+
+# v3.2 — duplicated sentences in the SEO/social pack, fixed
+
+Reported: the Facebook post repeated its own closing question, and the Instagram
+caption repeated the headline.
+
+**Cause.** Every caption is assembled from *separate* model fields — a hook, a body, a
+closing question — and the model very often puts the hook back at the top of the body,
+or answers "caption" with the headline it already gave as `hooks[0]`. Concatenating them
+then prints the same sentence twice. Three composers were affected: `facebook.text`,
+`instagram.caption`, `linkedin.text`.
+
+**Fix, in code rather than in the prompt.** A prompt cannot guarantee this away — the
+fields genuinely overlap in meaning, which is why they exist separately. So a new
+`dedupeSentences()` runs after generation, like every other per-platform rule in this
+file: it drops any sentence already printed earlier in the same post, comparing without
+diacritics or punctuation (so *"Opt morți, 17 dispăruți"* and *"Opt morti, 17 disparuti"*
+count as the same). Hashtag and URL lines pass through untouched, sentences under 12
+characters are left alone as too short to judge, and each part keeps its own leading
+newline so paragraph breaks survive.
+
+Verified on both of the reported cases plus a diacritic-mismatch case and a control where
+nothing should be removed — the control comes through unchanged, paragraph breaks intact.
+
+---
+
 # Verification run before shipping
 
 ```
+npm install + npx next build against your real repo — PASSED
+   ✓ Compiled successfully
+   ✓ Generating static pages (71/71)
+   ƒ /admin/newsroom     built
+   ƒ /buletin            built
+   ƒ /buletin/[slug]     built
+   — and repeated with Supabase pointed at an unreachable host: still green
+
+tsc --noEmit -p tsconfig.json (your config, full output, not filtered) — 0 errors
+
 esbuild  generate-voiceover  OK
 esbuild  newsroom-anchor     OK
 esbuild  tt-social-seo       OK
-tsc      app/admin/newsroom/page.tsx — 0 undefined-name errors
+node     4 caption-dedupe cases (2 reported bugs + diacritics + control) — all correct
 diff     generate-voiceover  vs deployed:  2 deletions (both deliberate)
 diff     newsroom-anchor     vs deployed:  4 deletions (all deliberate)
 node     15 Romanian sentences through the full chain — all correct
