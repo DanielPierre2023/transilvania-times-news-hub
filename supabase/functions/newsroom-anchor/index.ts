@@ -28,8 +28,58 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// ── admin gate (inlined from _shared/requireAdmin.ts, kept self-contained so
+//    this file can be pasted straight into the Supabase dashboard editor) ────
+async function requireAdmin(req: Request): Promise<Response | null> {
+  const AUTH_CORS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+  const deny = (status: number, error: string) =>
+    new Response(JSON.stringify({ error }), {
+      status, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+    });
+
+  const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) return deny(401, 'Unauthorized');
+
+  const url = Deno.env.get('SUPABASE_URL')!;
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (serviceKey && token === serviceKey) return null;
+
+  // Prove service-role by doing something only service-role may do. GoTrue
+  // verifies the signature, so a forged token or the public anon key from the
+  // site bundle cannot pass this.
+  try {
+    const probe = createClient(url, token, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { error } = await probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+    if (!error) return null;
+  } catch { /* not service-role — fall through to the admin-user check */ }
+
+  try {
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? serviceKey!;
+    const sb = createClient(url, anonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data: u, error: uErr } = await sb.auth.getUser(token);
+    if (uErr || !u.user) return deny(401, 'Unauthorized');
+    const { data: role, error: rErr } = await sb
+      .from('user_roles').select('role')
+      .eq('user_id', u.user.id).eq('role', 'admin').maybeSingle();
+    if (rErr || !role) return deny(403, 'Forbidden');
+    return null;
+  } catch (e) {
+    // Fail closed: a failed check is a denial, never a silent pass.
+    console.error('[requireAdmin] check failed, denying by default:', (e as Error).message);
+    return deny(401, 'Unauthorized');
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
   if (req.method !== 'POST') return json({ error: 'Method Not Allowed' }, 405);
 
   try {
@@ -57,7 +107,14 @@ serve(async (req) => {
       // Article ceiling raised 10 -> 20, and anything beyond it is now REPORTED
       // rather than silently discarded.
       const allArticles = (Array.isArray(body.articles) ? body.articles : [])
-        .map((a: Record<string, unknown>) => ({ title: String(a.title || ''), summary: String(a.summary || '').slice(0, 400) }))
+        .map((a: Record<string, unknown>) => ({
+          title: String(a.title || ''),
+          summary: String(a.summary || '').slice(0, 400),
+          // ADDED 29 Aug 2026 — byline attribution. Sent by /admin/newsroom from
+          // authors.name_ro, falling back to blog_posts.author_name, exactly as
+          // the public article page resolves it. Empty when the post has neither.
+          author: String(a.author || '').slice(0, 80),
+        }))
         .filter((a: { title: string }) => a.title);
       const articles = allArticles.slice(0, 20);
       const droppedForCap = allArticles.length - articles.length;
@@ -74,13 +131,62 @@ serve(async (req) => {
       // STRUCTURED script: JSON sections so the broadcast compositor can time
       // lower-thirds per story. `script` (joined spoken text) stays the TTS input.
       const sys = language === 'ro'
-        ? `Ești prezentatorul de știri al Transilvania Times. Scrie un buletin video de ~${target} secunde (~${wordsTarget} cuvinte) în română naturală, cu diacritice, ton profesionist: cald, clar, autoritar, fără senzaționalism. Răspunde DOAR cu JSON valid, fără alt text, exact în forma: {"greeting":"${greetRo}","stories":[{"lower_third":"titlu de burtieră, max 38 caractere, fără punct final","text":"1-3 fraze rostite despre știre, cu tranziție naturală"}],"signoff":"un rând de închidere care invită pe transilvaniatimes.com"}. Fără indicații de regie, fără emoji, fără markdown.
+        ? `Ești prezentatorul de știri al Transilvania Times. Scrie un buletin video de ~${target} secunde (~${wordsTarget} cuvinte) în română naturală, cu diacritice, ton profesionist: cald, clar, autoritar, fără senzaționalism. Răspunde DOAR cu JSON valid, fără alt text, exact în forma: {"greeting":"...","stories":[{"lower_third":"titlu de burtieră, max 38 caractere, fără punct final","text":"1-3 fraze rostite despre știre, cu tranziție naturală"}],"signoff":"..."}. Fără indicații de regie, fără emoji, fără markdown.
+
+ACESTA ESTE BULETINUL UNUI ZIAR, NU AL UNEI TELEVIZIUNI.
+Nu relatezi de la fața locului. Prezinți articolele publicate azi de redacție.
+
+DESCHIDEREA. Începe cu ${greetRo}, apoi spune limpede că urmează articole din ziar. Variază formularea de la o zi la alta; nu repeta la nesfârșit aceeași frază. De exemplu: "Iată câteva dintre articolele publicate astăzi în ziarul nostru." sau "Vă prezentăm câteva dintre materialele apărute astăzi în Transilvania Times."
+
+SEMNĂTURA AUTORULUI. Fiecare știre menționează o singură dată autorul articolului, dacă îl primești. ROTEȘTE formulările — patru știri care încep toate cu "Într-un articol scris de" sună ca un formular, nu ca un jurnal. Folosește alternativ:
+  • "Într-un articol semnat de {autor}, ..."
+  • "{autor} scrie astăzi că ..."
+  • "... Materialul este semnat de {autor}."   (atribuirea la finalul frazei)
+  • "Despre acest subiect scrie {autor}."
+Nu folosi aceeași formulare de două ori la rând. Dacă autorul lipsește, nu inventa un nume și nu spune "autor necunoscut" — treci direct la știre.
+
+ÎNCHIDEREA. signoff-ul are EXACT două părți, în această ordine: mai întâi trimiterea la site — "Mai multe articole puteți citi pe transilvaniatimes.com." — apoi, ca frază separată, un rămas-bun cald și scurt: "La revedere!". Nu adăuga nimic după "La revedere!". Buletinul trebuie să se încheie ferm, nu să pară că mai urmează ceva.
+
+NUMERELE DE LEGE. Scrie orice referință legală în litere, niciodată cu cifre și bară: "Legea o sută șaizeci și nouă din două mii șase", NU "Legea 169/2006". La fel pentru ordonanțe și hotărâri.
+
+NU DESCRIE ARTICOLUL — SPUNE CE SCRIE ÎN EL. Aceasta este regula cea mai importantă.
+Rezumatele pe care le primești sunt scrise pentru site, unde cititorul are articolul sub ochi. La televizor nu are nimic sub ochi. O frază ca "Acest eseu explorează modul în care epuizarea poate să se deghizeze în nefericire" nu spune nimic: ascultătorul nu are niciun eseu în față și nu află NIMIC despre subiect.
+INTERZIS să începi o știre cu: "Acest articol...", "Acest eseu...", "Materialul de față...", "Textul...", urmate de "explorează", "analizează", "prezintă", "tratează", "vorbește despre", "își propune să".
+CORECT: rostește direct afirmația, constatarea sau faptul, ca și cum i-ai explica unui prieten despre ce e vorba.
+
+  GREȘIT: "Acest eseu explorează modul în care epuizarea poate să se deghizeze în nefericire, determinându-ne să credem că avem nevoie de schimbări radicale."
+  CORECT: "Oboseala se poate deghiza în nefericire. Într-un eseu semnat de {autor}, se arată că, atunci când suntem epuizați, credem că avem nevoie de schimbări mari în viață — când, de fapt, avem nevoie de odihnă."
+
+Atenție la diferență: a NUMI autorul și publicația este atribuire și este corectă. A descrie articolul ca obiect ("acest text analizează...") este greșit. Atribuie, apoi spune conținutul.
+
+Pentru opinii și eseuri, formulează afirmația ca afirmație a autorului, nu ca adevăr al redacției: "{autor} susține că...", "În opinia autoarei, ...".
+
+FIECARE ȘTIRE TREBUIE SĂ CONȚINĂ CEL PUȚIN UN FAPT CONCRET — cine, ce, unde, când, cât. Dacă rezumatul primit nu conține niciun fapt, spune ideea principală în cuvinte simple; nu umple spațiul cu descrieri despre ce "își propune" articolul.
 
 ${coverageRo}`
-        : `You are the news anchor of Transilvania Times. Write a ~${target}-second (~${wordsTarget} words) bulletin in natural English: warm, clear, authoritative. Respond ONLY with valid JSON, no other text, exactly: {"greeting":"${greetEn}","stories":[{"lower_third":"lower-third title, max 38 chars, no final period","text":"1-3 spoken sentences with a natural transition"}],"signoff":"one-line sign-off inviting viewers to transilvaniatimes.com"}. No stage directions, no emoji, no markdown.
+        : `You are the news anchor of Transilvania Times. Write a ~${target}-second (~${wordsTarget} words) bulletin in natural English: warm, clear, authoritative. Respond ONLY with valid JSON, no other text, exactly: {"greeting":"...","stories":[{"lower_third":"lower-third title, max 38 chars, no final period","text":"1-3 spoken sentences with a natural transition"}],"signoff":"..."}. No stage directions, no emoji, no markdown.
+
+THIS IS A NEWSPAPER'S BULLETIN, NOT A TV STATION'S. You are not reporting from the scene; you are presenting the articles the newsroom published today.
+
+OPENING. Start with ${greetEn}, then say plainly that these are articles from today's paper. Vary the wording day to day.
+
+BYLINE. Each story credits its author once, if one is given. ROTATE the phrasing — four stories all opening "In an article by" reads like a form, not a journal. Alternate between putting the credit first, mid-sentence and at the end. If no author is given, do not invent one and do not say "unknown author" — go straight to the story.
+
+DO NOT DESCRIBE THE ARTICLE — SAY WHAT IS IN IT. This is the most important rule.
+The summaries you receive are written for a web page, where the reader has the article right there. A viewer has nothing in front of them. "This essay explores how burnout can disguise itself as unhappiness" tells the listener nothing at all.
+BANNED openings: "This article/essay/piece" followed by "explores", "analyses", "presents", "looks at", "sets out to".
+CORRECT: state the claim, the finding or the fact directly, the way you would explain it to a friend.
+Naming the author and the paper is attribution and is correct. Describing the article as an object is not. Attribute, then deliver the content.
+For opinion and essays, frame the claim as the author's, not as the paper's: "{author} argues that...".
+EVERY STORY MUST CARRY AT LEAST ONE CONCRETE FACT — who, what, where, when, how much.
+
+CLOSING. The signoff has EXACTLY two parts in this order: the site — "You can read more at transilvaniatimes.com." — then, as a separate sentence, a short warm goodbye: "Goodbye!". Nothing after it. The bulletin must end firmly, not sound as if more is coming.
 
 ${coverageEn}`;
-      const user = articles.map((a: { title: string; summary: string }, i: number) => `${i + 1}. ${a.title}\n${a.summary}`).join('\n\n');
+      const user = articles
+        .map((a: { title: string; summary: string; author: string }, i: number) =>
+          `${i + 1}. ${a.title}\n${a.summary}${a.author ? `\nAutor: ${a.author}` : ''}`)
+        .join('\n\n');
 
       // ── ROOT CAUSE (observed in production) ─────────────────────────────
       // The model wrote a Romanian opening quote „ and closed it with a STRAIGHT
@@ -143,13 +249,28 @@ ${coverageEn}`;
         return { stories_requested: want, stories_returned: got, coverage_note: notes.join(' ') || undefined }
       }
 
+      // ── max_tokens sizing ────────────────────────────────────────────
+      // Was a hard-coded 1800 on both engines. A 300-second Romanian bulletin
+      // is roughly 750 spoken words, and Romanian tokenises at about 4.2 tokens
+      // per word on the Anthropic tokenizer (diacritics are multi-byte and
+      // split), so the words alone are ~3 100 tokens before the JSON envelope.
+      // 1800 could not hold that, and nothing reported it — the model simply
+      // stopped mid-bulletin. Sized from the real target instead, with a 16 000
+      // ceiling so a bad target_seconds cannot run up a bill.
+      // wordsTarget is already computed above from the speaking pace.
+      const scriptMaxTokens = Math.min(
+        16000,
+        Math.max(1800, Math.round(wordsTarget * (language === 'ro' ? 4.2 : 2.6))
+                       + articles.length * 60 + 800),
+      );
+
       const claudeKey = Deno.env.get('CLAUDE_API_KEY');
       if (claudeKey) {
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'x-api-key': claudeKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-5-20250929', max_tokens: 1800,
+            model: 'claude-sonnet-4-5-20250929', max_tokens: scriptMaxTokens,
             system: sys, messages: [{ role: 'user', content: user }],
             // Structured outputs: the API enforces this schema AT GENERATION
             // TIME, so the response cannot contain the unescaped-quote
@@ -182,6 +303,12 @@ ${coverageEn}`;
         });
         if (res.ok) {
           const data = await res.json();
+          await logSpend({
+            provider: 'anthropic', model: 'claude-sonnet-4-5-20250929', unit_kind: 'script',
+            usd: (Number(data?.usage?.input_tokens || 0) / 1e6) * 3
+               + (Number(data?.usage?.output_tokens || 0) / 1e6) * 15,
+            meta: { language, target_seconds: target, articles: articles.length },
+          });
           const text = (data?.content?.[0]?.text || '').trim();
           const parsed = parseSections(text);
           if (parsed) return json({ ...parsed, model: 'claude-sonnet-4-5-20250929', ...coverageMeta(parsed) });
@@ -201,12 +328,18 @@ ${coverageEn}`;
         method: 'POST',
         headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-4o-2024-11-20', max_tokens: 1800, response_format: { type: 'json_object' },
+          model: 'gpt-4o-2024-11-20', max_tokens: scriptMaxTokens, response_format: { type: 'json_object' },
           messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
         }),
       });
       if (!res.ok) return json({ error: `OpenAI ${res.status}: ${(await res.text()).substring(0, 200)}` }, 502);
       const data = await res.json();
+      await logSpend({
+        provider: 'openai', model: 'gpt-4o-2024-11-20', unit_kind: 'script',
+        usd: (Number(data?.usage?.prompt_tokens || 0) / 1e6) * 2.5
+           + (Number(data?.usage?.completion_tokens || 0) / 1e6) * 10,
+        meta: { language, target_seconds: target, articles: articles.length },
+      });
       const text = (data?.choices?.[0]?.message?.content || '').trim();
       const parsed = parseSections(text);
       if (parsed) return json({ ...parsed, model: 'gpt-4o-2024-11-20', ...coverageMeta(parsed) });
@@ -217,6 +350,88 @@ ${coverageEn}`;
       }
       // Never hand raw JSON back: it would be spoken aloud by the anchor.
       return json({ error: 'Scriptul generat nu a putut fi interpretat (JSON invalid). Reîncearcă — dacă persistă, reduce numărul de știri selectate.' }, 502);
+    }
+
+    // ── SECTIONIZE ────────────────────────────────────────────────────────
+    //
+    // Added 30 Aug 2026 to close a silent correctness bug in the admin page.
+    //
+    // `sections` (greeting / stories[] / signoff) is what times the burtiere,
+    // the category chip and the article photo on the studio monitor. It comes
+    // from the `script` action — but the script box is editable, and an edited
+    // script is used VERBATIM. So `sections` could still be describing the
+    // PREVIOUS script: the right words spoken over the wrong headlines and the
+    // wrong photos, with nothing on screen to say so.
+    //
+    // This re-derives sections from arbitrary script text WITHOUT rewriting a
+    // single word of it. The split is deterministic — the script is composed as
+    // [greeting, ...stories, signoff].join('\n\n') — and only the short
+    // lower-third labels are written by the model. With no CLAUDE_API_KEY the
+    // labels fall back to a truncation of each block's own first sentence, so
+    // the action still works.
+    if (action === 'sectionize') {
+      const language = String(body.language || 'ro') === 'en' ? 'en' : 'ro';
+      const text = String(body.script || '').replace(/\r\n?/g, '\n').trim();
+      if (!text) return json({ error: 'script is required' }, 400);
+
+      const blocks = text.split(/\n\s*\n+/).map(b => b.trim()).filter(Boolean);
+      if (blocks.length < 2) {
+        return json({ sections: null, note: 'Scriptul nu are paragrafe separate prin rand gol — nu pot deduce stirile. Lasa un rand gol intre stiri.' });
+      }
+      const hasGreeting = blocks.length >= 3;
+      const hasSignoff  = blocks.length >= 3;
+      const greeting = hasGreeting ? blocks[0] : '';
+      const signoff  = hasSignoff ? blocks[blocks.length - 1] : '';
+      const storyTexts = blocks.slice(hasGreeting ? 1 : 0, hasSignoff ? -1 : undefined);
+      if (!storyTexts.length) return json({ sections: null, note: 'Nu am gasit blocuri de stiri in script.' });
+
+      const fallbackLabel = (t: string) =>
+        t.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0].slice(0, 38).replace(/[\s,;:.]+$/, '');
+
+      let labels: string[] = storyTexts.map(fallbackLabel);
+      const secKey = Deno.env.get('CLAUDE_API_KEY');
+      if (secKey) {
+        const secSys = language === 'ro'
+          ? 'Primesti blocurile rostite ale unui buletin de stiri. Pentru fiecare bloc scrie un titlu de burtiera: maxim 38 de caractere, fara punct final, cu diacritice, concret (cine/ce/unde). Nu rescrie textul, nu adauga informatii. Raspunde DOAR cu JSON: {"labels":["...","..."]} — exact cate un titlu per bloc, in ordine.'
+          : 'You receive the spoken blocks of a news bulletin. For each block write a lower-third title: max 38 characters, no final period, concrete. Do not rewrite the text or add information. Respond ONLY with JSON: {"labels":["...","..."]} — exactly one per block, in order.';
+        try {
+          const secRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'x-api-key': secKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-5-20250929', max_tokens: 900, system: secSys,
+              messages: [{ role: 'user', content: storyTexts.map((t, i) => `[${i + 1}]\n${t}`).join('\n\n') }],
+            }),
+          });
+          if (secRes.ok) {
+            const secData = await secRes.json();
+            await logSpend({
+              provider: 'anthropic', model: 'claude-sonnet-4-5-20250929', unit_kind: 'sectionize',
+              usd: (Number(secData?.usage?.input_tokens || 0) / 1e6) * 3
+                 + (Number(secData?.usage?.output_tokens || 0) / 1e6) * 15,
+            });
+            const raw = String(secData?.content?.[0]?.text || '');
+            const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+            const parsedLabels = a >= 0 && b > a ? JSON.parse(raw.slice(a, b + 1)) : null;
+            const got = Array.isArray(parsedLabels?.labels) ? parsedLabels.labels.map((x: unknown) => String(x || '')) : [];
+            // Only accept a COMPLETE answer of the right size. A partial list
+            // would silently mislabel the tail of the bulletin.
+            if (got.length === storyTexts.length && got.every((l: string) => l.trim())) {
+              labels = got.map((l: string) => l.trim().slice(0, 44));
+            }
+          }
+        } catch { /* labels already have a deterministic fallback */ }
+      }
+
+      return json({
+        sections: {
+          greeting,
+          stories: storyTexts.map((t, i) => ({ lower_third: labels[i] || `Stirea ${i + 1}`, text: t })),
+          signoff,
+        },
+        derived: true,
+        note: secKey ? undefined : 'Titlurile de burtiera au fost taiate automat din prima fraza (CLAUDE_API_KEY lipseste).',
+      });
     }
 
     // ── Platform caption pack (Claude → OpenAI fallback) ──────────────────
@@ -317,15 +532,61 @@ ${coverageEn}`;
           veed:     { model: 'veed/lipsync',           usd: 0.40, payload: { video_url: videoUrl, audio_url: audioUrl } },
           // LatentSync: output length ALWAYS equals the audio length, and a short
           // source clip is auto-extended. loop_mode is nullable with no declared
-          // default, so we set it explicitly — 'pingpong' plays the clip forward
-          // then reversed, which avoids the visible jump-cut that plain 'loop'
-          // produces when the last frame doesn't match the first.
-          economic: { model: 'fal-ai/latentsync',      usd: 0.30, payload: { video_url: videoUrl, audio_url: audioUrl, loop_mode: 'pingpong' } },
+          // default, so we set it explicitly.
+          //
+          // CHANGED 28 Aug 2026: 'pingpong' → 'loop'.
+          // The old comment here was right about the plates we had: pingpong
+          // avoided a jump-cut when the last frame didn't match the first. But
+          // pingpong plays every second repetition BACKWARDS, which reverses the
+          // blinks — the eyelid opens slowly and snaps shut — and reverses hair
+          // and fabric settle. Viewers can't name it; they reliably feel it.
+          //
+          // The plates are now shot in Kling with Start-and-End-Frames set to the
+          // same still, so the last frame DOES match the first. Measured on
+          // Ioana's three plates: 0.93 / 1.10 / 0.58 mean absolute difference on
+          // an 8-bit scale — the compression noise floor. There is no seam left
+          // for pingpong to hide.
+          //
+          // If you ever feed this an old plate whose last frame does not match
+          // its first, that plate needs reshooting, not pingpong.
+          economic: { model: 'fal-ai/latentsync',      usd: 0.30, payload: { video_url: videoUrl, audio_url: audioUrl, loop_mode: 'loop' } },
         };
         // Chosen tier first, then progressively CHEAPER tiers as fallback.
+        //
+        // 30 Aug 2026 — TWO DEFECTS FIXED HERE.
+        //
+        // (a) DUPLICATE ENDPOINT. 'pro' and 'bun' are both
+        //     fal-ai/sync-lipsync/v2, differing only in a payload flag. Falling
+        //     from pro to bun therefore re-POSTed the SAME model that had just
+        //     refused the request — a guaranteed-useless round trip. The ladder
+        //     is now de-duplicated by model+variant, keeping the first (better)
+        //     one.
+        //
+        // (b) 'economic' HAD NO LADDER AT ALL. It is last in cheapOrder, so
+        //     slice() returned a single entry: if latentsync was down or
+        //     rejected the clip, the bulletin failed outright with no attempt at
+        //     anything else. Since 'economic' is the DEFAULT tier, that was the
+        //     common case, not an edge case. It now falls back to veed ($0.40)
+        //     and then standard ($0.70).
+        //
+        //     Those cost MORE than the tier that was asked for, so the response
+        //     reports tier_used / tier_changed and the admin page shows the
+        //     price actually being paid instead of the one it estimated.
         const cheapOrder = ['premium', 'pro', 'bun', 'standard', 'veed', 'economic'];
-        const startAt = cheapOrder.indexOf(TIERS[quality] ? quality : 'economic');
-        const ladder = cheapOrder.slice(startAt).map(k => TIERS[k]);
+        const chosenTier = TIERS[quality] ? quality : 'economic';
+        const rawLadder = chosenTier === 'economic'
+          ? ['economic', 'veed', 'standard']
+          : cheapOrder.slice(cheapOrder.indexOf(chosenTier));
+        const seenModels = new Set<string>();
+        const ladder = rawLadder
+          .map(k => ({ key: k, ...TIERS[k] }))
+          .filter(step => {
+            if (!step || !step.model) return false;
+            const sig = step.model + '|' + JSON.stringify(step.payload.model ?? step.payload.options ?? '');
+            if (seenModels.has(sig)) return false;
+            seenModels.add(sig);
+            return true;
+          });
         // sync_mode 'loop' is REQUIRED: the presenter source is a short (~10s)
         // idle clip while the voiceover runs 1–2 min, so the video must loop to
         // cover the audio. 'cut_off' (fal's default) would truncate the bulletin.
@@ -338,7 +599,18 @@ ${coverageEn}`;
           if (r2.ok) {
             const d2 = await r2.json();
             const label = step.model + (step.payload.model ? ` (${step.payload.model})` : step.payload.options ? ' (lipsync)' : '');
+            const lipsyncSeconds = Number(body.audio_seconds) || 0;
+            if (lipsyncSeconds > 0) {
+              await logSpend({
+                provider: 'fal', model: step.model, unit_kind: 'lipsync_minutes',
+                units: Number((lipsyncSeconds / 60).toFixed(3)),
+                usd: (lipsyncSeconds / 60) * step.usd,
+                meta: { tier_requested: chosenTier, tier_used: step.key },
+              });
+            }
             return json({ engine, model: label, usd_per_min: step.usd, quality,
+              tier_requested: chosenTier, tier_used: step.key,
+              tier_changed: step.key !== chosenTier,
               request_id: String(d2.request_id || ''), status_url: String(d2.status_url || ''), response_url: String(d2.response_url || '') });
           }
           console.warn(`[fal] ${step.model} submit failed:`, r2.status, (await r2.text()).substring(0, 200));
@@ -353,13 +625,55 @@ ${coverageEn}`;
         // pasted on a loop. $0.0562/s = $3.37/min (verified on fal).
         // Keep segments short (≈60s) — quality and stability degrade beyond it.
         if (!imageUrl) return json({ error: 'engine "avatar" needs image_url (un portret al prezentatorului)' }, 400);
+
+        // ── LENGTH GUARD (added 30 Aug 2026) ─────────────────────────────
+        // The comment above has said "keep segments short (≈60s)" since this
+        // engine was added, and nothing enforced it. A 3-minute bulletin went
+        // to Kling in ONE call: the avatar drifts, identity degrades, and it
+        // bills $3.37/min — over $11 for a bulletin the admin page had priced
+        // at $1.00 on the redub tariff, which does not apply to this engine.
+        //
+        // Splitting the audio into <=60s segments needs ffmpeg, which the Deno
+        // edge runtime does not have, so it is NOT faked here. The honest
+        // behaviour is to refuse and name the cheaper, better remedy: generate
+        // the presenter CLIP once (Kling image-to-video, one payment), then
+        // every daily bulletin is a $0.30/min redub on that clip.
+        const AVATAR_MAX_S = 90;
+        let audioSeconds = Number(body.audio_seconds) || 0;
+        if (!audioSeconds) {
+          // No duration supplied — estimate from file size. generate-voiceover
+          // emits either 128 kbps MP3 (16 kB/s) or 24 kHz 16-bit mono WAV
+          // (48 kB/s). Assume the denser of the two so the estimate errs
+          // towards ALLOWING the call: wrongly refusing a short bulletin is
+          // worse than letting a long one through.
+          try {
+            const head = await fetch(audioUrl, { method: 'HEAD' });
+            const len = Number(head.headers.get('content-length') || 0);
+            const isWav = /\.wav($|\?)/i.test(audioUrl);
+            if (len > 0) audioSeconds = len / (isWav ? 48000 : 16000);
+          } catch { /* estimate unavailable — allow the call */ }
+        }
+        if (audioSeconds > AVATAR_MAX_S) {
+          return json({
+            error:
+              `AVATAR_TOO_LONG: vocea are ~${Math.round(audioSeconds)}s, iar Kling AI Avatar (portret animat) ` +
+              `este stabil doar pana la ~${AVATAR_MAX_S}s si costa $3.37/minut — adica ~$${(audioSeconds / 60 * 3.37).toFixed(2)} ` +
+              `pentru acest buletin. Genereaza o singura data un CLIP de prezentator din portret ` +
+              `(pasul 4 → „Genereaza clip din portret (AI)"), apoi buletinele zilnice folosesc lipsync video ` +
+              `de la $0.30/minut. Alternativ, scurteaza buletinul sub ${AVATAR_MAX_S}s.`,
+            code: 'AVATAR_TOO_LONG',
+            audio_seconds: Math.round(audioSeconds),
+            estimated_usd: Number((audioSeconds / 60 * 3.37).toFixed(2)),
+          }, 400);
+        }
+
         model = 'fal-ai/kling-video/ai-avatar/v2/standard';
         payload = { image_url: imageUrl, audio_url: audioUrl };
         if (String(body.prompt || '').trim()) payload.prompt = String(body.prompt).trim();
       } else if (engine === 'latentsync') {
         if (!videoUrl) return json({ error: 'engine "latentsync" needs video_url (a presenter clip)' }, 400);
         model = 'fal-ai/latentsync';
-        payload = { video_url: videoUrl, audio_url: audioUrl, loop_mode: 'pingpong' };
+        payload = { video_url: videoUrl, audio_url: audioUrl, loop_mode: 'loop' }; // see the tier table above for why this is 'loop', not 'pingpong'
       } else {
         if (!imageUrl) return json({ error: 'engine "sadtalker" needs image_url (a presenter portrait)' }, 400);
         model = 'fal-ai/sadtalker';
@@ -538,6 +852,33 @@ ${coverageEn}`;
     return json({ error: (e as Error).message || 'Unknown error' }, 500);
   }
 });
+
+// ── SPEND LOG ─────────────────────────────────────────────────────────────
+// public.ai_spend_log has existed since 26 Aug and nothing writes to it. Every
+// paid call in this function now records what it cost, so "what is the newsroom
+// spending" is a query (public.ai_spend_by_function_daily) rather than a guess.
+// Best-effort by construction: a logging failure must never fail a bulletin.
+async function logSpend(row: {
+  provider: string; model: string; usd: number;
+  units?: number; unit_kind?: string; meta?: unknown;
+}): Promise<void> {
+  try {
+    const url = Deno.env.get('SUPABASE_URL');
+    const svc = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!url || !svc || !Number.isFinite(row.usd)) return;
+    const db = createClient(url, svc);
+    await db.from('ai_spend_log').insert({
+      function_name: 'newsroom-anchor',
+      provider: row.provider,
+      model: row.model,
+      usd: Number(row.usd.toFixed(6)),
+      units: row.units ?? 1,
+      unit_kind: row.unit_kind ?? 'request',
+      caller: 'newsroom',
+      meta: row.meta ?? null,
+    });
+  } catch { /* never load-bearing */ }
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { ...cors, 'Content-Type': 'application/json' } });

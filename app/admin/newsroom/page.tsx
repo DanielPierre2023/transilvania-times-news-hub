@@ -19,7 +19,7 @@ import {
   Clapperboard, Share2, Copy, Image as ImageIcon, Archive,
 } from 'lucide-react'
 
-interface Post { id: string; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null; cover_image: string | null }
+interface Post { id: string; slug?: string | null; county?: string | null; title_ro: string | null; title_en: string | null; summary_ro: string | null; summary_en: string | null; published_at: string | null; category: string | null; cover_image: string | null }
 interface ElVoice { voice_id: string; name: string; category: string; provider?: 'elevenlabs' | 'minimax' }
 interface LibAsset { id: string; kind: 'presenter' | 'presenter_video' | 'studio'; name: string; url: string; is_real_person?: boolean; person_name?: string | null }
 interface Avatar { avatar_id: string; avatar_name: string; preview_image_url: string }
@@ -27,8 +27,50 @@ interface Story { lower_third: string; text: string }
 interface Sections { greeting: string; stories: Story[]; signoff: string }
 interface Cue { start: number; end: number; text: string }
 interface Word { word: string; start: number; end: number }
-interface CaptionPack { facebook?: string; instagram?: string; tiktok?: string; youtube_title?: string; youtube_description?: string; hashtags?: string[] }
-interface PastBulletin { id: string; created_at: string; story_titles: string[] | null; bulletin_video_url: string | null; anchor_video_url: string | null }
+// ── tt-social-seo response shape ────────────────────────────────────────
+// Deliberately explicit rather than `any`: every field below is rendered in
+// step 7, and a typo in a key name should fail the build, not produce an
+// empty box in the UI at 6am.
+interface SeoPlatform {
+  hooks?: string[]
+  text?: string
+  caption?: string
+  post?: string
+  thread?: string[]
+  first_comment?: string
+  first_comment_hashtags?: string
+  on_screen_hook?: string
+  alt_text?: string
+  cover_text?: string
+  bio_link?: string
+  link?: string
+  hook?: string
+  titles?: string[]
+  title?: string
+  snippet?: string
+  description?: string
+  chapters?: { time: string; label: string; seconds: number }[]
+  tags?: string[]
+  pinned_comment?: string
+  hashtags?: string[]
+}
+interface SeoPack {
+  lead_story: string
+  lead_rationale: string
+  discover_headline: string
+  hashtag_tiers: { broad: string[]; geo: string[]; entity: string[]; brand: string[] }
+  platforms: Record<string, SeoPlatform>
+  publishing: { campaign: string; target_url: string; best_hours: string | null }
+  keywords?: { primary?: string; entities?: string[]; questions?: string[] }
+  jsonld?: unknown
+  model?: string
+}
+interface PastBulletin {
+  id: string; created_at: string; story_titles: string[] | null
+  bulletin_video_url: string | null; anchor_video_url: string | null
+  slug?: string | null; status?: string | null; published_at?: string | null
+  poster_url?: string | null
+}
 
 // Strip diacritics/punctuation for fuzzy cue↔story matching.
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -77,7 +119,20 @@ export default function NewsroomPage() {
   // Ioana — the station's Romanian anchor voice (ElevenLabs, user's account).
   // A 20-char ID routes through the DIRECT ElevenLabs API, which needs
   // ELEVENLABS_API_KEY in the newsroom secrets. Overridable in Pas 3.
-  const [elVoice, setElVoice] = useState('znn3xedzq0kO6JXbSRB6')
+  // ── VOICE SELECTION, REBUILT 30 Aug 2026 ────────────────────────────
+  // THE BUG: this field used to be seeded with the hardcoded ElevenLabs id
+  // 'znn3xedzq0kO6JXbSRB6', and genVoice() checked it BEFORE the dropdown.
+  // The field therefore always won, invisibly — picking any voice from the
+  // list changed nothing at all, and the only way to make the dropdown work
+  // was to notice the pre-filled box and empty it by hand.
+  //
+  // Now: the dropdown IS the voice. This box is an explicit override that
+  // starts empty, announces itself when set, and can be cleared in one click.
+  // The old hardcoded id is migrated into the dropdown selection on first
+  // load (see the defaults effect), so Ioana stays the default without the bug.
+  const [elVoice, setElVoice] = useState('')
+  const [voiceProvider, setVoiceProvider] = useState<'elevenlabs' | 'minimax'>('elevenlabs')
+  const [lexiconHits, setLexiconHits] = useState(0)
   const [voiceDiag, setVoiceDiag] = useState('')
   const [voiceUsed, setVoiceUsed] = useState('')
   // Lipsync cost tier: economic $0.70/min · bun $3 · pro ~$5 · premium $8
@@ -133,6 +188,19 @@ export default function NewsroomPage() {
 
   // Broadcast compositor + publishing pack + archive.
   const [sections, setSections] = useState<Sections | null>(null)
+  // ── THE STALE-SECTIONS BUG (fixed 30 Aug 2026) ────────────────────────
+  // `sections` is what times the burtiere, the category chip and the article
+  // photo on the studio monitor. It is produced by the `script` action — and
+  // then the script box is freely editable, and since 29 Aug an edited script
+  // is used VERBATIM. So you could rewrite the bulletin by hand and the
+  // graphics would still be describing the PREVIOUS script: right words,
+  // wrong headlines, wrong photos, and nothing on screen to say so.
+  //
+  // sectionsFor holds the exact text `sections` was derived from. The moment
+  // the script diverges from it, the graphics are declared out of sync and the
+  // compositor falls back to an even split instead of lying with precision.
+  const [sectionsFor, setSectionsFor] = useState('')
+  const sectionsInSync = !!sections && sectionsFor.trim() === script.trim()
   const [cues, setCues] = useState<Cue[]>([])
   const [words, setWords] = useState<Word[]>([])
   const [capMode, setCapMode] = useState<'clasic' | 'karaoke'>('karaoke')
@@ -150,13 +218,28 @@ export default function NewsroomPage() {
   const [bulletinUrl, setBulletinUrl] = useState('')      // local object URL (download/preview)
   const [bulletinMime, setBulletinMime] = useState('')
   const [savedId, setSavedId] = useState('')
-  const [pack, setPack] = useState<CaptionPack | null>(null)
-  const [packLinks, setPackLinks] = useState<Record<string, string>>({})
+  // Step 7 — SEO / social pack produced by tt-social-seo.
+  const [seo, setSeo] = useState<Record<string, SeoPack> | null>(null)
+  const [seoUsd, setSeoUsd] = useState(0)
+  const [seoLangs, setSeoLangs] = useState<('ro' | 'en')[]>(['ro', 'en'])
+  const [seoTab, setSeoTab] = useState<'ro' | 'en'>('ro')
+  const [copied, setCopied] = useState('')
+  // Bulletin-as-a-page.
+  const [bulletinPoster, setBulletinPoster] = useState('')
+  const [bulletinSeconds, setBulletinSeconds] = useState(0)
+  const [bulletinSlug, setBulletinSlug] = useState('')
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [publishedUrl, setPublishedUrl] = useState('')
   const [past, setPast] = useState<PastBulletin[]>([])
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  // Informational messages must NOT render in the red failure banner. A
+  // coverage shortfall ("7 of 9 stories fitted") is a fact about the edit,
+  // not a broken pipeline, and colouring it as an error trains you to ignore
+  // the banner that actually matters.
+  const [notice, setNotice] = useState('')
 
   async function invokeRaw(fn: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     const { data, error: e } = await supabase.functions.invoke(fn, { body })
@@ -193,7 +276,7 @@ export default function NewsroomPage() {
         // article page uses (app/blog/[slug]/page.tsx) — authors.name_ro first,
         // blog_posts.author_name as fallback. Added 29 Aug 2026 so the bulletin
         // can credit the writer of each piece.
-        .select('id, title_ro, title_en, summary_ro, summary_en, published_at, category, cover_image, author_name, authors ( name_ro, name_en )')
+        .select('id, slug, county, title_ro, title_en, summary_ro, summary_en, published_at, category, cover_image, author_name, authors ( name_ro, name_en )')
         .eq('status', 'published')
         .gte('published_at', since)
         .order('published_at', { ascending: false })
@@ -219,14 +302,8 @@ export default function NewsroomPage() {
         const st = await invokeRaw('publish-social', { action: 'status' })
         setPub({ facebook: st.facebook === true, instagram: st.instagram === true, youtube: st.youtube === true })
       } catch { /* publish function not deployed yet */ }
-      try {
-        const { data: pb } = await db
-          .from('newsroom_bulletins')
-          .select('id, created_at, story_titles, bulletin_video_url, anchor_video_url')
-          .order('created_at', { ascending: false })
-          .limit(7)
-        if (pb) setPast(pb as PastBulletin[])
-      } catch { /* table not created yet — archive stays hidden */ }
+      try { await refreshArchive() } catch { /* table not created yet — archive stays hidden */ }
+      try { await resumePendingJob() } catch { /* no job to resume */ }
       try { await refreshLibrary() } catch { /* library table not created yet */ }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,8 +343,32 @@ export default function NewsroomPage() {
       await refreshLibrary()
     } catch (e) { setError('Bibliotecă: ' + (e as Error).message) } finally { setBusy('') }
   }
-  async function deleteLibraryAsset(id: string) {
-    try { await db.from('newsroom_assets').delete().eq('id', id); await refreshLibrary() } catch { /* ignore */ }
+  // Public storage URLs look like
+  //   https://<ref>.supabase.co/storage/v1/object/public/<bucket>/<path>
+  // Everything after the bucket name is the object key.
+  function storagePathFromUrl(url: string, bucket = 'studio-assets'): string | null {
+    const marker = `/storage/v1/object/public/${bucket}/`
+    const i = url.indexOf(marker)
+    return i < 0 ? null : decodeURIComponent(url.slice(i + marker.length).split('?')[0])
+  }
+  // FIXED 30 Aug 2026: this used to delete the DATABASE ROW ONLY. The image or
+  // MP4 itself stayed in the bucket for ever, unreferenced and invisible —
+  // every deleted presenter, studio and AI clip still billing storage with no
+  // way left in the UI to find it. Now the object goes too.
+  async function deleteLibraryAsset(id: string, url?: string) {
+    try {
+      if (url) {
+        const path = storagePathFromUrl(url)
+        if (path) {
+          const { error: rmErr } = await supabase.storage.from('studio-assets').remove([path])
+          // A failed object delete must not block the row delete — otherwise a
+          // permissions problem leaves a dead thumbnail in the library for ever.
+          if (rmErr) setNotice('Fișierul din storage nu a putut fi șters: ' + rmErr.message)
+        }
+      }
+      await db.from('newsroom_assets').delete().eq('id', id)
+      await refreshLibrary()
+    } catch { /* ignore */ }
   }
   function pickPresenter(a: LibAsset) { setAnchorImg(a.url); setAnchorIsReal(!!a.is_real_person) }
 
@@ -340,6 +441,115 @@ export default function NewsroomPage() {
     } catch { window.open(url, '_blank') }
   }
 
+  // ── ARCHIVE ─────────────────────────────────────────────────────────────
+  async function refreshArchive() {
+    const { data: pb } = await db
+      .from('newsroom_bulletins')
+      .select('id, created_at, story_titles, bulletin_video_url, anchor_video_url, slug, status, published_at, poster_url')
+      .order('created_at', { ascending: false })
+      .limit(12)
+    if (pb) setPast(pb as PastBulletin[])
+  }
+
+  // The archive was append-only: no DELETE policy on the table and no control
+  // in the UI, which is how seven identical re-composes of one 29 Aug bulletin
+  // ended up stored with seven full-size videos behind them. Both the row and
+  // its objects go now. (Requires supabase/sql/01_newsroom_upgrade.sql.)
+  async function deleteBulletin(b: PastBulletin) {
+    if (!window.confirm('Ștergi acest buletin din arhivă? Se șterge și fișierul video.')) return
+    try {
+      const paths = [b.bulletin_video_url, b.poster_url]
+        .map(u => (u ? storagePathFromUrl(u) : null))
+        .filter((x): x is string => !!x)
+      if (paths.length) await supabase.storage.from('studio-assets').remove(paths)
+      const { error: delErr } = await db.from('newsroom_bulletins').delete().eq('id', b.id)
+      if (delErr) throw new Error(delErr.message)
+      if (savedId === b.id) setSavedId('')
+      await refreshArchive()
+    } catch (e) {
+      setError('Ștergere buletin: ' + (e as Error).message +
+        ' — dacă mesajul e despre RLS, rulează supabase/sql/01_newsroom_upgrade.sql.')
+    }
+  }
+
+  // ── DURATION OF A REMOTE MEDIA FILE ─────────────────────────────────────
+  // Needed to price the lipsync job honestly and to let newsroom-anchor refuse
+  // the avatar engine on a bulletin that is far too long for it.
+  function mediaDuration(url: string, timeoutMs = 12000): Promise<number> {
+    return new Promise(res => {
+      try {
+        const a = document.createElement('audio')
+        a.preload = 'metadata'; a.crossOrigin = 'anonymous'; a.src = url
+        let done = false
+        const finish = (v: number) => { if (!done) { done = true; res(v) } }
+        a.onloadedmetadata = () => finish(Number.isFinite(a.duration) ? a.duration : 0)
+        a.onerror = () => finish(0)
+        setTimeout(() => finish(0), timeoutMs)
+      } catch { res(0) }
+    })
+  }
+
+  // ── RESUMABLE fal JOBS ──────────────────────────────────────────────────
+  // A lipsync render is a paid job running on fal's queue, not in this tab.
+  // The old code kept status_url only in a local variable and gave up after
+  // 150 polls (12.5 min), so a reload — or a bulletin longer than the ceiling
+  // — orphaned a job you had already paid for, with no way to collect it.
+  // The handle is now persisted and picked back up on load.
+  const PENDING_KEY = 'tt_newsroom_pending_job'
+  function savePendingJob(j: { statusUrl: string; responseUrl: string; startedAt: number; kind: string }) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(j)) } catch { /* ignore */ }
+  }
+  function clearPendingJob() { try { localStorage.removeItem(PENDING_KEY) } catch { /* ignore */ } }
+
+  // Poll with backoff up to a 45-minute wall clock. Fast at first (most jobs
+  // finish inside two minutes), then every 15s so a long render costs almost
+  // no requests. Returns the URL, or null if it is genuinely still running —
+  // "still running" is reported as such, never as a failure.
+  async function pollFalJob(statusUrl: string, responseUrl: string): Promise<string | null> {
+    const deadline = Date.now() + 45 * 60 * 1000
+    while (Date.now() < deadline) {
+      const elapsed = Date.now() - (deadline - 45 * 60 * 1000)
+      await sleep(elapsed < 120_000 ? 5000 : 15000)
+      const st = await invokeRaw('newsroom-anchor', { action: 'poll_fal', status_url: statusUrl, response_url: responseUrl })
+      if (st.error) throw new Error(String(st.error))
+      const s = String(st.status || '')
+      setVideoStatus(s === 'IN_QUEUE' ? 'în coadă' : s === 'IN_PROGRESS' ? 'processing' : s)
+      if (s === 'completed' && st.publicUrl) return String(st.publicUrl)
+    }
+    setNotice('Jobul rulează încă la fal. Rămâne salvat — redeschide pagina și îl reiau automat.')
+    return null
+  }
+
+  async function resumePendingJob() {
+    let j: { statusUrl?: string; responseUrl?: string; startedAt?: number } | null = null
+    try { j = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null') } catch { j = null }
+    if (!j?.statusUrl || !j?.responseUrl) return
+    // Older than an hour: fal's queue result is gone; do not hang the UI on it.
+    if (Date.now() - (j.startedAt || 0) > 60 * 60 * 1000) { clearPendingJob(); return }
+    setNotice(`Reiau un render pornit la ${new Date(j.startedAt || Date.now()).toLocaleTimeString('ro-RO')}…`)
+    setVideoStatus('processing')
+    try {
+      const u = await pollFalJob(j.statusUrl, j.responseUrl)
+      if (u) { setVideoUrl(u); setVideoStatus('gata ✓'); clearPendingJob(); setNotice('Renderul pornit anterior s-a terminat ✓') }
+    } catch { clearPendingJob(); setVideoStatus('') }
+  }
+
+  // ── SLUG for the public bulletin page ───────────────────────────────────
+  // buletin-YYYY-MM-DD, then -2, -3 for further editions the same day. Checked
+  // against the table rather than assumed, because the column is UNIQUE and a
+  // collision would fail the whole archive write.
+  async function nextBulletinSlug(): Promise<string> {
+    const d = new Date()
+    const base = `buletin-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    try {
+      const { data } = await db.from('newsroom_bulletins').select('slug').like('slug', `${base}%`)
+      const taken = new Set((data || []).map((r: { slug: string | null }) => r.slug || ''))
+      if (!taken.has(base)) return base
+      for (let i = 2; i < 40; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`
+    } catch { /* fall through */ }
+    return `${base}-${Date.now().toString(36).slice(-4)}`
+  }
+
   async function genScript(): Promise<string | null> {
     const chosen = posts.filter(p => sel.has(p.id))
     if (chosen.length === 0) { setError('Selectează cel puțin o știre.'); return null }
@@ -364,17 +574,36 @@ export default function NewsroomPage() {
       const text = String(r.script || '')
       setScript(text); setScriptModel(String(r.model || ''))
       setSections((r.sections as Sections | null) || null)
+      setSectionsFor(text)
       // The function reports how many of the selected stories actually made it
       // into the script. A shortfall used to be invisible — you only found out
       // by reading the finished bulletin.
       const note = String(r.coverage_note || r.note || '')
-      if (note) setError(note)
+      if (note) setNotice(note)
       return text || null
     } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
   }
 
   // Loads the ElevenLabs voices from YOUR account. Kept separate so the UI can
   // re-run it after you add a voice in ElevenLabs, without reloading the page.
+  // Re-derive the graphics timing from a script you edited by hand, WITHOUT
+  // rewriting a word of it. Calls newsroom-anchor's `sectionize` action, which
+  // splits on the blank lines the script already uses as story boundaries and
+  // only writes the short lower-third labels.
+  async function resyncSections() {
+    const text = script.trim()
+    if (!text) { setError('Nu există script de sincronizat.'); return }
+    setError(''); setBusy('sectionize')
+    try {
+      const r = await invokeRaw('newsroom-anchor', { action: 'sectionize', script: text, language: lang })
+      if (r.error) throw new Error(String(r.error))
+      const sec = (r.sections as Sections | null) || null
+      if (!sec) { setNotice(String(r.note || 'Nu am putut deduce știrile din script.')); return }
+      setSections(sec); setSectionsFor(text)
+      setNotice(`Burtierele au fost resincronizate: ${sec.stories.length} știri.`)
+    } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
   async function loadElVoices() {
     setVoiceDiag('se încarcă…')
     try {
@@ -411,20 +640,28 @@ export default function NewsroomPage() {
       // account, so it only resolves through the DIRECT ElevenLabs API — fal's
       // hosted endpoint runs on fal's own account and only knows its premade
       // NAMED voices. Route accordingly; an explicit override always wins.
+      // ── ROUTING, REWRITTEN 30 Aug 2026 ────────────────────────────────
+      // The old order was: override field -> dropdown -> Gemini. That is the
+      // right order; the bug was that the override field shipped PRE-FILLED
+      // with a hardcoded id, so it always won and the dropdown was inert.
+      // With the override now empty by default, the dropdown is the voice and
+      // the override is a deliberate, visible act.
       const ev = elVoice.trim()
       const isVoiceId = /^[A-Za-z0-9]{20}$/.test(ev)
-      // A cloned MiniMax voice selected in the dropdown (your own voice via fal,
-      // no ElevenLabs) takes precedence and is delivered by fal/MiniMax only.
       const selVoice = elVoices.find(v => v.voice_id === voiceId)
+      // The dropdown carries its own provider: a cloned voice from
+      // studio_voices is delivered by fal/MiniMax and must never be swapped
+      // for an ElevenLabs premade, and vice versa.
+      const provider = selVoice?.provider || voiceProvider
       const body: Record<string, unknown> =
-        selVoice?.provider === 'minimax'
-          ? { text, provider: 'minimax', minimax_voice: voiceId, gender: 'f', tone, language: lang }
-          : ev && isVoiceId
-            ? { text, provider: 'elevenlabs', voice_id: ev, gender: 'f', tone, language: lang }
-            : ev
-              ? { text, provider: 'fal_elevenlabs', el_voice: ev, gender: 'f', tone, language: lang }
-              : elConfigured
-                ? { text, voice_id: voiceId, gender: 'f', tone, language: lang }
+        ev && isVoiceId
+          ? { text, provider: 'elevenlabs', voice_id: ev, gender: 'f', tone, language: lang }
+          : ev
+            ? { text, provider: 'fal_elevenlabs', el_voice: ev, gender: 'f', tone, language: lang }
+            : voiceId && provider === 'minimax'
+              ? { text, provider: 'minimax', minimax_voice: voiceId, gender: 'f', tone, language: lang }
+              : voiceId
+                ? { text, provider: 'elevenlabs', voice_id: voiceId, gender: 'f', tone, language: lang }
                 : { text, gemini_voice: geminiVoice, gender: ['Kore', 'Leda', 'Zephyr', 'Aoede'].includes(geminiVoice) ? 'f' : 'm', tone, language: lang }
       // Pause between stories is engine-specific markup, built server-side so it
       // never appears in the script the user edits.
@@ -446,6 +683,7 @@ export default function NewsroomPage() {
       setVoiceUsed(prov
         ? (LABEL[prov] || prov) + (gv ? ` · ${gv}` : '') + (r.note ? ` · ${String(r.note)}` : '')
         : '')
+      setLexiconHits(Number(r.lexicon_applied) || 0)
       setVoUrl(url)
       return url || null
     } catch (e) { setError((e as Error).message); return null } finally { setBusy('') }
@@ -510,20 +748,24 @@ export default function NewsroomPage() {
         // A photo-only anchor now uses Kling ai-avatar (engine 'avatar'), which
         // drives head motion/expression from the audio while preserving identity —
         // instead of SadTalker, which warped the face ("highly inaccurate").
+        // audio_seconds lets the function price the job and refuse the avatar
+        // engine when the bulletin is far too long for it (it degrades badly
+        // past ~90s and costs $3.37/min).
+        const audioSeconds = await mediaDuration(voice)
         const r = await invokeRaw('newsroom-anchor', anchorVideo
-          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voice, quality }
-          : { action: 'generate_fal', engine: 'avatar', image_url: anchorImg, audio_url: voice })
+          ? { action: 'generate_fal', engine: 'sync', video_url: anchorVideo, audio_url: voice, quality, audio_seconds: audioSeconds }
+          : { action: 'generate_fal', engine: 'avatar', image_url: anchorImg, audio_url: voice, audio_seconds: audioSeconds })
         if (r.error) throw new Error(String(r.error))
         const statusUrl = String(r.status_url || ''), responseUrl = String(r.response_url || '')
-        for (let i = 0; i < 150; i++) {
-          await sleep(5000)
-          const st = await invokeRaw('newsroom-anchor', { action: 'poll_fal', status_url: statusUrl, response_url: responseUrl })
-          if (st.error) throw new Error(String(st.error))
-          const s = String(st.status || '')
-          setVideoStatus(s === 'IN_QUEUE' ? 'în coadă' : s === 'IN_PROGRESS' ? 'processing' : s)
-          if (s === 'completed' && st.publicUrl) { const u = String(st.publicUrl); setVideoUrl(u); setVideoStatus('gata ✓'); return u }
+        // The ladder may have fallen to a different tier than the one priced in
+        // the panel. Say so rather than letting the invoice be the first news.
+        if (r.tier_changed) {
+          setNotice(`Motorul „${String(r.tier_requested)}" nu a acceptat cererea — s-a folosit „${String(r.tier_used)}" la $${Number(r.usd_per_min || 0).toFixed(2)}/min.`)
         }
-        throw new Error('Durează neobișnuit de mult — reîncearcă.')
+        savePendingJob({ statusUrl, responseUrl, startedAt: Date.now(), kind: 'lipsync' })
+        const u = await pollFalJob(statusUrl, responseUrl)
+        if (u) { setVideoUrl(u); setVideoStatus('gata ✓'); clearPendingJob(); return u }
+        return null
       } catch (e) { setError((e as Error).message); setVideoStatus('') }
       return null
     }
@@ -623,6 +865,11 @@ export default function NewsroomPage() {
   // ── Defaults persistence: the studio/presenter/voice setup survives reloads,
   // so the daily flow is just: open page → Autopilot. ──────────────────────
   const defaultsLoaded = useRef(false)
+  // TRUE once the user has changed the studio setup by hand in this session or
+  // a previous one. Guards the daypart preset from silently overwriting work
+  // that was never saved as an edition — see the bootstrap effect below.
+  const localDirty = useRef(false)
+  const markDirty = useCallback(() => { if (defaultsLoaded.current) localDirty.current = true }, [])
   useEffect(() => {
     try {
       const raw = localStorage.getItem('tt_newsroom_defaults')
@@ -636,7 +883,21 @@ export default function NewsroomPage() {
         if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
         // Only restore a NON-EMPTY saved voice: an empty string saved before this
         // field existed would otherwise wipe the preset Romanian voice on load.
-        if (typeof d.elVoice === 'string' && d.elVoice.trim()) setElVoice(d.elVoice)
+        // LEGACY MIGRATION. Saves written before 30 Aug 2026 carry the voice
+        // in `elVoice` as a raw 20-character ElevenLabs id, because that is
+        // where the hardcoded default lived. Move it into the real selection
+        // so the same voice keeps speaking, and leave the override empty.
+        const legacyId = typeof d.elVoice === 'string' ? d.elVoice.trim() : ''
+        const savedVoiceId = typeof d.voiceId === 'string' ? d.voiceId.trim() : ''
+        if (savedVoiceId) {
+          setVoiceId(savedVoiceId)
+          if (d.voiceProvider === 'minimax' || d.voiceProvider === 'elevenlabs') setVoiceProvider(d.voiceProvider)
+          if (typeof d.voiceOverride === 'string') setElVoice(d.voiceOverride)
+        } else if (/^[A-Za-z0-9]{20}$/.test(legacyId)) {
+          setVoiceId(legacyId); setVoiceProvider('elevenlabs'); setElVoice('')
+        } else if (legacyId) {
+          setElVoice(legacyId)
+        }
         if (typeof d.quality === 'string') setQuality(d.quality as 'economic'|'veed'|'standard'|'bun'|'pro'|'premium')
         if (typeof d.tone === 'string') setTone(d.tone)
         if (typeof d.pauseMs === 'number' && d.pauseMs >= 0 && d.pauseMs <= 3000) setPauseMs(d.pauseMs)
@@ -659,12 +920,18 @@ export default function NewsroomPage() {
     if (!defaultsLoaded.current) return
     try {
       localStorage.setItem('tt_newsroom_defaults', JSON.stringify({
-        anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, pauseMs,
+        anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, quality, tone, pauseMs,
         presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl,
         subsOn, tickerOn, capMode,
+        // v2 voice fields. `elVoice` is kept under its own name so a save from
+        // this build is never mistaken for a legacy one by the migration above.
+        voiceId, voiceProvider, voiceOverride: elVoice,
+        // Set once the user changes anything by hand. The daypart preset must
+        // not silently overwrite a manual setup on the next reload.
+        dirty: localDirty.current,
       }))
     } catch { /* ignore */ }
-  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, quality, tone, pauseMs, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl, subsOn, tickerOn, capMode])
+  }, [anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, elVoice, voiceId, voiceProvider, quality, tone, pauseMs, presScale, presX, presY, deskLine, bedOn, bedLevel, voUrl, videoUrl, subsOn, tickerOn, capMode])
 
   // ── Live placement preview (Step 4): studio + keyed presenter + desk line ──
   const keyedFrameRef = useRef<{ key: string; cv: HTMLCanvasElement; ar: number } | null>(null)
@@ -754,10 +1021,25 @@ export default function NewsroomPage() {
   const [presetsAvail, setPresetsAvail] = useState<Record<string, boolean>>({})
   const [presetMsg, setPresetMsg] = useState('')
   // ── EDITION PRESETS (DB-backed): the whole setup bundled per daypart ────
+  // ── PRESET PAYLOAD ────────────────────────────────────────────────────
+  // FIXED 30 Aug 2026. applyPresetPayload() read `elVoice` and `quality`, but
+  // this function never WROTE them — so "salvează setarea curentă" quietly
+  // discarded the voice and the lipsync tier, the two settings most likely to
+  // cost money if they come back wrong. pauseMs and the voice id went the same
+  // way. They are all here now.
+  //
+  // Deliberately NOT saved: subsOn / tickerOn / capMode. applyPresetPayload
+  // has always refused to apply them (they are per-bulletin display choices,
+  // and a preset silently switching burnt-in subtitles back on shipped a video
+  // nobody asked for). Writing fields the reader ignores is how the two halves
+  // drifted apart in the first place, so the write side now matches the read
+  // side exactly.
   function presetPayload() {
     return {
+      version: 2,
       anchorVideo, anchorImg, studioBg, greenscreen, monitorSide, geminiVoice, tone,
-      presScale, presX, presY, deskLine, bedOn, bedLevel, lang, target, capMode, subsOn, tickerOn,
+      presScale, presX, presY, deskLine, bedOn, bedLevel, lang, target,
+      voiceId, voiceProvider, voiceOverride: elVoice, quality, pauseMs, orient,
     }
   }
   function applyPresetPayload(d: Record<string, unknown>) {
@@ -767,7 +1049,17 @@ export default function NewsroomPage() {
     if (typeof d.greenscreen === 'boolean') setGreenscreen(d.greenscreen)
     if (d.monitorSide === 'left' || d.monitorSide === 'right' || d.monitorSide === 'off') setMonitorSide(d.monitorSide)
     if (typeof d.geminiVoice === 'string') setGeminiVoice(d.geminiVoice)
-    if (typeof d.elVoice === 'string' && d.elVoice.trim()) setElVoice(d.elVoice)
+    // v2 fields. v1 presets (saved before 30 Aug 2026) carry none of these,
+    // so each is applied only when present and the rest keep their values.
+    if (typeof d.voiceId === 'string' && d.voiceId.trim()) setVoiceId(d.voiceId.trim())
+    if (d.voiceProvider === 'minimax' || d.voiceProvider === 'elevenlabs') setVoiceProvider(d.voiceProvider)
+    if (typeof d.voiceOverride === 'string') setElVoice(d.voiceOverride)
+    else if (typeof d.elVoice === 'string' && /^[A-Za-z0-9]{20}$/.test(d.elVoice.trim())) {
+      // v1 preset: the voice lived in the override field. Migrate on read.
+      setVoiceId(d.elVoice.trim()); setVoiceProvider('elevenlabs'); setElVoice('')
+    }
+    if (typeof d.pauseMs === 'number' && d.pauseMs >= 0 && d.pauseMs <= 3000) setPauseMs(d.pauseMs)
+    if (d.orient === '16:9' || d.orient === '9:16') setOrient(d.orient)
     if (typeof d.quality === 'string') setQuality(d.quality as 'economic' | 'veed' | 'standard' | 'bun' | 'pro' | 'premium')
     if (typeof d.tone === 'string') setTone(d.tone)
     if (typeof d.presScale === 'number') setPresScale(d.presScale)
@@ -797,6 +1089,7 @@ export default function NewsroomPage() {
       const { error: e } = await db.from('newsroom_presets')
         .upsert({ kind, name: kind === 'morning' ? 'Matinal TT' : 'Jurnalul de Seară', payload: presetPayload(), updated_at: new Date().toISOString() }, { onConflict: 'kind' })
       if (e) throw new Error(e.message)
+      localDirty.current = false
       setPresetsAvail(a => ({ ...a, [kind]: true })); setEdition(kind)
       setPresetMsg(kind === 'morning' ? 'Ediția de dimineață salvată ✓' : 'Ediția de seară salvată ✓')
       setTimeout(() => setPresetMsg(''), 3500)
@@ -810,6 +1103,25 @@ export default function NewsroomPage() {
         const avail: Record<string, boolean> = {}
         for (const r of (data || []) as { kind: string }[]) avail[r.kind] = true
         setPresetsAvail(avail)
+        // ── THE RACE THAT ATE YOUR SETUP ──────────────────────────────
+        // Two mount effects used to run against the same state: one restored
+        // localStorage defaults synchronously, this one applied the daypart
+        // preset asynchronously. The async one always landed last and won,
+        // and the save effect then wrote the preset over the local defaults.
+        // Net result: any studio/anchor/voice setup you had not explicitly
+        // saved as an edition was destroyed on every reload, silently.
+        //
+        // Now the precedence is stated instead of emergent: a preset defines
+        // the edition, but it never overrules a setup you changed by hand and
+        // have not saved. `localDirty` says which case we are in, and the UI
+        // shows a "setări locale nesalvate" chip so the state is visible.
+        let dirty = false
+        try { dirty = JSON.parse(localStorage.getItem('tt_newsroom_defaults') || '{}').dirty === true } catch { /* ignore */ }
+        localDirty.current = dirty
+        if (dirty) {
+          setPresetMsg('Folosesc setările tale locale nesalvate. Apasă „dimineață" sau „seară" ca să le salvezi ca ediție.')
+          return
+        }
         const wanted: 'morning' | 'evening' = new Date().getHours() < 14 ? 'morning' : 'evening'
         if (avail[wanted]) await loadEdition(wanted)
         else if (avail[wanted === 'morning' ? 'evening' : 'morning']) await loadEdition(wanted === 'morning' ? 'evening' : 'morning')
@@ -948,13 +1260,26 @@ export default function NewsroomPage() {
 
   // Estimated fal lipsync cost for the CURRENT script, shown before spending.
   // Romanian news delivery averages ~150 wpm; fal bills per minute of output.
+  // FIXED 30 Aug 2026 — the estimate used to be wrong by an order of magnitude
+  // on the photo-only path.
+  //
+  // These RATES are the fal REDUB tiers, and they only apply when a presenter
+  // CLIP is selected. With a portrait and no clip, newsroom-anchor routes to
+  // fal-ai/kling-video/ai-avatar at $3.37/min — a different engine with a
+  // different price that this panel never mentioned. A 3.3-minute bulletin was
+  // being advertised at $1.00 and would have billed about $11.
+  const KLING_AVATAR_USD_PER_MIN = 3.37
   const estLipsyncCost = useMemo(() => {
     const RATES = { economic: 0.30, veed: 0.40, standard: 0.70, bun: 3.00, pro: 5.00, premium: 8.00 } as const
-    const rate = RATES[quality]
+    const usesRedub = !!anchorVideo
+    const rate = usesRedub ? RATES[quality] : KLING_AVATAR_USD_PER_MIN
     const words = script.trim() ? script.trim().split(/\s+/).length : 0
     const min = words > 0 ? words / 150 : (target || 75) / 60
-    return { usd: min * rate, min, rate }
-  }, [script, quality, target])
+    return {
+      usd: min * rate, min, rate, usesRedub,
+      engine: usesRedub ? 'redub pe clipul tău' : 'Kling AI Avatar (portret)',
+    }
+  }, [script, quality, target, anchorVideo])
 
   // Story timing — when each lower-third / article image / category chip appears.
   //
@@ -967,7 +1292,10 @@ export default function NewsroomPage() {
   //      a match can never jump backwards, and timings stay monotonic.
   function storyTimes(dur: number, cueList: Cue[], wordList: Word[] = []): { start: number; title: string; category?: string | null; cover?: string | null }[] {
     const selectedPosts = posts.filter(p => sel.has(p.id))
-    if (!sections || !sections.stories.length) {
+    // sectionsInSync is the guard described at the sectionsFor declaration:
+    // sections that describe a DIFFERENT script must never be used to time
+    // graphics, or every headline and photo lands on the wrong story.
+    if (!sections || !sections.stories.length || !sectionsInSync) {
       return selectedPosts.map((p, i) => ({
         start: (dur / Math.max(1, selectedPosts.length)) * i,
         title: ((lang === 'ro' ? p.title_ro : p.title_en) || '').slice(0, 60),
@@ -1115,7 +1443,17 @@ export default function NewsroomPage() {
       const v = document.createElement('video')
       v.crossOrigin = 'anonymous'; v.playsInline = true; v.preload = 'auto'; v.src = vidUrl
       await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error('Nu am putut încărca clipul (CORS?).')) })
-      const dur = Math.min(300, Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 60)
+      // FIXED 30 Aug 2026. The cap used to be 300s, applied silently: choose
+      // "~5:00 · 17-20 știri", and everything past five minutes was cut off
+      // mid-sentence with the endcard laid over it. Nothing said so.
+      // 900s is a real ceiling (MediaRecorder memory), and going over it is
+      // now reported instead of hidden.
+      const MAX_COMPOSE_S = 900
+      const rawDur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 60
+      if (rawDur > MAX_COMPOSE_S) {
+        setNotice(`Clipul are ${Math.round(rawDur)}s, iar compunerea în browser este limitată la ${MAX_COMPOSE_S}s — buletinul va fi tăiat. Împarte-l în două ediții.`)
+      }
+      const dur = Math.min(MAX_COMPOSE_S, rawDur)
 
       // Captions from the voiceover (once) — segments + word timings.
       let cueList = cues
@@ -2007,37 +2345,151 @@ export default function NewsroomPage() {
       ac.close()
       setBulletinMime(mime); setBulletinUrl(URL.createObjectURL(blob)); setCompPct(100)
 
+      // ── POSTER FRAME ──────────────────────────────────────────────────
+      // Needed for the OG card, the YouTube thumbnail and schema.org
+      // VideoObject. Grabbed from the canvas we already have by re-drawing a
+      // representative content frame — no extra service, no extra cost.
+      let posterBlob: Blob | null = null
+      try {
+        v.currentTime = Math.min(v.duration || dur, dur * 0.25)
+        await new Promise<void>(res => { v.onseeked = () => res(); setTimeout(res, 1500) })
+        drawContent(INTRO + dur * 0.25)
+        posterBlob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.86))
+      } catch { /* poster is optional */ }
+
       // Persist: upload + archive row (best-effort).
       try {
         const ext = mime.includes('mp4') ? 'mp4' : 'webm'
-        const path = `newsroom/bulletin-${Date.now()}.${ext}`
+        const stamp = Date.now()
+        const path = `newsroom/bulletin-${stamp}.${ext}`
         const { error: upErr } = await supabase.storage.from('studio-assets').upload(path, blob, { contentType: mime, upsert: false })
         const publicUrl = upErr ? '' : supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
         if (publicUrl) setBulletinPublicUrl(publicUrl)
-        const { data: row } = await db.from('newsroom_bulletins').insert({
-          language: lang, script, sections,
-          story_titles: posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || ''),
-          anchor_video_url: vidUrl, bulletin_video_url: publicUrl || null, voice_url: voiceUrl, status: 'rendered',
-        }).select('id').single()
-        if (row?.id) setSavedId(String(row.id))
+
+        let posterUrl = ''
+        if (posterBlob) {
+          const pPath = `newsroom/poster-${stamp}.jpg`
+          const { error: pErr } = await supabase.storage.from('studio-assets').upload(pPath, posterBlob, { contentType: 'image/jpeg', upsert: false })
+          if (!pErr) posterUrl = supabase.storage.from('studio-assets').getPublicUrl(pPath).data.publicUrl
+        }
+        setBulletinPoster(posterUrl)
+
+        const titles = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '')
+        const totalSeconds = Math.round(INTRO + dur + OUTRO)
+        setBulletinSeconds(totalSeconds)
+        const slug = bulletinSlug || (savedId ? '' : await nextBulletinSlug())
+        if (slug) setBulletinSlug(slug)
+        const payload = {
+          language: lang, script, sections, story_titles: titles,
+          // Slugs in the SAME order as story_titles, so the public bulletin
+          // page can link straight to each source article instead of guessing
+          // by matching headline text.
+          story_slugs: posts.filter(p => sel.has(p.id))
+            .map(p => (p as unknown as { slug?: string | null }).slug || ''),
+          anchor_video_url: vidUrl, bulletin_video_url: publicUrl || null,
+          voice_url: voiceUrl, status: 'rendered',
+          duration_seconds: totalSeconds,
+          poster_url: posterUrl || null,
+          edition: edition || null,
+          ...(slug ? { slug } : {}),
+        }
+
+        // ── NO MORE DUPLICATE ARCHIVE ROWS ──────────────────────────────
+        // Re-composing the same bulletin (to fix subtitles, to try another
+        // studio) used to INSERT a brand new row and a brand new full-size
+        // MP4 every single time. The archive currently holds seven identical
+        // copies of one 29 Aug bulletin, and seven videos in the bucket.
+        // A recompose now UPDATES the row it already made in this session.
+        if (savedId) {
+          await db.from('newsroom_bulletins').update(payload).eq('id', savedId)
+        } else {
+          const { data: row } = await db.from('newsroom_bulletins').insert(payload).select('id').single()
+          if (row?.id) setSavedId(String(row.id))
+        }
+        await refreshArchive()
       } catch { /* archive optional */ }
     } catch (e) {
       setError('Compunerea a eșuat: ' + (e as Error).message)
     } finally { setCompositing(false); setCompStage('') }
   }
 
-  // ── Publishing pack ──────────────────────────────────────────────────────
+  // ── PUBLISHING PACK — now tt-social-seo ─────────────────────────────────
+  //
+  // The old call sent TITLES ONLY to newsroom-anchor's `captions` action and
+  // got back one caption lightly reworded five times, twelve identical
+  // hashtags on every platform, and links that all pointed at the HOMEPAGE.
+  //
+  // tt-social-seo receives the whole editorial context — summaries, category,
+  // county, byline, slugs and the story start times — picks a single lead
+  // story instead of enumerating, writes each platform to its own native
+  // spec, builds YouTube chapters from the timings the compositor already
+  // computed, and points every link at the article it is actually selling.
   async function genCaptions() {
-    const titles = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean)
-    if (!titles.length) { setError('Selectează știrile mai întâi.'); return }
+    const chosen = posts.filter(p => sel.has(p.id))
+    if (!chosen.length && !script.trim()) { setError('Selectează știrile mai întâi.'); return }
     setError(''); setBusy('captions')
     try {
-      const r = await invokeRaw('newsroom-anchor', { action: 'captions', language: lang, titles })
+      // Story start times, so YouTube chapters are real rather than invented.
+      const times = storyTimes(Math.max(1, INTRO + (bulletinSeconds || 0)), cues, words)
+      const stories = chosen.map((p, i) => {
+        const a = (p as unknown as { authors?: { name_ro?: string; name_en?: string } | null }).authors
+        return {
+          title: (lang === 'ro' ? p.title_ro : p.title_en) || p.title_ro || p.title_en || '',
+          summary: (lang === 'ro' ? p.summary_ro : p.summary_en) || '',
+          category: p.category,
+          county: (p as unknown as { county?: string | null }).county || null,
+          slug: (p as unknown as { slug?: string | null }).slug || null,
+          author: (lang === 'ro' ? a?.name_ro : a?.name_en) || a?.name_ro ||
+                  (p as unknown as { author_name?: string | null }).author_name || null,
+          start: times[i]?.start ?? null,
+        }
+      })
+      const r = await invokeRaw('tt-social-seo', {
+        action: 'generate',
+        languages: seoLangs,
+        edition: edition || undefined,
+        stories,
+        bulletin_id: savedId || undefined,
+        bulletin_slug: bulletinSlug || undefined,
+        video_url: bulletinPublicUrl || videoUrl || undefined,
+        poster_url: bulletinPoster || undefined,
+        duration_seconds: bulletinSeconds || undefined,
+        intro_offset_seconds: INTRO,
+        publish_date: new Date().toISOString(),
+      })
       if (r.error) throw new Error(String(r.error))
-      setPack((r.captions as CaptionPack) || null)
-      setPackLinks((r.links as Record<string, string>) || {})
-      if (savedId) { try { await db.from('newsroom_bulletins').update({ captions: r.captions }).eq('id', savedId) } catch { /* ok */ } }
+      setSeo((r.results as Record<string, SeoPack>) || null)
+      setSeoUsd(Number(r.usd) || 0)
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
+  }
+
+  // ── PUBLISH AS A PAGE ───────────────────────────────────────────────────
+  // Until now a bulletin was a FILE. It had no URL, so it earned no search
+  // surface at all, and every social link had to point somewhere else. This
+  // flips status to 'published' and stamps published_at, which is exactly what
+  // the public read policy, /buletin/<slug> and sitemap-news.xml key on.
+  async function publishBulletin() {
+    if (!savedId) { setError('Compune întâi buletinul (pasul 6).'); return }
+    if (!bulletinPublicUrl) { setError('Buletinul nu a fost încărcat în storage — recompune-l.'); return }
+    setError(''); setPublishBusy(true)
+    try {
+      const slug = bulletinSlug || await nextBulletinSlug()
+      const { error: e } = await db.from('newsroom_bulletins').update({
+        slug,
+        status: 'published',
+        published_at: new Date().toISOString(),
+        poster_url: bulletinPoster || null,
+        duration_seconds: bulletinSeconds || null,
+        seo: seo ? { generated: true, campaign: seo[seoTab]?.publishing?.campaign || null } : null,
+      }).eq('id', savedId)
+      if (e) throw new Error(e.message)
+      setBulletinSlug(slug)
+      setPublishedUrl(`https://transilvaniatimes.com/buletin/${slug}/`)
+      await refreshArchive()
+    } catch (e) {
+      setError('Publicare: ' + (e as Error).message +
+        ' — dacă mesajul e despre coloane lipsă, rulează supabase/sql/01_newsroom_upgrade.sql.')
+    } finally { setPublishBusy(false) }
   }
 
   function downloadSrt() {
@@ -2157,16 +2609,17 @@ export default function NewsroomPage() {
       setPubMsg(m => ({ ...m, [platform]: 'Buletinul e WebM — platformele cer MP4. Folosește Chrome pentru compunere.' })); return
     }
     const titles = posts.filter(p => sel.has(p.id)).map(p => (lang === 'ro' ? p.title_ro : p.title_en) || '').filter(Boolean)
-    const tags = (pack?.hashtags || []).map(h => h.replace(/^#/, ''))
+    const P = seo?.[seoTab]?.platforms
+    const tags = (P?.youtube?.tags || []).map(h => h.replace(/^#/, ''))
     setError(''); setPubBusy(platform); setPubMsg(m => ({ ...m, [platform]: '' }))
     try {
       if (platform === 'facebook') {
-        const description = (pack?.facebook || titles.join(' · ')) + (packLinks.facebook ? `\n\n${packLinks.facebook}` : '')
+        const description = P?.facebook?.text || titles.join(' · ')
         const r = await invokeRaw('publish-social', { action: 'facebook', video_url: video, description })
         if (r.error) throw new Error(String(r.error))
         setPubMsg(m => ({ ...m, facebook: '✓ Postat pe pagina de Facebook.' }))
       } else if (platform === 'instagram') {
-        const caption = (pack?.instagram || titles.join(' · ')) + (pack?.hashtags?.length ? `\n\n${pack.hashtags.map(h => h.startsWith('#') ? h : '#' + h).join(' ')}` : '')
+        const caption = P?.instagram?.caption || titles.join(' · ')
         const r = await invokeRaw('publish-social', { action: 'instagram', video_url: video, caption })
         if (r.error) throw new Error(String(r.error))
         const creationId = String(r.creation_id || '')
@@ -2185,8 +2638,8 @@ export default function NewsroomPage() {
       } else {
         const r = await invokeRaw('publish-social', {
           action: 'youtube', video_url: video,
-          title: pack?.youtube_title || `Buletinul zilei — Transilvania Times`,
-          description: (pack?.youtube_description || titles.join('\n')) + (packLinks.youtube ? `\n\n${packLinks.youtube}` : ''),
+          title: P?.youtube?.title || `Buletinul zilei — Transilvania Times`,
+          description: P?.youtube?.description || titles.join('\n'),
           tags, privacy: 'public', language: lang,
         })
         if (r.error) throw new Error(String(r.error))
@@ -2313,6 +2766,13 @@ export default function NewsroomPage() {
       {error && (
         <div className="mb-5 flex items-start gap-2 text-[12.5px] text-red-400 bg-red-400/10 border border-red-400/20 p-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span>
+          <button onClick={() => setError('')} className="ml-auto text-white/30 hover:text-white shrink-0">✕</button>
+        </div>
+      )}
+      {notice && (
+        <div className="mb-5 flex items-start gap-2 text-[12.5px] text-amber-200/90 bg-amber-400/10 border border-amber-400/25 p-3">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{notice}</span>
+          <button onClick={() => setNotice('')} className="ml-auto text-white/30 hover:text-white shrink-0">✕</button>
         </div>
       )}
 
@@ -2356,7 +2816,7 @@ export default function NewsroomPage() {
           <button onClick={genScript} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50 mb-3">
             {busy === 'script' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Scrie scriptul din știrile selectate
           </button>
-          <textarea value={script} onChange={e => setScript(e.target.value)} rows={8} placeholder="Scriptul apare aici — editează-l liber înainte de voce…"
+          <textarea value={script} onChange={e => { setScript(e.target.value); markDirty() }} rows={8} placeholder="Scriptul apare aici — editează-l liber înainte de voce…"
             className="w-full bg-[#111] border border-white/[0.07] text-white/90 text-[13px] p-3 resize-y focus:outline-none focus:border-brand-red/60" />
           {scriptModel && <p className="text-[10.5px] text-white/30 mt-1.5">scris de {scriptModel} · editabil integral</p>}
           {script.trim() && (
@@ -2365,34 +2825,87 @@ export default function NewsroomPage() {
               apasă „Scrie scriptul din știrile selectate” dacă vrei unul nou.
             </p>
           )}
+          {/* GRAPHICS SYNC. Burtierele, categoria și fotografia de pe monitor
+              sunt cronometrate din `sections`. Dacă editezi scriptul, ele
+              descriu textul VECHI — înainte asta se întâmpla în tăcere. */}
+          {script.trim() && (
+            <div className="flex items-center gap-2 flex-wrap mt-2">
+              {sectionsInSync ? (
+                <span className="text-[10.5px] text-green-400/85 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> burtiere sincronizate cu scriptul ({sections?.stories.length} știri)
+                </span>
+              ) : (
+                <>
+                  <span className="text-[10.5px] text-amber-300/90">
+                    ⚠ burtierele nu mai corespund scriptului editat — vor fi împărțite uniform, fără titluri per știre
+                  </span>
+                  <button onClick={resyncSections} disabled={!!busy}
+                    className="flex items-center gap-1.5 bg-[#111] border border-amber-400/40 text-amber-200 text-[11px] font-bold px-2.5 py-1.5 hover:border-amber-300 disabled:opacity-50">
+                    {busy === 'sectionize' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    resincronizează burtierele
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </Step>
 
         <Step n={3} icon={Mic} title="Vocea" done={stepDone[3]}>
+          {/* ── VOCEA ESTE CEA DIN LISTĂ ────────────────────────────────
+              Câmpul de override era pre-completat cu un ID fix și era citit
+              ÎNAINTEA listei, deci lista nu avea niciun efect. Acum lista
+              decide, iar overrideul este gol, vizibil și se șterge cu un clic. */}
           <div className="flex items-center gap-2 flex-wrap mb-2">
-            <input value={elVoice} onChange={e => setElVoice(e.target.value)}
-              placeholder="Voce românească — ID ElevenLabs (ex: znn3xed…) sau nume"
-              title="Un ID de voce (20 de caractere) merge prin contul TĂU ElevenLabs și are nevoie de ELEVENLABS_API_KEY. Un nume de voce premade merge prin fal."
-              className="bg-[#111] border border-white/[0.07] text-white/90 text-[12px] px-2 py-1.5 w-72" />
             <button onClick={loadElVoices} type="button"
               className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/60 text-[11.5px] px-2.5 py-1.5 hover:border-white/30">
               <RefreshCw className="w-3.5 h-3.5" /> reîncarcă vocile
             </button>
-            {elVoice.trim()
-              ? /^[A-Za-z0-9]{20}$/.test(elVoice.trim())
-                ? <span className="text-[10.5px] text-green-400/85">ID de voce · contul tău ElevenLabs {elConfigured ? '✓ cheie detectată' : '⚠ ELEVENLABS_API_KEY lipsește'}</span>
-                : <span className="text-[10.5px] text-sky-300/80">nume de voce · prin fal (~$0.10 / 1.000 caractere)</span>
-              : <span className="text-[10.5px] text-amber-300/80">⚠ gol = voce englezească cu accent. Pune vocea românească aici.</span>}
+            <input value={elVoice} onChange={e => { setElVoice(e.target.value); markDirty() }}
+              placeholder="override (opțional) — ID sau nume de voce"
+              title="Lăsat gol, vorbește vocea aleasă în listă. Completat, are prioritate: un ID de 20 de caractere merge prin contul TĂU ElevenLabs, un nume merge prin fal."
+              className={'bg-[#111] border text-white/90 text-[12px] px-2 py-1.5 w-64 ' + (elVoice.trim() ? 'border-amber-400/60' : 'border-white/[0.07]')} />
+            {elVoice.trim() ? (
+              <span className="text-[10.5px] text-amber-300/90 flex items-center gap-1.5">
+                ⚠ override activ — lista de mai jos este ignorată
+                <button onClick={() => { setElVoice(''); markDirty() }} className="underline hover:text-white">șterge</button>
+              </span>
+            ) : (
+              <span className="text-[10.5px] text-white/35">vorbește vocea selectată în listă</span>
+            )}
           </div>
           {voiceDiag && (
             <p className={'text-[10.5px] mb-2 ' + (elConfigured ? 'text-white/40' : 'text-amber-300/85')}>
-              {elConfigured ? '✓ ' : '⚠ '}{voiceDiag}
+              {elConfigured ? '✓ ' : '⚠ '}
+              {/* The old label called every voice an ElevenLabs voice. Three of
+                  them are fal/MiniMax clones out of studio_voices, and which
+                  engine speaks changes both the accent and the price. */}
+              {elConfigured
+                ? `${elVoices.filter(v => v.provider !== 'minimax').length} voci ElevenLabs · ${elVoices.filter(v => v.provider === 'minimax').length} voci clonate (fal/MiniMax)`
+                : voiceDiag}
               {!elConfigured && <> · adaug-o în <b>Supabase → Project Settings → Edge Functions → Secrets</b>, apoi apasă „reîncarcă vocile”.</>}
+            </p>
+          )}
+          {lexiconHits > 0 && (
+            <p className="text-[10.5px] text-green-400/80 mb-2">
+              ✓ {lexiconHits} corecții de pronunție aplicate din dicționar (pronunciation_lexicon)
             </p>
           )}
           <div className="flex items-center gap-2 flex-wrap">
             {elConfigured ? (
               <>
-                <select value={voiceId} onChange={e => setVoiceId(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5 max-w-[180px]">
+                <select value={voiceId}
+                  onChange={e => {
+                    const id = e.target.value
+                    setVoiceId(id)
+                    // The provider travels WITH the voice. A cloned MiniMax
+                    // voice and an ElevenLabs premade are different engines
+                    // with different prices; routing on a stale provider is
+                    // how you end up paying for the wrong voice.
+                    const v = elVoices.find(x => x.voice_id === id)
+                    setVoiceProvider(v?.provider === 'minimax' ? 'minimax' : 'elevenlabs')
+                    markDirty()
+                  }}
+                  className={'bg-[#111] border text-white/70 text-[12px] px-2 py-1.5 max-w-[220px] ' + (elVoice.trim() ? 'border-white/[0.04] opacity-40' : 'border-white/[0.07]')}>
                   {elVoices.map(v => <option key={v.provider + ':' + v.voice_id} value={v.voice_id}>{v.category === 'cloned' ? '👤 ' : ''}{v.name}{v.provider === 'minimax' ? ' · fal' : ''}</option>)}
                 </select>
                 <select value={tone} onChange={e => setTone(e.target.value)} className="bg-[#111] border border-white/[0.07] text-white/70 text-[12px] px-2 py-1.5">
@@ -2538,7 +3051,7 @@ export default function NewsroomPage() {
                         <video src={a.url + '#t=0.1'} preload="metadata" muted playsInline className="w-full aspect-square object-cover" />
                         <span className="block text-[9.5px] text-white/50 px-1 py-0.5 truncate">{a.name}</span>
                       </button>
-                      <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
+                      <button onClick={() => deleteLibraryAsset(a.id, a.url)} title="Șterge"
                         className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
                     </div>
                   ))}
@@ -2574,7 +3087,7 @@ export default function NewsroomPage() {
                         </button>
                         <button onClick={() => downloadAsset(a.url, a.name)} title="Descarcă"
                           className="absolute top-1 right-7 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">⤓</button>
-                        <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
+                        <button onClick={() => deleteLibraryAsset(a.id, a.url)} title="Șterge"
                           className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
                       </div>
                     ))}
@@ -2627,7 +3140,7 @@ export default function NewsroomPage() {
                     </button>
                     <button onClick={() => downloadAsset(a.url, a.name)} title="Descarcă"
                       className="absolute top-1 right-7 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">⤓</button>
-                    <button onClick={() => deleteLibraryAsset(a.id)} title="Șterge"
+                    <button onClick={() => deleteLibraryAsset(a.id, a.url)} title="Șterge"
                       className="absolute top-1 right-1 bg-black/70 text-white/80 hover:text-white text-[10px] w-5 h-5 rounded-full opacity-0 group-hover:opacity-100">✕</button>
                   </div>
                 ))}
@@ -2684,24 +3197,35 @@ export default function NewsroomPage() {
           <div className="border border-white/[0.07] bg-[#0d0d0f] p-3 mb-3">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11.5px] text-white/55">motor lipsync:</span>
+              {/* `pro` ($5, sync v2 pro) exists in newsroom-anchor's tier table
+                  and in the cost model, but had no button — a preset could put
+                  you on it with no way to see it or leave it. */}
               {([
                 ['economic', 'LatentSync', 0.30],
                 ['veed', 'VEED', 0.40],
                 ['standard', 'sync 1.9', 0.70],
                 ['bun', 'sync v2', 3.00],
+                ['pro', 'sync v2 pro', 5.00],
                 ['premium', 'sync v3', 8.00],
               ] as const).map(([k, label, usd]) => (
-                <button key={k} onClick={() => setQuality(k)}
-                  className={'px-2.5 py-1.5 text-[11.5px] border ' + (quality === k ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07] hover:border-white/25')}>
+                <button key={k} onClick={() => { setQuality(k); markDirty() }} disabled={!estLipsyncCost.usesRedub}
+                  title={estLipsyncCost.usesRedub ? '' : 'Se aplică doar cu un CLIP de prezentator selectat. Cu portret se folosește Kling AI Avatar.'}
+                  className={'px-2.5 py-1.5 text-[11.5px] border disabled:opacity-30 ' + (quality === k ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07] hover:border-white/25')}>
                   {label} · ${usd.toFixed(2)}/min
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-amber-300/80 mt-2">
-              Cost estimat pentru acest buletin: <b>${estLipsyncCost.usd.toFixed(2)}</b>{' '}
-              (~{estLipsyncCost.min.toFixed(1)} min × ${estLipsyncCost.rate.toFixed(2)}/min).
-              {quality !== 'economic' && <> Pe LatentSync ar costa ${(estLipsyncCost.min * 0.30).toFixed(2)}.</>}
+            <p className={'text-[11px] mt-2 ' + (estLipsyncCost.usd > 5 ? 'text-red-400' : 'text-amber-300/80')}>
+              Motor: <b>{estLipsyncCost.engine}</b> · cost estimat pentru acest buletin:{' '}
+              <b>${estLipsyncCost.usd.toFixed(2)}</b> (~{estLipsyncCost.min.toFixed(1)} min × ${estLipsyncCost.rate.toFixed(2)}/min).
+              {estLipsyncCost.usesRedub && quality !== 'economic' && <> Pe LatentSync ar costa ${(estLipsyncCost.min * 0.30).toFixed(2)}.</>}
             </p>
+            {!estLipsyncCost.usesRedub && (
+              <p className="text-[11px] text-red-400/90 mt-1">
+                ⚠ Fără clip de prezentator, buletinul merge pe <b>Kling AI Avatar</b> ($3.37/min) — nu pe tarifele de redub de mai sus,
+                și motorul se degradează peste ~90&nbsp;s. Generează o dată un clip din portret (pasul 4) și costul zilnic scade de ~10×.
+              </p>
+            )}
             <p className="text-[10.5px] text-white/35 mt-1">
               Toate acestea sunt motoare de <b>redub</b>: schimbă doar gura pe clipul tău. Niciunul nu inventează
               gesturi — naturalețea vine din clipul-sursă. Plătești în plus doar pentru acuratețea fonemelor.
@@ -2786,14 +3310,51 @@ export default function NewsroomPage() {
               </a>
             </div>
           )}
+
+          {/* ── PUBLICARE CA PAGINĂ ────────────────────────────────────────
+              Până acum buletinul era doar un FIȘIER: fără URL, deci fără nicio
+              suprafață în Google, iar toate linkurile din social trimiteau în
+              altă parte. Pagina /buletin/<slug> îl face indexabil (VideoObject
+              + NewsArticle) și îi dă linkurilor o destinație reală. */}
+          {bulletinUrl && (
+            <div className="mt-3 border border-white/[0.07] bg-[#0d0d0f] p-3 max-w-md">
+              <p className="text-[11.5px] text-white/60 mb-2">
+                Publică buletinul pe site ca pagină indexabilă — cu transcript, schema VideoObject și linkuri către articolele-sursă.
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={publishBulletin} disabled={publishBusy || !savedId || !bulletinPublicUrl}
+                  className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-40">
+                  {publishBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />} Publică pagina buletinului
+                </button>
+                {bulletinSlug && <span className="text-[10.5px] text-white/35">/buletin/{bulletinSlug}/</span>}
+              </div>
+              {publishedUrl && (
+                <p className="text-[11px] text-green-400 mt-2 break-all">
+                  ✓ publicat · <a href={publishedUrl} target="_blank" rel="noreferrer" className="underline">{publishedUrl}</a>
+                </p>
+              )}
+              {!bulletinPoster && bulletinUrl && (
+                <p className="text-[10.5px] text-amber-300/70 mt-1.5">Fără poster — recompune buletinul ca să se genereze cadrul de copertă.</p>
+              )}
+            </div>
+          )}
         </Step>
 
         {/* ── STEP 7 · PUBLISHING PACK ───────────────────────────────────── */}
-        <Step n={7} icon={Share2} title="Pachet de publicare" done={!!pack}>
+        <Step n={7} icon={Share2} title="SEO & social — pachet de publicare" done={!!seo}>
           <div className="flex items-center gap-2 flex-wrap mb-3">
             <button onClick={genCaptions} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:bg-red-700 disabled:opacity-50">
-              {busy === 'captions' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Scrie caption-urile
+              {busy === 'captions' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generează pachetul SEO + social
             </button>
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+              limbi:
+              {(['ro', 'en'] as const).map(l => (
+                <button key={l} onClick={() => setSeoLangs(prev => prev.includes(l) ? (prev.length > 1 ? prev.filter(x => x !== l) : prev) : [...prev, l])}
+                  className={'px-2 py-1 border text-[11px] ' + (seoLangs.includes(l) ? 'bg-brand-red/20 border-brand-red/60 text-white' : 'bg-[#111] border-white/[0.07] text-white/40')}>
+                  {l.toUpperCase()}
+                </button>
+              ))}
+            </span>
             <button onClick={makeThumbnail} disabled={!!busy || (!videoUrl && !bulletinUrl && !anchorImg && sel.size === 0)} className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold px-3 py-2 hover:border-brand-red/60 disabled:opacity-40">
               {busy === 'thumb' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />} Thumbnail PNG
             </button>
@@ -2801,28 +3362,116 @@ export default function NewsroomPage() {
               <Download className="w-3.5 h-3.5" /> Subtitrări SRT
             </button>
           </div>
-          {pack && (
-            <div className="space-y-2">
-              {([['Facebook', pack.facebook, packLinks.facebook], ['Instagram', pack.instagram, packLinks.instagram], ['TikTok', pack.tiktok, packLinks.tiktok], ['YouTube · titlu', pack.youtube_title, ''], ['YouTube · descriere', pack.youtube_description, packLinks.youtube]] as const).map(([label, text, link]) => text ? (
-                <div key={label} className="bg-[#111] border border-white/[0.07] p-3">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10.5px] font-bold uppercase tracking-widest text-brand-red">{label}</span>
-                    <button onClick={() => copy(String(text) + (link ? `\n${link}` : ''))} className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white"><Copy className="w-3 h-3" /> copiază</button>
-                  </div>
-                  <p className="text-[12.5px] text-white/85 whitespace-pre-wrap leading-relaxed">{text}{link ? <span className="block text-sky-300/80 mt-1">{link}</span> : null}</p>
+          {seo && (() => {
+            const pk = seo[seoTab] || seo[Object.keys(seo)[0]]
+            if (!pk) return null
+            const P = pk.platforms || {}
+            const Box = ({ label, body, extra }: { label: string; body?: string; extra?: React.ReactNode }) => body ? (
+              <div className="bg-[#111] border border-white/[0.07] p-3">
+                <div className="flex items-center justify-between mb-1.5 gap-2">
+                  <span className="text-[10.5px] font-bold uppercase tracking-widest text-brand-red">{label}</span>
+                  <span className="text-[10px] text-white/25">{body.length} car.</span>
+                  <button onClick={() => { copy(body); setCopied(label); setTimeout(() => setCopied(''), 1500) }}
+                    className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white ml-auto">
+                    <Copy className="w-3 h-3" /> {copied === label ? 'copiat ✓' : 'copiază'}
+                  </button>
                 </div>
-              ) : null)}
-              {pack.hashtags?.length ? (
-                <div className="bg-[#111] border border-white/[0.07] p-3">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10.5px] font-bold uppercase tracking-widest text-brand-red">Hashtags</span>
-                    <button onClick={() => copy((pack.hashtags || []).map(h => h.startsWith('#') ? h : '#' + h).join(' '))} className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white"><Copy className="w-3 h-3" /> copiază</button>
+                <p className="text-[12.5px] text-white/85 whitespace-pre-wrap leading-relaxed">{body}</p>
+                {extra}
+              </div>
+            ) : null
+            return (
+              <div className="space-y-2">
+                {/* language tabs */}
+                {Object.keys(seo).length > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    {Object.keys(seo).map(l => (
+                      <button key={l} onClick={() => setSeoTab(l as 'ro' | 'en')}
+                        className={'px-2.5 py-1 text-[11.5px] border ' + (seoTab === l ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>
+                        {l.toUpperCase()}
+                      </button>
+                    ))}
+                    {seoUsd > 0 && <span className="text-[10.5px] text-white/25 ml-2">cost pachet: ${seoUsd.toFixed(3)}</span>}
                   </div>
-                  <p className="text-[12.5px] text-sky-300/80">{(pack.hashtags || []).map(h => h.startsWith('#') ? h : '#' + h).join(' ')}</p>
+                )}
+
+                {/* the editorial decision, stated */}
+                <div className="bg-[#12100c] border border-amber-400/25 p-3">
+                  <p className="text-[10.5px] font-bold uppercase tracking-widest text-amber-300/80 mb-1">Cârligul ales</p>
+                  <p className="text-[12.5px] text-white/85">{pk.lead_story}</p>
+                  {pk.lead_rationale && <p className="text-[11.5px] text-white/45 mt-1">{pk.lead_rationale}</p>}
+                  {pk.publishing?.best_hours && <p className="text-[11px] text-sky-300/70 mt-2">{pk.publishing.best_hours}</p>}
+                  <p className="text-[10.5px] text-white/30 mt-1 break-all">linkul din postări → {pk.publishing?.target_url}</p>
                 </div>
-              ) : null}
-            </div>
-          )}
+
+                <Box label="Titlu Google Discover" body={pk.discover_headline} />
+                <Box label="Facebook" body={P.facebook?.text} extra={
+                  P.facebook?.first_comment ? (
+                    <div className="mt-2 pt-2 border-t border-white/[0.06]">
+                      <p className="text-[10px] uppercase tracking-widest text-white/35 mb-1">primul comentariu (linkul stă aici — Facebook penalizează postările care trimit afară)</p>
+                      <p className="text-[12px] text-sky-300/80 whitespace-pre-wrap break-all">{P.facebook.first_comment}</p>
+                    </div>
+                  ) : null
+                } />
+                <Box label="Instagram · caption" body={P.instagram?.caption} extra={
+                  <div className="mt-2 pt-2 border-t border-white/[0.06] space-y-1">
+                    {P.instagram?.first_comment_hashtags && <p className="text-[11.5px] text-sky-300/70"><b className="text-white/40">hashtag-uri în primul comentariu:</b> {P.instagram.first_comment_hashtags}</p>}
+                    {P.instagram?.cover_text && <p className="text-[11.5px] text-white/55"><b className="text-white/40">text pe copertă:</b> {P.instagram.cover_text}</p>}
+                    {P.instagram?.alt_text && <p className="text-[11px] text-white/40"><b>alt-text:</b> {P.instagram.alt_text}</p>}
+                  </div>
+                } />
+                <Box label="TikTok" body={P.tiktok?.caption} extra={
+                  P.tiktok?.on_screen_hook ? (
+                    <p className="text-[12px] text-amber-200/90 mt-2 pt-2 border-t border-white/[0.06]">
+                      <b className="text-white/40 text-[10px] uppercase tracking-widest block mb-1">text pe ecran, prima secundă</b>
+                      {P.tiktok.on_screen_hook}
+                    </p>
+                  ) : null
+                } />
+                <Box label="YouTube · titlu" body={P.youtube?.title} />
+                <Box label="YouTube · descriere" body={P.youtube?.description} extra={
+                  <div className="mt-2 pt-2 border-t border-white/[0.06] space-y-1">
+                    {!!P.youtube?.chapters?.length && (
+                      <p className="text-[11px] text-green-400/80">✓ {P.youtube.chapters.length} capitole cronometrate din buletin</p>
+                    )}
+                    {!!P.youtube?.tags?.length && (
+                      <p className="text-[11px] text-white/45"><b className="text-white/35">tags:</b> {P.youtube.tags.join(', ')}</p>
+                    )}
+                    {P.youtube?.pinned_comment && (
+                      <p className="text-[11px] text-white/45"><b className="text-white/35">comentariu fixat:</b> {P.youtube.pinned_comment}</p>
+                    )}
+                  </div>
+                } />
+                <Box label="X" body={P.x?.post} />
+                <Box label="LinkedIn" body={P.linkedin?.text} />
+                <Box label="Threads" body={P.threads?.post} />
+
+                {/* hashtag tiers — counts differ per platform on purpose */}
+                {pk.hashtag_tiers && (
+                  <div className="bg-[#111] border border-white/[0.07] p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10.5px] font-bold uppercase tracking-widest text-brand-red">Hashtag-uri pe niveluri</span>
+                      <button onClick={() => copy([...pk.hashtag_tiers.entity, ...pk.hashtag_tiers.geo, ...pk.hashtag_tiers.broad, ...pk.hashtag_tiers.brand].join(' '))}
+                        className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white"><Copy className="w-3 h-3" /> copiază tot</button>
+                    </div>
+                    {([['entitate', pk.hashtag_tiers.entity], ['geo', pk.hashtag_tiers.geo], ['general', pk.hashtag_tiers.broad], ['brand', pk.hashtag_tiers.brand]] as const)
+                      .map(([label, list]) => list?.length ? (
+                        <p key={label} className="text-[12px] text-sky-300/80 mb-0.5">
+                          <span className="text-white/30 text-[10.5px] uppercase tracking-widest mr-2">{label}</span>{list.join(' ')}
+                        </p>
+                      ) : null)}
+                  </div>
+                )}
+
+                {!!pk.keywords?.questions?.length && (
+                  <div className="bg-[#111] border border-white/[0.07] p-3">
+                    <p className="text-[10.5px] font-bold uppercase tracking-widest text-brand-red mb-1.5">Ce caută cititorii</p>
+                    <p className="text-[12px] text-white/60">{pk.keywords.questions.join(' · ')}</p>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Direct publishing */}
           <div className="mt-4 pt-4 border-t border-white/[0.07]">
@@ -2837,7 +3486,7 @@ export default function NewsroomPage() {
                 </button>
               ))}
             </div>
-            <p className="text-[10.5px] text-white/30 mt-2">Publică {bulletinPublicUrl ? 'buletinul TV compus' : 'clipul brut (compune buletinul pentru versiunea brand-uită)'}. Caption-urile generate mai sus se atașează automat.</p>
+            <p className="text-[10.5px] text-white/30 mt-2">Publică {bulletinPublicUrl ? 'buletinul TV compus' : 'clipul brut (compune buletinul pentru versiunea brand-uită)'}. Se atașează automat textele din limba <b>{seoTab.toUpperCase()}</b> generate mai sus.</p>
             {(['facebook', 'instagram', 'youtube'] as const).map(k => pubMsg[k] ? (
               <p key={k} className={'text-[11.5px] mt-1.5 break-words ' + (pubMsg[k].startsWith('✓') ? 'text-green-400' : pubMsg[k].startsWith('✗') ? 'text-red-400' : 'text-white/50')}>{pubMsg[k]}</p>
             ) : null)}
@@ -2855,12 +3504,28 @@ export default function NewsroomPage() {
               {past.map(b => (
                 <div key={b.id} className="px-5 py-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[12px] text-white/80">{new Date(b.created_at).toLocaleDateString('ro-RO', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                    <p className="text-[12px] text-white/80 flex items-center gap-2">
+                      {new Date(b.created_at).toLocaleDateString('ro-RO', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {b.status === 'published'
+                        ? <span className="text-[9.5px] uppercase tracking-widest text-green-400 border border-green-500/40 px-1.5 py-0.5">publicat</span>
+                        : <span className="text-[9.5px] uppercase tracking-widest text-white/25 border border-white/10 px-1.5 py-0.5">nepublicat</span>}
+                    </p>
                     <p className="text-[11px] text-white/35 truncate">{(b.story_titles || []).slice(0, 3).join(' · ')}</p>
                   </div>
-                  {(b.bulletin_video_url || b.anchor_video_url) && (
-                    <a href={b.bulletin_video_url || b.anchor_video_url || '#'} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-brand-red hover:underline shrink-0">Deschide →</a>
-                  )}
+                  <div className="flex items-center gap-3 shrink-0">
+                    {b.status === 'published' && b.slug && (
+                      <a href={`https://transilvaniatimes.com/buletin/${b.slug}/`} target="_blank" rel="noreferrer"
+                        className="text-[11px] text-sky-300/80 hover:underline">pagina ↗</a>
+                    )}
+                    {(b.bulletin_video_url || b.anchor_video_url) && (
+                      <a href={b.bulletin_video_url || b.anchor_video_url || '#'} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-brand-red hover:underline">Video →</a>
+                    )}
+                    {/* The archive used to be append-only: no DELETE policy and
+                        no control, which is why one 29 Aug bulletin is stored
+                        seven times with seven videos behind it. */}
+                    <button onClick={() => deleteBulletin(b)} title="Șterge buletinul și fișierul video"
+                      className="text-[11px] text-white/25 hover:text-red-400">✕</button>
+                  </div>
                 </div>
               ))}
             </div>

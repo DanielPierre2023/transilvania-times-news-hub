@@ -90,6 +90,68 @@ export async function GET() {
     return new NextResponse('Internal Server Error', { status: 500 })
   }
 
+  // ── VIDEO BULLETINS (added 30 Aug 2026) ────────────────────────────────
+  // Each published bulletin is a news item in its own right, with its own page
+  // and its own VideoObject markup. Leaving them out of the News sitemap meant
+  // Google discovered them late or not at all, which for a 48-hour news window
+  // is the same as not at all.
+  //
+  // A failure here must not take the whole sitemap down — articles are the
+  // priority, bulletins are additive.
+  let bulletinUrls = ''
+  try {
+    // The generated Database type predates newsroom_bulletins, so a typed
+    // client rejects this table at compile time. An untyped client for this
+    // one query is honest; adding invented entries to lib/database.types.ts
+    // would be a lie the next `supabase gen types` silently erases.
+    const untyped = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { data: bulletins } = await untyped
+      .from('newsroom_bulletins')
+      .select('slug, published_at, poster_url, story_titles, edition')
+      .eq('status', 'published')
+      .not('slug', 'is', null)
+      .gte('published_at', newsWindowCutoff)
+      .order('published_at', { ascending: false })
+      .limit(20)
+
+    bulletinUrls = ((bulletins ?? []) as unknown as Array<{
+      slug: string; published_at: string | null; poster_url: string | null
+      story_titles: string[] | null; edition: string | null
+    }>).map(b => {
+      const d = new Date(b.published_at || Date.now())
+      const dateLabel = d.toLocaleDateString('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' })
+      const editionLabel =
+        b.edition === 'morning' ? 'Matinal' :
+        b.edition === 'evening' ? 'Jurnalul de Seară' : 'Buletinul zilei'
+      const title = esc(`${editionLabel} — ${dateLabel}`)
+      const keywords = esc((b.story_titles || []).slice(0, 3).join(', '))
+      const img = b.poster_url
+        ? `    <image:image>
+      <image:loc>${esc(b.poster_url)}</image:loc>
+      <image:title>${title}</image:title>
+    </image:image>`
+        : ''
+      return `  <url>
+    <loc>${SITE_URL}/buletin/${b.slug}/</loc>
+    <news:news>
+      <news:publication>
+        <news:name>${esc(PUBLICATION_NAME)}</news:name>
+        <news:language>${PUBLICATION_LANG}</news:language>
+      </news:publication>
+      <news:publication_date>${toIso(b.published_at)}</news:publication_date>
+      <news:title>${title}</news:title>
+      ${keywords ? `<news:keywords>${keywords}</news:keywords>` : ''}
+    </news:news>
+${img}
+  </url>`
+    }).join('\n')
+  } catch (e) {
+    console.error('[sitemap-news.xml] bulletins skipped:', (e as Error).message)
+  }
+
   const urls = (posts ?? []).map(post => {
     // FIX: trailing slash to match canonical URL and avoid 308 redirects
     const loc      = `${SITE_URL}/blog/${post.slug}/`
@@ -123,6 +185,7 @@ ${imageTag}
         xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 ${urls}
+${bulletinUrls}
 </urlset>`
 
   return new NextResponse(xml, {
