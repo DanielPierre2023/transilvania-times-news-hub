@@ -426,6 +426,8 @@ export default function StudioPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<{ raf: number; stop: () => void } | null>(null)
   const playingRef = useRef(false)
+  const pendingMedia = useRef<Set<string>>(new Set())
+  const [mediaTick, bumpMedia] = useState(0)
   /** Where the preview is parked when it is not playing. Also where a cut lands. */
   const [head, setHead] = useState(0)
   const mediaCache = useRef<Map<string, HTMLImageElement | HTMLVideoElement>>(new Map())
@@ -1497,7 +1499,26 @@ export default function StudioPage() {
     const src = op.source
     if (src.kind !== 'image' && src.kind !== 'video') return null
     const m = mediaCache.current.get(src.url)
-    if (!m) return null
+    if (!m) {
+      // THE PLAYHEAD HAS TO SHOW A PICTURE, NOT A BLACK RECTANGLE.
+      //
+      // Media used to be fetched only by preloadAll(), which runs when you press
+      // Preview — fine when the canvas was blank until then, and useless the
+      // moment there is a scrubber: parking on shot three drew the captions over
+      // nothing. Measured before this: six scrub positions, five of them with
+      // ten non-black pixels out of four thousand.
+      //
+      // So a frame that asks for a source it does not have starts fetching it,
+      // once, and redraws when it lands.
+      if (!pendingMedia.current.has(src.url)) {
+        pendingMedia.current.add(src.url)
+        const load = src.kind === 'image' ? loadImage(src.url) : loadVideo(src.url)
+        load.then(() => bumpMedia(n => n + 1))
+          .catch(() => { /* a dead url is the library's problem, not the painter's */ })
+          .finally(() => pendingMedia.current.delete(src.url))
+      }
+      return null
+    }
     if (m instanceof HTMLVideoElement) {
       const fps = fpsOut === 25 ? 25 : 30
       const want = op.localFrame / fps
@@ -1583,7 +1604,7 @@ export default function StudioPage() {
     const ctx = c.getContext('2d')
     if (ctx) drawFrame(ctx, head)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [head, filmTl, showSafe, kit, subsOn, subPos, subScale])
+  }, [head, filmTl, showSafe, kit, subsOn, subPos, subScale, mediaTick])
 
   async function preloadAll() {
     for (const sc of scenes) {

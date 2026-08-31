@@ -1330,6 +1330,45 @@ export default function NewsroomPage() {
     let prevIdx = 0      // no story may anchor before this word index
     let prevStart = 0    // …nor before this timestamp
 
+    // ── GREETING FLOOR ────────────────────────────────────────────────────
+    // FIXED 31 Aug 2026, from a real bulletin: the first headline and photo
+    // came up while Ioana was still saying "Bună seara".
+    //
+    // Story 1 was clamped only at 0, so its start was whatever the proportional
+    // estimate said — and that estimate is words/total × duration, which assumes
+    // a constant speaking rate and knows nothing about the inter-story pause.
+    // An opening is read more slowly than the body and is followed by a real
+    // silence, so the estimate lands EARLY every time.
+    //
+    // Anchor the greeting's END on the actual word timeline instead, and make
+    // that the floor. If the greeting cannot be located, fall back to the old
+    // estimate plus the pause — never worse than before, usually right.
+    let greetingFloor = 0
+    if (sections.greeting) {
+      greetingFloor = (wc[0] / total) * dur + pauseMs / 1000
+      const gw = norm(sections.greeting).split(' ').filter(Boolean)
+      if (timeline.length && gw.length >= 3) {
+        const tail = gw.slice(-3)
+        // Search only the opening region — the greeting cannot be in the middle.
+        const hi = Math.min(
+          timeline.length - tail.length,
+          Math.round((wc[0] / total) * timeline.length) + Math.max(20, Math.round(timeline.length * 0.12)),
+        )
+        for (let j = 0; j <= hi; j++) {
+          let ok = true
+          for (let k = 0; k < tail.length; k++) if (timeline[j + k]?.w !== tail[k]) { ok = false; break }
+          if (ok) {
+            // End of the last greeting word, plus the silence that follows it.
+            greetingFloor = timeline[j + tail.length - 1].t + Math.max(0.25, pauseMs / 1000)
+            prevIdx = j + tail.length
+            break
+          }
+        }
+      }
+      // Never let a bad match push the first story past a fifth of the bulletin.
+      greetingFloor = Math.min(greetingFloor, dur * 0.2)
+    }
+
     sections.stories.forEach((st, i) => {
       const est = (acc / total) * dur                       // proportional estimate
       let start = est
@@ -1354,7 +1393,7 @@ export default function NewsroomPage() {
       }
 
       // Monotonic + in-bounds: a story can never start before the previous one.
-      start = Math.min(Math.max(start, i === 0 ? 0 : prevStart + 0.8), Math.max(0, dur - 0.5))
+      start = Math.min(Math.max(start, i === 0 ? greetingFloor : prevStart + 0.8), Math.max(0, dur - 0.5))
       prevStart = start
       const src = postIdx[i] >= 0 ? selectedPosts[postIdx[i]] : undefined
       out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: src?.category, cover: src?.cover_image })

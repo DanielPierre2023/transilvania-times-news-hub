@@ -53,6 +53,15 @@ const painter = (src.match(/function drawFrame\(ctx: CanvasRenderingContext2D[\s
   ok('...they are paused and rewound at the start instead', /v\.pause\(\); v\.currentTime = 0/.test(src))
   ok('scrubbing seeks rather than plays', /if \(!m\.paused\) m\.pause\(\)/.test(src))
   ok('playback resyncs only when it has slipped', /> 0\.25\) m\.currentTime = want/.test(src))
+  // A scrubber that draws black is worse than no scrubber. Measured on the live
+  // site before this landed: six scrub positions, five of them with ten
+  // non-black pixels out of four thousand, because media was fetched only by
+  // preloadAll() when Preview was pressed.
+  ok('a frame that wants a source it has not got fetches it', /pendingMedia\.current\.add\(src\.url\)/.test(src))
+  ok('...exactly once per url', /if \(!pendingMedia\.current\.has\(src\.url\)\)/.test(src))
+  ok('...and redraws when it lands', /bumpMedia\(n => n \+ 1\)/.test(src))
+  ok('...and a dead url does not wedge the painter', /\.catch\(\(\) =>/.test(src) && /finally/.test(src))
+  ok('the parked frame redraws on new media', /subScale, mediaTick\]/.test(src))
 }
 
 // ── the compiled frame really does carry everything ──────────────────────

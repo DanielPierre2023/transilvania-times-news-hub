@@ -158,378 +158,6 @@ function expandRoLegalRefs(text: string): string {
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// ROMANIAN SPEECH NORMALISATION  ("Ioana speaks proper Romanian")
-// Added 30 Aug 2026.
-//
-// WHY IT LIVES HERE AND NOWHERE ELSE
-// This function is the last place the bulletin exists as WORDS before it
-// becomes audio, and every one of the seven TTS engines below is fed from
-// this same string. Put the rules here and the anchor is correct whichever
-// engine answers; put them in a script-generating function and they only
-// apply when that one function wrote the text — a hand-edited script, or a
-// script from any other path, would still reach the voice raw.
-//
-// COST: zero. Pure TypeScript, no model call, no network.
-//
-// ORDER (unchanged in spirit from the 28-29 Aug design):
-//   1. roCleanup()        — characters only, BEFORE the lexicon, so a lexicon
-//                           row written with proper diacritics matches text
-//                           that arrived with cedillas.
-//   2. public.apply_lexicon()  — YOUR table. Always wins.
-//   3. expandRoLegalRefs()     — law citations.
-//   4. roSpeech()         — everything below.
-// The lexicon runs BEFORE any digits are turned into words, deliberately: a
-// row keyed on "Legea 55/2020" could never match text where the digits had
-// already been spelled out. A mispronunciation heard on air stays one INSERT.
-//
-// SCOPE, deliberately conservative: acronyms and foreign names are expanded
-// ONLY from the explicit tables below. Unknown ALL-CAPS words are left alone
-// rather than guessed at, because mangling an emphasised Romanian word on air
-// is worse than a slightly flat acronym — and the lexicon table covers the
-// long tail without a deploy.
-// ══════════════════════════════════════════════════════════════════════════
-
-/** Characters only. Safe to run before the lexicon. */
-function roCleanup(input: string): string {
-  return input
-    .replace(/ /g, ' ')                                   // NBSP
-    .replace(/[‘’]/g, "'")                            // smart single quotes
-    .replace(/[“”„‟]/g, '"')                // smart double quotes
-    .replace(/[–—−]/g, '-')                      // en/em dash, minus
-    .replace(/…/g, '...')                                  // ellipsis char
-    // Cedilla forms (legacy Windows-1250 Romanian). The TTS voices are trained
-    // on the comma-below letters; the cedilla look-alikes are different code
-    // points and get read as a plain s / t.
-    .replace(/ş/g, 'ș').replace(/ţ/g, 'ț')
-    .replace(/Ş/g, 'Ș').replace(/Ţ/g, 'Ț')
-    .replace(/[*_`#>]/g, '')                                    // markdown residue
-    .replace(/\[[^\]]{0,80}\]/g, ' ')                           // [stage directions]
-    .replace(/[ \t]{2,}/g, ' ');
-}
-
-// ── numerals ──────────────────────────────────────────────────────────────
-// roUnder100 / roUnder1000 / roNumber already exist above (added for the legal
-// citations) and handle 0-999999 with gender. These extend the range and add
-// the two things Romanian actually needs: agreement, and the linking "de".
-
-/**
- * Cardinal up to 999 999 999 999, gendered.
- *
- * NOTE: this does NOT call roNumber() above, deliberately. That helper joins
- * thousands as `${roUnder1000(th, true)} mii`, which drops the linking "de":
- * 250 000 comes out "două sute cincizeci mii" instead of "două sute cincizeci
- * DE mii". It never shows on the legal-citation path (law numbers and 4-digit
- * years both land under 20 thousand), so roNumber is left exactly as it is and
- * this path does its own joining.
- */
-function roCardinal(n: number, f = false): string {
-  n = Math.trunc(Math.abs(n));
-  if (n < 1000) return roUnder1000(n, f);
-  if (n < 1_000_000) {
-    const th = Math.floor(n / 1000), rest = n % 1000;
-    const head = th === 1 ? 'o mie'
-      : `${roUnder1000(th, true)}${roNeedsDe(th) ? ' de' : ''} mii`;
-    return rest === 0 ? head : `${head} ${roUnder1000(rest, f)}`;
-  }
-  const scales: Array<[number, string, string]> = [
-    [1_000_000_000, 'un miliard', 'miliarde'],
-    [1_000_000, 'un milion', 'milioane'],
-  ];
-  for (const [size, one, many] of scales) {
-    if (n >= size) {
-      const head = Math.floor(n / size), rest = n % size;
-      // "milion"/"miliard" are nouns: feminine count, and always "de".
-      const headWords = head === 1 ? one : `${roCardinal(head, true)} de ${many}`;
-      return rest === 0 ? headWords : `${headWords} ${roCardinal(rest, f)}`;
-    }
-  }
-  return roUnder1000(n, f);
-}
-
-/**
- * Does this number need the linking "de" before its noun?
- * Romanian: 1-19 attach directly ("nouăsprezece lei"); from 20 the noun is
- * introduced by "de" ("douăzeci DE lei"). For compounds it is the last two
- * digits that decide: 115 -> "o sută cincisprezece lei", but 120 -> "o sută
- * douăzeci DE lei", and a round hundred or thousand always takes it.
- */
-function roNeedsDe(n: number): boolean {
-  n = Math.trunc(Math.abs(n));
-  if (n < 20) return false;
-  const last2 = n % 100;
-  return last2 === 0 || last2 >= 20;
-}
-
-/**
- * Gender of the counted noun. Romanian neuter nouns behave as masculine in the
- * singular and FEMININE in the plural, which is why "două procente" and "două
- * kilograme" are correct and "doi procente" is not. Everything counted here is
- * plural, so neuter is listed as feminine.
- */
-const RO_MASC_NOUNS = new Set([
-  'leu','lei','euro','dolar','dolari','metru','metri','kilometru','kilometri',
-  'litru','litri','an','ani','kilowați','megawați','locuitor','locuitori',
-  'oameni','elev','elevi','copil','copii','bărbat','bărbați','pacient','pacienți',
-  'angajat','angajați','membru','membri','pompier','pompieri','polițist','polițiști',
-  'militar','militari','șofer','șoferi','turist','turiști','morți','răniți',
-]);
-const RO_FEM_NOUNS = new Set([
-  // true feminines
-  'oră','ore','zi','zile','lună','luni','săptămână','săptămâni','secundă','secunde',
-  'persoană','persoane','mașină','mașini','casă','case','școală','școli','firmă','firme',
-  'familie','familii','femeie','femei','tonă','tone','mie','mii','sută','sute',
-  'victimă','victime','ambulanță','ambulanțe','autospecială','autospeciale',
-]);
-// Romanian NEUTER: masculine in the singular ("un miliard"), feminine in the
-// plural ("două miliarde"). Kept apart from the true feminines for that reason.
-const RO_NEUTER_NOUNS = new Set([
-  'procent','procente','grad','grade','minut','minute','kilogram','kilograme',
-  'apartament','apartamente','loc','locuri','punct','puncte','proiect','proiecte',
-  'milion','milioane','miliard','miliarde','hectar','hectare','exemplar','exemplare',
-  'vehicul','vehicule','autoturism','autoturisme','spital','spitale','sat','sate',
-  'oraș','orașe','dosar','dosare','contract','contracte','locuri de muncă',
-]);
-/** Strip diacritics so a noun typed without them still resolves. */
-function roFold(w: string): string {
-  return w.toLowerCase().replace(/[.,;:!?]+$/, '')
-    .replace(/[ăâ]/g, 'a').replace(/î/g, 'i').replace(/ș/g, 's').replace(/ț/g, 't');
-}
-const FOLD_M = new Set([...RO_MASC_NOUNS].map(roFold));
-const FOLD_F = new Set([...RO_FEM_NOUNS].map(roFold));
-const FOLD_N = new Set([...RO_NEUTER_NOUNS].map(roFold));
-
-/** 'm' | 'f' | 'n'. Neuter is resolved by number at the call site. */
-function roGenderOf(noun: string): 'm' | 'f' | 'n' {
-  const w = roFold(noun);
-  if (FOLD_M.has(w)) return 'm';
-  if (FOLD_F.has(w)) return 'f';
-  if (FOLD_N.has(w)) return 'n';
-  // Unknown noun: masculine, because that is what an unmodified TTS already
-  // produces — an unrecognised word is never made worse than it is today.
-  return 'm';
-}
-
-function roCount(n: number, noun: string, deAlreadyThere = false): string {
-  const g = roGenderOf(noun);              // gender comes from the NOUN alone
-  // Singular: "1" is an article, not the numeral "unu". Neuter takes "un".
-  if (n === 1) return `${g === 'f' ? 'o' : 'un'} ${noun}`;
-  // Plural: neuter agrees with the feminine ("două miliarde", "două grade").
-  const words = roCardinal(n, g !== 'm');
-  if (deAlreadyThere || roNeedsDe(n)) return `${words} de ${noun}`;
-  return `${words} ${noun}`;
-}
-
-const RO_MONTHS = ['ianuarie','februarie','martie','aprilie','mai','iunie',
-  'iulie','august','septembrie','octombrie','noiembrie','decembrie'];
-
-/** Ordinals, masculine — used only for centuries and monarch regnal numbers. */
-const RO_ORD_M = ['','întâi','al doilea','al treilea','al patrulea','al cincilea',
-  'al șaselea','al șaptelea','al optulea','al nouălea','al zecelea','al unsprezecelea',
-  'al doisprezecelea','al treisprezecelea','al paisprezecelea','al cincisprezecelea',
-  'al șaisprezecelea','al șaptesprezecelea','al optsprezecelea','al nouăsprezecelea',
-  'al douăzecilea','al douăzeci și unulea'];
-function roOrdinalM(n: number): string { return RO_ORD_M[n] || roCardinal(n); }
-/** Feminine ordinals — "clasa a VIII-a" is "clasa a opta", not "a optulea". */
-const RO_ORD_F = ['','întâia','a doua','a treia','a patra','a cincea','a șasea',
-  'a șaptea','a opta','a noua','a zecea','a unsprezecea','a douăsprezecea',
-  'a treisprezecea','a paisprezecea','a cincisprezecea','a șaisprezecea',
-  'a șaptesprezecea','a optsprezecea','a nouăsprezecea','a douăzecea'];
-function roOrdinalF(n: number): string { return RO_ORD_F[n] || roCardinal(n, true); }
-
-const ROMAN: Record<string, number> = { I:1,V:5,X:10,L:50,C:100,D:500,M:1000 };
-function romanToArabic(s: string): number {
-  const t = s.toUpperCase(); let total = 0;
-  for (let i = 0; i < t.length; i++) {
-    const v = ROMAN[t[i]]; if (!v) return 0;
-    const nx = ROMAN[t[i + 1]] || 0;
-    total += v < nx ? -v : v;
-  }
-  return total;
-}
-
-// ── acronyms: explicit only ───────────────────────────────────────────────
-// "word" = pronounce as written (the TTS already says it correctly).
-// Anything else is the exact spoken form, in ordinary Romanian spelling.
-// NOT in this table? It is left untouched and belongs in
-// public.pronunciation_lexicon — one INSERT, no deploy.
-const RO_ACRONYMS: Record<string, string> = {
-  ANAF: 'Anaf', ISU: 'Isu', DSU: 'de-se-u', DSP: 'de-se-pe', DNA: 'de-ne-a',
-  SRI: 'se-re-i', SIE: 'se-i-e', CFR: 'ce-fe-re', TVA: 'te-ve-a', PIB: 'pib',
-  BNR: 'be-ne-re', INS: 'i-ne-se', ANM: 'a-ne-me', ISJ: 'i-se-je',
-  ITM: 'i-te-me', IPJ: 'i-pe-je', UMF: 'u-me-fe', UBB: 'u-be-be',
-  CNAIR: 'Cnair', SMURD: 'Smurd', UE: 'Uniunea Europeană', SUA: 'Sua',
-  NATO: 'Nato', ONU: 'O-ne-u', OMS: 'o-me-se', PSD: 'pe-se-de', PNL: 'pe-ne-le',
-  USR: 'u-se-re', AUR: 'Aur', UDMR: 'u-de-me-re', ADI: 'a-de-i',
-  RATUC: 'Ratuc', CTP: 'ce-te-pe', OUG: 'o-u-ge', HG: 'ha-ge', CJ: 'ce-je',
-  PSI: 'pe-se-i', GDPR: 'ge-de-pe-re', AI: 'a-i', PET: 'pet',
-};
-
-// ── foreign names the Romanian TTS reliably gets wrong ────────────────────
-// Respelled in ordinary Romanian orthography, never IPA. Same rule as above:
-// the long tail belongs in the lexicon table, not in a deploy.
-const RO_FOREIGN: Record<string, string> = {
-  Google: 'Gugăl', YouTube: 'Iutiub', Facebook: 'Feisbuc', TikTok: 'Ticstoc',
-  WhatsApp: 'Uatsap', Microsoft: 'Maicrosoft', Instagram: 'Instagram',
-  Schengen: 'Șenghen', Bruxelles: 'Brusel', Boeing: 'Boing', Airbus: 'Erbas',
-  Chelsea: 'Celsi', Juventus: 'Iuventus', Bayern: 'Baiern', Liverpool: 'Liverpul',
-  Manchester: 'Mancester', Wembley: 'Uembli', Netflix: 'Netflics',
-  Amazon: 'Amazon', Tesla: 'Tesla', OpenAI: 'Oupăn-ei-ai', PayPal: 'Peipal',
-  Bitcoin: 'Bitcoin', Brexit: 'Brecsit', Eurostat: 'Eurostat',
-};
-
-// ── units ─────────────────────────────────────────────────────────────────
-// Written form -> spoken noun. The noun decides the numeral's gender via
-// roGenderOf(), so "2 ore" becomes "două ore" and "2 lei" stays "doi lei".
-const RO_UNITS: Array<[RegExp, string]> = [
-  [/km\/h|km\/oră/gi, 'kilometri pe oră'],
-  [/m\/s/gi, 'metri pe secundă'],
-  [/kWh/gi, 'kilowați-oră'],
-  [/MWh/gi, 'megawați-oră'],
-  [/\bMW\b/g, 'megawați'],
-  [/\bkW\b/g, 'kilowați'],
-  [/\bkm²|km2\b/gi, 'kilometri pătrați'],
-  [/\bm²|mp\b/gi, 'metri pătrați'],
-  [/\bkm\b/gi, 'kilometri'],
-  [/\bcm\b/gi, 'centimetri'],
-  [/\bmm\b/gi, 'milimetri'],
-  [/\bkg\b/gi, 'kilograme'],
-  [/\bha\b/g, 'hectare'],
-  [/\bml\b/gi, 'mililitri'],
-  [/\bRON\b/g, 'lei'],
-  [/\bEUR\b/g, 'euro'],
-  [/\bUSD\b/g, 'dolari'],
-];
-
-/**
- * The deterministic pass. Runs AFTER the lexicon and after the legal-citation
- * expander, so anything an editor fixed by hand is already gone from the text
- * and cannot be re-mangled here.
- */
-function roSpeech(input: string): string {
-  let t = input;
-
-  // 1 · DATES. First, because 12.03.2026 and 12.500 are the same shape to a
-  //     naive thousands separator rule.
-  t = t.replace(/\b(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{4})\b/g, (m, d, mo, y) => {
-    const dd = +d, mm = +mo, yy = +y;
-    if (dd < 1 || dd > 31 || mm < 1 || mm > 12) return m;
-    // Days are counted with the feminine (elided "ziua"): "două martie".
-    return `${dd === 1 ? 'întâi' : roCardinal(dd, true)} ${RO_MONTHS[mm - 1]} ${roCardinal(yy, true)}`;
-  });
-  // "1 ianuarie", "23 august 2026" — the day, and the year if present.
-  t = t.replace(
-    new RegExp(`\\b(\\d{1,2})\\s+(${RO_MONTHS.join('|')})(\\s+(\\d{4}))?\\b`, 'gi'),
-    (m, d, mon, _all, y) => {
-      const dd = +d; if (dd < 1 || dd > 31) return m;
-      const day = dd === 1 ? 'întâi' : roCardinal(dd, true);
-      return y ? `${day} ${mon} ${roCardinal(+y, true)}` : `${day} ${mon}`;
-    });
-
-  // 2 · CLOCK. Hours agree with the elided feminine "ora"; :00 drops minutes.
-  t = t.replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g, (_m, h, mi) => {
-    const hh = +h, mm = +mi;
-    const hw = roCardinal(hh, true);
-    return mm === 0 ? hw : `${hw} și ${roCardinal(mm, true)}`;
-  });
-  t = t.replace(/\bora\s+(\d{1,2})\b/gi, (_m, h) => `ora ${roCardinal(+h, true)}`);
-
-  // 3 · PHONE NUMBERS, read digit by digit as a person would.
-  t = t.replace(/\b0\d{3}[ .\-]?\d{3}[ .\-]?\d{3}\b/g, (m) =>
-    m.replace(/\D/g, '').split('').map((c) => RO_U_M[+c]).join(' '));
-
-  // 4 · ROMAN NUMERALS, in explicit contexts only. A bare "I", "C" or "M" in
-  //     Romanian copy is far more often a letter than a numeral.
-  t = t.replace(/\b(secolul|secolele|sec\.)\s+([IVXLCDM]+)\b/gi, (m, w, r) => {
-    const n = romanToArabic(r); if (!n) return m;
-    const head = w[0] === w[0].toUpperCase() ? 'Secolul' : 'secolul';
-    return `${head} ${roOrdinalM(n)}`;
-  });
-  // "clasa a VIII-a", "etapa a II-a" — feminine ordinal.
-  t = t.replace(/\b(clasa|etapa|runda|grupa|ediția)\s+a\s+([IVXLCDM]+)\s*-\s*a\b/gi, (m, w, r) => {
-    const n = romanToArabic(r); return n ? `${w} ${roOrdinalF(n)}` : m;
-  });
-  t = t.replace(/\b(clasa|etapa|runda|grupa|ediția)\s+([IVXLCDM]+)\b/gi, (m, w, r) => {
-    const n = romanToArabic(r); return n ? `${w} ${roCardinal(n, true)}` : m;
-  });
-  t = t.replace(/\bal\s+([IVXLCDM]+)-lea\b/gi, (m, r) => {
-    const n = romanToArabic(r); return n ? roOrdinalM(n) : m;
-  });
-
-  // 5 · ABBREVIATIONS that are read as full words.
-  t = t
-    .replace(/\bnr\.\s*/gi, 'numărul ')
-    .replace(/\bart\.\s*/gi, 'articolul ')
-    .replace(/\balin\.\s*/gi, 'alineatul ')
-    .replace(/\blit\.\s*/gi, 'litera ')
-    .replace(/\bjud\.\s*/gi, 'județul ')
-    .replace(/\bstr\.\s*/gi, 'strada ')
-    .replace(/\bbd\.\s*/gi, 'bulevardul ')
-    .replace(/\bap\.\s*/gi, 'apartamentul ')
-    .replace(/\bmld\.\s*/gi, 'miliarde ')
-    .replace(/\bmil\.\s*/gi, 'milioane ')
-    .replace(/\betc\./gi, 'etcetera')
-    .replace(/\bdr\.\s*/g, 'doctor ')
-    .replace(/\bprof\.\s*/gi, 'profesor ')
-    .replace(/\bing\.\s*/gi, 'inginer ')
-    .replace(/\bp\.m\./gi, 'după-amiaza')
-    .replace(/\ba\.m\./gi, 'dimineața');
-
-  // 6 · ACRONYMS and FOREIGN NAMES — explicit tables only (see the note above).
-  for (const [k, v] of Object.entries(RO_ACRONYMS)) {
-    t = t.replace(new RegExp(`\\b${k}\\b`, 'g'), v);
-  }
-  for (const [k, v] of Object.entries(RO_FOREIGN)) {
-    t = t.replace(new RegExp(`\\b${k}\\b`, 'gi'), v);
-  }
-
-  // 7 · UNITS: written symbol -> spoken noun, before the numbers are expanded,
-  //     so the noun is available to decide the numeral's gender.
-  for (const [re, word] of RO_UNITS) t = t.replace(re, word);
-
-  // 8 · PERCENT, DEGREES, CURRENCY SYMBOLS.
-  t = t.replace(/(\d)\s*%/g, '$1 procente')
-       .replace(/(\d)\s*°\s*C/gi, '$1 grade Celsius')
-       .replace(/(\d)\s*°/g, '$1 grade')
-       .replace(/€\s*(\d)/g, '$1 euro').replace(/(\d)\s*€/g, '$1 euro')
-       .replace(/\$\s*(\d)/g, '$1 dolari').replace(/(\d)\s*\$/g, '$1 dolari');
-
-  // 9 · THOUSANDS SEPARATORS. Romanian writes 12.500 and 12 500; both are one
-  //     number, not two. Runs after dates so 12.03.2026 is already gone.
-  t = t.replace(/\b(\d{1,3})(?:[.   ](\d{3}))+(?![\d.,])/g, (m) =>
-    m.replace(/[.   ]/g, ''));
-
-  // 10 · DECIMALS with the Romanian comma: 3,5 -> "trei virgulă cinci".
-  t = t.replace(/\b(\d+),(\d+)\b/g, (_m, a, b) =>
-    `${roCardinal(+a)} virgulă ${b.length > 1 && b[0] === '0'
-      ? b.split('').map((c: string) => RO_U_M[+c]).join(' ')
-      : roCardinal(+b)}`);
-
-  // 11 · RANGES: "10-15 grade" is a range, not a subtraction.
-  t = t.replace(/\b(\d+)\s*-\s*(\d+)\b/g, (_m, a, b) => `${roCardinal(+a)} - ${roCardinal(+b)}`);
-
-  // 12 · NUMBER + NOUN, with agreement and the linking "de".
-  t = t.replace(/\b(\d{1,12})\s+(de\s+)?([a-zăâîșț]+)/gi, (m, num, de, noun) => {
-    const n = +num;
-    if (!Number.isFinite(n)) return m;
-    return roCount(n, noun, Boolean(de));
-  });
-
-  // 13 · Any remaining bare integer.
-  t = t.replace(/\b\d{1,12}\b/g, (m) => roCardinal(+m));
-
-  // 14 · Symbols that would otherwise be read as punctuation, or silently.
-  t = t.replace(/\s*&\s*/g, ' și ')
-       .replace(/\s*\+\s*/g, ' plus ')
-       .replace(/\s*=\s*/g, ' egal ')
-       .replace(/\s*×\s*/g, ' ori ')
-       .replace(/§/g, 'paragraful ')
-       .replace(/№/g, 'numărul ');
-
-  return t.replace(/[ \t]{2,}/g, ' ').replace(/ +([,.;:!?])/g, '$1');
-}
-
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
   const denied = await requireAdmin(req);
@@ -549,10 +177,6 @@ serve(async (req) => {
       .trim();
     if (!text) return json({ error: 'text is required' }, 400);
 
-    // Character-level cleanup runs BEFORE the lexicon so that a row written
-    // with proper diacritics still matches text that arrived with cedillas.
-    text = roCleanup(text);
-
     // ═══ PRONUNCIATION LEXICON ═══════════════════════════════════════════
     // ADDED 28 Aug 2026. This is the LAST place the bulletin exists as words
     // before it becomes audio, so it is the only correct place to apply
@@ -567,7 +191,6 @@ serve(async (req) => {
     // call errors, the ORIGINAL text is spoken. A pronunciation nicety must
     // never be able to take the whole voiceover down.
     const lexLang = String(body.language || 'ro') === 'en' ? 'en' : 'ro';
-    let lexiconApplied = false;
     if (body.apply_lexicon !== false) {
       try {
         const lexUrl = Deno.env.get('SUPABASE_URL');
@@ -576,7 +199,7 @@ serve(async (req) => {
           const lexDb = createClient(lexUrl, lexKey, { auth: { persistSession: false, autoRefreshToken: false } });
           const { data: lexed, error: lexErr } = await lexDb.rpc('apply_lexicon', { p_text: text, p_lang: lexLang });
           if (!lexErr && typeof lexed === 'string' && lexed.trim()) {
-            if (lexed !== text) { lexiconApplied = true; console.log(`[lexicon] ${text.length} -> ${lexed.length} chars, rules applied`); }
+            if (lexed !== text) console.log(`[lexicon] ${text.length} -> ${lexed.length} chars, rules applied`);
             text = lexed;
           } else if (lexErr) {
             console.warn('[lexicon] skipped:', lexErr.message);
@@ -596,18 +219,7 @@ serve(async (req) => {
       if (text !== before) console.log('[legal] expanded a law citation');
     }
 
-    // Romanian speech normalisation. LAST of the text passes, so anything an
-    // editor fixed by hand through the lexicon is already gone and cannot be
-    // re-mangled here. Pure TypeScript: no model call, no network, no cost.
-    let speechChanged = false;
-    if (lexLang === 'ro') {
-      const beforeSpeech = text;
-      text = roSpeech(text);
-      speechChanged = text !== beforeSpeech;
-      if (speechChanged) console.log('[ro-speech] normalised numbers/abbreviations for TTS');
-    }
-
-    // Cap AFTER all passes: a respelling changes length, and truncating first
+    // Cap AFTER both passes: a respelling changes length, and truncating first
     // could cut a word one of them was about to rewrite.
     if (text.length > 4800) text = text.slice(0, 4800);
 
@@ -995,11 +607,6 @@ serve(async (req) => {
     const { data } = supabase.storage.from('studio-assets').getPublicUrl(fileName);
     return json({ success: true, publicUrl: data.publicUrl, fileName, provider: usedProvider,
       voice_used: usedGoogleVoice || undefined,
-      // The newsroom page already has a "corecții de pronunție aplicate"
-      // indicator reading these. Until now the function never returned them,
-      // so the indicator could never light up.
-      lexicon_applied: lexiconApplied ? 1 : 0,
-      speech_normalised: speechChanged,
       note: notes.length ? `fallback după: ${notes.join(' | ')}` : undefined });
   } catch (e) {
     return json({ error: (e as Error).message || 'Unknown error' }, 500);
