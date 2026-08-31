@@ -1,111 +1,177 @@
-# tt-camera — "they are too static" had a cause in the code
+# tt-level — the five weak axes, built
 
-Supersedes **tt-captions**; if that zip is still unopened, this one contains it.
+Supersedes **tt-download** (which superseded tt-direction). This one zip contains
+all of it.
 
-## The finding
+Every claim below has an assertion behind it. **445 assertions, 20 suites, 0
+failures**, and from this drop onward they run on every push.
 
-Three of your five shots measure 0.51, 0.48 and 0.37 %/s. You called them
-static. They are — and it was not the model's fault. `lib/timeline/migrate.ts`
-read:
+---
 
-```ts
-transform: scene.kind === 'image' ? kenBurns(scene.kb, duration) : IDENTITY_TRANSFORM,
-```
+## 1 · Release discipline — 2.0 → 4.0
 
-**A camera move was only ever given to a scene of kind `image`.** Every shot in
-this film is kind `video`. So no generated clip has ever had a camera move, in
-any film, whatever was selected — and a film made entirely of generated clips
-could not be anything but locked off.
+345 assertions ran only when a human typed their names. Now:
 
-The control was hidden too. In `page.tsx` the *static / zoom in / zoom out /
-pan ← / pan →* select sat inside a `{sc.kind === 'image' && …}` branch, so it
-was never even drawn beside a clip. You were not missing it. It was not there.
+- **`_verification/run-all.cjs`** — one runner, one exit code. It knows which
+  suites need ffmpeg and node-canvas, **skips** them on a machine without those
+  and says so, and `--strict` turns a skip into a failure. A suite that crashes
+  counts as failed rather than as zero, which a naive tally would have missed.
+- **A `studio` job in CI** — ffmpeg plus the node-canvas build chain (the same
+  list the worker's Dockerfile installs, deliberately kept in step), the worker's
+  own deps, a build of the shared timeline, then `run-all --strict`.
+- Separate from the `build` job on purpose: a broken lockfile should still fail
+  in seconds rather than after a two-minute apt install.
+- `npm run verify` locally.
 
-## And two more, found while fixing that
+Building `lib/timeline` in CI is a check in itself — if the shared module stops
+compiling under the worker's stricter settings, CI says so before Railway does.
 
-**The pan showed black.** A pan draws the picture oversized and slides it. The
-spare picture each side is `(scale − 1) / 2`. The values were scale **1.08** —
-overscan 0.04 — with a slide of **±0.06**. The slide is bigger than the
-overscan, so at each end of the move the frame ran out of picture. Measured
-through the real `fitRect`: **21.6 px of black down one edge** on a 1080-wide
-master, at the start and again at the end, on every panning scene ever
-rendered. It is now ±0.04 against scale 1.10, leaving 10.8 px in hand.
+## 2 · The critical one — the preview had its own painter
 
-**The preview had its own camera, and it disagreed three ways at once.**
+Ten faults this month were one bug reported ten times. The preview reimplemented
+what the renderer does, so the two disagreed about channel order, the wordmark,
+the safe-area guide, film length, the clock, caption size, caption case,
+karaoke, and the camera in three separate ways.
 
-| | preview | renderer |
-|---|---|---|
-| static | scale **1.02** | scale **1.00** |
-| zoom in | 1.02 → 1.12 | 1.00 → 1.12 |
-| pan | ±0.06 at 1.10 → 10.8 px black | ±0.06 at 1.08 → 21.6 px black |
+**The preview now compiles the same timeline `buildTimeline()` hands the
+renderer, and draws it with the same `drawFrame`.** The painter no longer knows
+what a scene is. Deleted, not deprecated: `activeSceneAt`, the overlay-only
+timeline, and every camera helper the preview used to import — 2.6 KB of second
+implementation, gone.
 
-Every static shot you have ever previewed was framed 2% tighter than the one
-delivered. The preview now evaluates the **same keyframe curves** and lays out
-with the **same `fitRect`**, so there is no second camera left to drift.
+**And it found an eleventh.** The preview started *every* video at film time
+zero, so a five-second clip belonging at 0:20 had finished fifteen seconds
+before its cut and was drawn as a frozen last frame. Shots two onward played as
+stills. The film looked static in the preview no matter what the footage did —
+which is a large part of why "they are too static" was said about clips
+measuring 3.34 and 3.88 %/s. Each video is now driven from its own clip's local
+frame. **The browser recorder had the identical fault and is fixed with it.**
 
-## What you get
+## 3 · Editing interface — 1.5 → 3.5
 
-- a camera move can be given to **any** shot, clip or still
-- the control is visible on every scene card, and lights amber when set
-- **mișcare pe toate** in the timeline header puts a move on every shot that
-  has none, cycling *zoom in → pan ← → zoom out → pan →* so four shots in a row
-  do not drift the same way. Shots you have already set are left alone.
-- **toate static** undoes it, and a counter reads `n din 5 static`
-- the pan no longer bleeds
-- preview and render use one camera
+- **Undo and redo**, Ctrl+Z / Ctrl+Shift+Z, and it never steals the shortcut
+  from a text field. A slider drag coalesces into **one** step, not eighty.
+  Every mutator names its step, so the tooltip says what Ctrl+Z will undo.
+  Scope is stated rather than implied: shots, titles, sounds and cues — the four
+  lists where an edit destroys something. Not the voice, kit or format, because
+  Ctrl+Z occasionally changing the aspect ratio is worse than no undo.
+- **A playhead**, with timecode. Possible only because the painter compiles any
+  frame now instead of hunting for "the active scene".
+- **Trim** — duration on every shot, not only stills, plus an **in-point**. The
+  migration hard-coded `sourceIn: 0`, so shortening a clip could only ever throw
+  away the end; there was no way to drop a bad first second of a take.
+- **Cut at the playhead** — the first half keeps the in-point, the second starts
+  where the first ended. Refuses to make a sliver under half a second.
 
-It costs nothing in sharpness, which is the part worth knowing: the sources are
-2160×3840 into a 1080×1920 master, so even at the pan's 1.10 overscan the draw
-is still a **1.85:1 reduction**. Nothing is being enlarged.
+`splitClip`, `trimClip` and `moveClip` had been in the document, tested, since it
+was written. This is the interface catching up with the engine.
 
-## One honest limit
+## 4 · Reliability & scale — 1.5 → 3.5
 
-The `mișcare %/s` figure on each take will **not** change. That number measures
-the clip the model returned, before the timeline touches it — and the module's
-own calibration says a zoom reads as `move 0.00`, because it aligns out scale
-by design. A keyframed pan is real translation and would register, but the
-figure you see is the *source's*, not the film's. The shots will stop being
-static; the take badges will keep reporting what the model gave you. That is
-the right behaviour — it is a diagnostic for dead generations, not a score for
-the edit.
+- **Renders survive a restart.** The job index is a single JSON file written
+  atomically beside the work directories, debounced so progress ticks do not
+  thrash the disk, and rehydrated on boot. A row whose file has gone is *not*
+  restored — that would hand out a key resolving to nothing, which is the bug.
+- **Concurrency is a number, not a boolean.** `RENDER_CONCURRENCY`, default 2.
+  ffmpeg already uses every core, so two is enough to stop one person blocking
+  another without making both slower.
+- **One retry**, and only for failures worth retrying — a killed ffmpeg, a
+  timed-out source, a 502. A timeline the validator would reject is not retried,
+  because spending another three minutes reaching the same answer helps nobody.
+- **Retention 6 hours → 7 days.** Six hours was defensible when a restart
+  destroyed everything anyway.
+- `/health` reports concurrency, in-flight count and retention.
+
+The suite for this **starts a real worker, plants a finished job, kills the
+process with SIGKILL, starts a new one, and asks for the file.** It also checks
+that a wrong key is still refused and that an orphaned row is not restored.
+
+## 5 · Campaign output — 0.5 → 3.5
+
+**`lib/timeline/retarget.ts`** — one film, every format, one press.
+
+Picture clips need no arithmetic at all: `fit: 'cover'` already fills whatever
+frame it is given. That is the dividend of owning a real timeline document.
+
+Type is where a naive reframe looks amateur, so two things are handled:
+
+- **Position.** A caption at y = 0.76 sits above TikTok's caption bar in 9:16 and
+  in the wrong place entirely in 16:9. Every text position — including every
+  keyframe of an animated one — is re-clamped into the safe area of the format
+  it is **going to**.
+- **Measure.** `maxWidth` is a fraction of frame WIDTH; font size is a fraction
+  of the SHORT edge. Carry 0.86 into 16:9 unchanged and the caption becomes one
+  90-character line. The box is rescaled to hold the measure constant in ems:
+  0.86 → **0.484** going vertical to wide, verified against the arithmetic.
+- **Size is deliberately untouched** — it is already short-edge relative, so a
+  0.045 caption is the same apparent size in every format. "Correcting" it would
+  break the one thing that already worked.
+
+Audio, timing, markers and delivery are untouched: same voice, same cuts, same
+loudness target. **Randează toate formatele** does 9:16, 4:5, 1:1 and 16:9,
+validating each before it is paid for.
+
+## 6 · Creative direction — 2.5 → 4.0
+
+The per-shot work from tt-direction is now **exposed in the interface**: a
+direction line per shot ("the shutter goes on rising, the light sweeps across
+the floor") and a light selector — warm / cold / do not hold — so the grade
+instruction is sent in the direction the shot actually runs. A cold pre-dawn
+shot is no longer told that blue hour is a defect.
+
+---
 
 ## Deploy
 
-Six files, no SQL. Includes the caption-parity work from tt-captions.
-
 ```
 app/admin/studio/page.tsx
+lib/timeline/history.ts          ← new
+lib/timeline/retarget.ts         ← new
+lib/timeline/animate.ts
 lib/timeline/migrate.ts
 lib/timeline/index.ts
 lib/timeline/draw.ts
 lib/timeline/compile.ts
 lib/timeline/types.ts
+render-worker/src/index.js       ← needs a worker redeploy
+.github/workflows/ci.yml
+package.json
+_verification/*                  ← 4 new suites + the runner
 ```
 
-The worker needs no separate change — its Dockerfile compiles `lib/timeline`
-from the repo at build time. Redeploy it to pick this up.
+No SQL. The worker redeploy is what turns on durability and concurrency; the
+Studio half works without it.
 
 ## Verification
 
-`_verification/23-motion.cjs` → **26 assertions, all passing.**
-
-- a video scene with each of the four moves carries a move, and it is byte-for-byte the move a still gets
-- `none` is still genuinely identity
-- every frame of every move is walked through the real `fitRect`: **zero** pixels of frame showing, on all four moves
-- the old values are re-run and confirmed to bleed by exactly the 21.6 px claimed, so this test would have caught it
-- overscan is proved greater than throw
-- a pan measures over 1 %/s — more than twice the 0.35 floor
-- the preview's own painter, its 1.02 baseline and its 0.12 pan are gone; it calls `kenBurns` and `fitRect`
-- the move control is no longer inside the image-only branch
-- **mișcare pe toate** exists and skips shots that already move
-
-Full suite after the change:
-
 ```
-10-vision 35/35   14-brand  45/45   18-fonts    15/15   22-captions 18/18
-11-payload 35/35  15-colour 10/10   19-wordmark 11/11   23-motion   26/26
-12-inspect 30/30  16-layers 11/11   20-reading  17/17
-13-resample 8/8   17-sound  25/25   21-browser  23/23
+10-vision        35   18-fonts          15   26-one-path       22
+11-payload       35   19-wordmark       11   27-editing        29
+12-inspect       30   20-reading        17   28-durability     20
+13-resample       8   21-browser-render 23   29-variants       28
+14-brand         45   22-captions       19
+15-colour        10   23-motion         26        445 assertions
+16-layers        11   24-direction      18        20 suites
+17-sound         25   25-download       18        0 failures
 ```
 
-`tsc` 0 errors, `eslint app lib` 0 errors.
+Plus the end-to-end encode: 250 frames at 1920×1080, 16/16, −15.2 LUFS, music
+36.4 dB under the voice. `tsc` 0 errors, `eslint app lib` 0 errors.
+
+**Two suites had assertions replaced rather than fixed**, and the reason is in
+the code: `22` asserted captions were built into an overlay-only timeline, and
+`23` asserted the preview evaluated the renderer's curves. Both were true of the
+previous step and are now too weak — there is no overlay-only timeline, and the
+preview does not evaluate a camera at all because it compiles the renderer's
+frames. Asserting the old property would have failed against better code.
+
+## What is still open
+
+- **The grade is the last real divergence.** The worker applies a per-shot
+  adaptive grade computed from each shot's measured mean; the preview does not.
+  Faking it with a canvas filter would create a new divergence, so it is left
+  honest. The fix is to move `planGains` out of the worker into `lib/timeline`
+  and measure one frame per shot in the browser — the same shape as everything
+  else here.
+- **Tenancy, API and metering** are untouched. That is the SaaS axis, and it is
+  a different project from this one.

@@ -33,8 +33,13 @@ const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, 
   ok('no caption font is sized off frame height', !/H \* 0\.03[26] \* subScale/.test(src))
   ok('the karaoke painter is gone', !/w\.word\.toUpperCase\(\)/.test(src))
   ok('...and so is the grouping only it used', !/chars > 26/.test(src))
-  ok('captions are built into the shared overlay timeline instead',
-    /captionClips/.test(src) && /captionStyle\(kit, subScale\)/.test(src))
+  // Superseded, and by something stronger. This used to assert that captions
+  // were built into an overlay-only timeline the preview drew alongside its own
+  // hand-painted picture. There is no overlay-only timeline any more: the
+  // preview compiles the SAME timeline the renderer is handed, captions and all.
+  ok('captions come from the kit, through the one timeline',
+    /captionStyle\(kit, subScale\)/.test(src) && /compileFrame\(filmTl, f\)/.test(src))
+  ok('...and there is no separate overlay pass left to drift', !/overlayTl/.test(src))
   ok('and clamped into the safe area there', /captionY\(kit, SUB_POS\[subPos\]\)/.test(src))
 }
 

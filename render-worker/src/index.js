@@ -23,10 +23,45 @@ const timeline = require('./timeline')
 const PORT = Number(process.env.PORT || 8080)
 const TOKEN = process.env.RENDER_WORKER_TOKEN || ''
 const MAX_SECONDS = Number(process.env.MAX_RENDER_SECONDS || 600)
-const RETENTION_MS = Number(process.env.JOB_RETENTION_MS || 6 * 60 * 60 * 1000)
+// SEVEN DAYS, NOT SIX HOURS.
+//
+// Six hours was defensible when a restart destroyed everything anyway. Now that
+// the index survives, retention is the only thing deciding how long an approved
+// version stays downloadable, and "until tomorrow morning" is not an answer for
+// a review workflow. The Studio also mirrors finished renders into storage, so
+// this is the fast path rather than the only copy.
+const RETENTION_MS = Number(process.env.JOB_RETENTION_MS || 7 * 24 * 60 * 60 * 1000)
 // Inspection costs CPU per take. Six is enough to choose from and small enough
 // that a mistyped request cannot occupy the box for an hour.
 const MAX_TAKES = Number(process.env.MAX_TAKES || 6)
+
+// HOW MANY FILMS AT ONCE, AND WHERE THE INDEX LIVES.
+//
+// Concurrency used to be a single boolean called `running`, so two people
+// rendering meant one waited behind the other for the full three-times-realtime.
+// ffmpeg already uses every core it can find, so this is deliberately small: two
+// jobs is enough to stop one person blocking another, and more than that just
+// makes both slower. Set RENDER_CONCURRENCY if the box is bigger.
+const CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY || 2))
+
+// A render that dies on a transient fetch or a killed ffmpeg is retried once.
+// Not more: a job that fails twice is failing for a reason, and burning a third
+// three-minute render on it delays everyone behind it.
+const MAX_ATTEMPTS = Math.max(1, Number(process.env.RENDER_ATTEMPTS || 2))
+
+// THE JOB INDEX SURVIVES A RESTART.
+//
+// Jobs lived only in a Map and the download key was checked against it, so a
+// sweep or a redeploy turned every finished render into a 401 with the file
+// gone. Three of the four links on a live Studio page were already dead when
+// this was measured. Railway restarts on every deploy, so "the worker restarted"
+// is not an edge case — it is Tuesday.
+//
+// The index is a single JSON file rewritten atomically next to the work
+// directories. It holds no timelines and no video, only what is needed to serve
+// a finished file: id, state, key, path, QC.
+const WORK_ROOT = process.env.RENDER_WORK_ROOT || path.join(os.tmpdir(), 'tt-render')
+const INDEX_FILE = path.join(WORK_ROOT, 'jobs.json')
 
 /** ffmpeg will happily open a local path or a pipe; this endpoint must not. */
 function isFetchable(u) {
@@ -39,7 +74,52 @@ function isFetchable(u) {
 const STARTED_AT = Date.now()
 const jobs = new Map()
 const queue = []
-let running = false
+let running = 0            // how many renders are in flight, not whether one is
+
+fs.mkdirSync(WORK_ROOT, { recursive: true })
+
+/** Only the fields needed to serve a finished file after a restart. */
+function indexable(job) {
+  return {
+    id: job.id, state: job.state, error: job.error || null, qc: job.qc || null,
+    file: job.file || null, workDir: job.workDir, downloadKey: job.downloadKey || null,
+    queuedAt: job.queuedAt, startedAt: job.startedAt || null, finishedAt: job.finishedAt || null,
+    seconds: job.result?.durationSeconds ?? job.seconds ?? null,
+  }
+}
+
+let indexTimer = null
+function saveIndex() {
+  // Debounced and atomic: progress updates fire many times a second, and a
+  // half-written index is worse than a missing one.
+  if (indexTimer) return
+  indexTimer = setTimeout(() => {
+    indexTimer = null
+    try {
+      const done = [...jobs.values()].filter(j => j.state.startsWith('done') || j.state === 'failed')
+      const tmp = INDEX_FILE + '.tmp'
+      fs.writeFileSync(tmp, JSON.stringify(done.map(indexable)))
+      fs.renameSync(tmp, INDEX_FILE)
+    } catch (e) { console.error('job index not written:', e.message) }
+  }, 400)
+  if (indexTimer.unref) indexTimer.unref()
+}
+
+function loadIndex() {
+  try {
+    if (!fs.existsSync(INDEX_FILE)) return 0
+    const rows = JSON.parse(fs.readFileSync(INDEX_FILE, 'utf8'))
+    let restored = 0
+    for (const r of rows) {
+      // A row whose file has gone is not worth restoring: it would hand out a
+      // key that resolves to nothing, which is the failure we are fixing.
+      if (!r.file || !fs.existsSync(r.file)) continue
+      jobs.set(r.id, { ...r, timeline: null, progress: null, result: null, restored: true })
+      restored++
+    }
+    return restored
+  } catch (e) { console.error('job index not read:', e.message); return 0 }
+}
 
 const json = (res, status, body) => {
   const payload = JSON.stringify(body)
@@ -80,12 +160,16 @@ function readBody(req, limitBytes = 8 * 1024 * 1024) {
 }
 
 async function pump() {
-  if (running) return
+  while (running < CONCURRENCY && queue.length) startOne()
+}
+
+async function startOne() {
   const job = queue.shift()
   if (!job) return
-  running = true
+  running += 1
   job.state = 'rendering'
-  job.startedAt = Date.now()
+  job.attempt = (job.attempt || 0) + 1
+  job.startedAt = job.startedAt || Date.now()
 
   try {
     const result = await renderTimeline(job.timeline, {
@@ -106,12 +190,27 @@ async function pump() {
     job.file = result.output
     job.downloadKey = crypto.randomBytes(32).toString('base64url')
     job.state = job.qc.passed ? 'done' : 'done_with_warnings'
+    saveIndex()
   } catch (err) {
-    job.state = 'failed'
-    job.error = err.message
+    // ONE RETRY, AND ONLY FOR THE FAILURES THAT ARE WORTH RETRYING.
+    // A killed ffmpeg or a source that timed out is usually transient. A
+    // timeline the validator would have rejected is not, and retrying it just
+    // spends another three minutes arriving at the same answer.
+    const transient = /ffmpeg|ECONN|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|429|502|503|504/i.test(err.message)
+    if (transient && job.attempt < MAX_ATTEMPTS) {
+      job.state = 'queued'
+      job.error = null
+      job.retryOf = err.message
+      queue.push(job)
+      console.error(`job ${job.id} attempt ${job.attempt} failed (${err.message}) — retrying`)
+    } else {
+      job.state = 'failed'
+      job.error = err.message
+    }
   } finally {
-    job.finishedAt = Date.now()
-    running = false
+    if (job.state !== 'queued') job.finishedAt = Date.now()
+    running -= 1
+    saveIndex()
     setImmediate(pump)
   }
 }
@@ -136,12 +235,15 @@ function publicJob(job) {
 
 function sweep() {
   const now = Date.now()
+  let dirty = false
   for (const [id, job] of jobs) {
     if (job.finishedAt && now - job.finishedAt > RETENTION_MS) {
       try { fs.rmSync(job.workDir, { recursive: true, force: true }) } catch { /* gone */ }
       jobs.delete(id)
+      dirty = true
     }
   }
+  if (dirty) saveIndex()
 }
 setInterval(sweep, 15 * 60 * 1000).unref()
 
@@ -153,8 +255,14 @@ setInterval(sweep, 15 * 60 * 1000).unref()
  * is exactly when you need to check a frame at 0:12. Range handling is the
  * difference between a player and a download.
  *
- * Disposition is `inline` so the file plays in a tab as well as downloading;
- * `attachment` forced a download and made in-browser review impossible.
+ * Disposition WAS unconditionally `inline`, with a comment claiming that this
+ * "plays in a tab as well as downloading". It does not. `inline` is precisely
+ * the instruction NOT to download: the browser opens the video and plays it,
+ * and the Descarcă button did nothing but navigate. Reported as "opens in a new
+ * browser but no download", which is exactly what the header asked for.
+ *
+ * So the caller chooses. `?download=1` sends `attachment` and the browser saves
+ * it; without it the file still streams inline for review, ranges and all.
  */
 function sendFile(res, job, req) {
   if (!job || !job.file || !fs.existsSync(job.file)) {
@@ -163,9 +271,15 @@ function sendFile(res, job, req) {
   const stat = fs.statSync(job.file)
   const total = stat.size
   const name = path.basename(job.file)
+  const wantsDownload = (() => {
+    try {
+      const q = new URL(req && req.url ? req.url : '/', 'http://localhost').searchParams.get('download')
+      return q === '1' || q === 'true'
+    } catch { return false }
+  })()
   const base = {
     'Content-Type': job.file.endsWith('.mov') ? 'video/quicktime' : 'video/mp4',
-    'Content-Disposition': `inline; filename="${name}"`,
+    'Content-Disposition': `${wantsDownload ? 'attachment' : 'inline'}; filename="${name}"`,
     'Accept-Ranges': 'bytes',
     // The key is a capability, not a session. Never let a proxy keep the file.
     'Cache-Control': 'private, no-store',
@@ -209,6 +323,9 @@ const server = http.createServer(async (req, res) => {
   // key. Everything else is called server-to-server by the edge function.
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type')
+  // Without this a cross-origin fetch cannot READ the disposition it was sent,
+  // which makes the header untestable from the browser that depends on it.
+  res.setHeader('Access-Control-Expose-Headers', 'content-disposition, content-length, content-range')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
 
@@ -226,8 +343,10 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, {
       ok: true,
       running,
+      concurrency: CONCURRENCY,
       queued: queue.length,
       jobs: jobs.size,
+      retention: RETENTION_MS,
       startedAt: new Date(STARTED_AT).toISOString(),
       spec: DEFAULT_SPEC,
     })
@@ -274,7 +393,7 @@ const server = http.createServer(async (req, res) => {
       id,
       timeline: tl,
       state: 'queued',
-      workDir: fs.mkdtempSync(path.join(os.tmpdir(), `job-${id.slice(0, 8)}-`)),
+      workDir: fs.mkdtempSync(path.join(WORK_ROOT, `job-${id.slice(0, 8)}-`)),
       queuedAt: Date.now(),
     }
     jobs.set(id, job)
@@ -362,7 +481,9 @@ server.listen(PORT, () => {
   if (!TOKEN) {
     console.error('RENDER_WORKER_TOKEN is not set — every request will be refused. Set it and redeploy.')
   }
-  console.log(`render worker listening on ${PORT}`)
+  // Finished films come back after a redeploy instead of turning into 401s.
+  const restored = loadIndex()
+  console.log(`render worker listening on ${PORT} · concurrency ${CONCURRENCY} · ${restored} render${restored === 1 ? '' : 's'} restored`)
 })
 
 module.exports = { server }

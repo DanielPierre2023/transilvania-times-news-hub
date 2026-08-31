@@ -46,8 +46,23 @@ export type {
   Transform,
 } from './types'
 
+export type { HistoryOptions, HistoryState } from './history'
+export {
+  canRedo,
+  canUndo,
+  createHistory,
+  push as pushHistory,
+  redo,
+  redoLabel,
+  undo,
+  undoLabel,
+} from './history'
+
+export type { AspectPreset, Insets, RetargetSpec } from './retarget'
+export { ASPECT_PRESETS, otherAspects, retarget, retargetMaxWidth } from './retarget'
+
 export { GRAPHICS_Z, isGraphic } from './compile'
-export { evalNumber, evalPoint, ramp } from './animate'
+export { evalNumber, evalPoint, isCurve, mapAnimatable, ramp } from './animate'
 
 export type { Ctx2D } from './draw'
 export { drawFrame, drawText, drawShape, drawBitmap, wrapText } from './draw'

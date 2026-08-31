@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "verify": "node _verification/run-all.cjs",
+    "verify:strict": "node _verification/run-all.cjs --strict"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

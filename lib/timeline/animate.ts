@@ -24,7 +24,7 @@ function easeAt(t: number, ease: Ease): number {
   }
 }
 
-function isCurve<T>(a: Animatable<T>): a is { readonly keys: readonly Keyframe<T>[] } {
+export function isCurve<T>(a: Animatable<T>): a is { readonly keys: readonly Keyframe<T>[] } {
   return typeof a === 'object' && a !== null && 'keys' in a
 }
 
@@ -82,4 +82,16 @@ export function ramp<T>(
       { frame: Math.max(1, Math.round(durationFrames)), value: to, ease: 'linear' },
     ],
   }
+}
+
+/**
+ * Apply a function to a value whether it is constant or keyframed.
+ *
+ * Reframing a film has to move positions that may be animated — a lower third
+ * that slides in is a curve, not a point — and doing that with an `if` at every
+ * call site is how one of the two branches ends up forgotten.
+ */
+export function mapAnimatable<T>(a: Animatable<T>, fn: (v: T) => T): Animatable<T> {
+  if (!isCurve(a)) return fn(a as T)
+  return { keys: a.keys.map(k => ({ ...k, value: fn(k.value) })) }
 }

@@ -27,14 +27,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkCaptions, conformCues, extractCues, toSRT, toVTT } from '@/lib/timeline/captions'
 import { formatLufs, measureAudioBuffer, planNormalisation } from '@/lib/timeline/loudness'
 import type { LoudnessResult } from '@/lib/timeline/loudness'
-import { kenBurns, migrateLegacyProject } from '@/lib/timeline/migrate'
+import { migrateLegacyProject } from '@/lib/timeline/migrate'
+import {
+  canRedo, canUndo, createHistory, push as pushHistory, redo as redoHistory,
+  redoLabel, undo as undoHistory, undoLabel, type HistoryState,
+} from '@/lib/timeline/history'
 import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
 import { framesToSeconds, formatTimecode } from '@/lib/timeline/time'
 import { FPS } from '@/lib/timeline/time'
 import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
-import { compileFrame, fitRect } from '@/lib/timeline/compile'
+import { compileFrame } from '@/lib/timeline/compile'
+import { ASPECT_PRESETS, otherAspects, retarget } from '@/lib/timeline/retarget'
+import type { DrawOp } from '@/lib/timeline/compile'
 import { drawFrame as drawCompiled } from '@/lib/timeline/draw'
-import { evalNumber, evalPoint } from '@/lib/timeline/animate'
 import type { Timeline, Clip, TextStyle } from '@/lib/timeline/types'
 // tt-brand — the kit and the typography it dictates.
 import {
@@ -54,6 +59,9 @@ type SubPos = 'jos' | 'treime' | 'sus'
 interface Take { url: string; score: number; accepted: boolean; why: string; move: number; ratio: number }
 interface Scene {
   id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB
+  in?: number               // seconds into the SOURCE this clip starts at
+  motionPrompt?: string     // what this shot DOES. Empty falls back to the default.
+  look?: SceneLook          // which way its grade must be held
   motion?: 'idle' | 'working' | 'done'; sync?: 'idle' | 'working' | 'done'
   stage?: string            // what the take machine is doing right now
   still?: string            // the approved still a clip was grown from
@@ -86,26 +94,78 @@ const SYNC_ENGINES: { key: string; label: string }[] = [
 // The motion model re-renders the picture, and left to itself it drifts — a
 // warm golden-hour still came back as a cold blue night. Asking the positive
 // prompt to "preserve the colour grade" is not enough; the drift has to be
-// named and forbidden here, where the model actually listens.
-const MOTION_NEGATIVE = [
+// named and forbidden where the model actually listens.
+//
+// BUT HALF OF THAT LIST WAS A TRAP, AND A DAWN SHOT WALKED STRAIGHT INTO IT.
+//
+// The fix for that one failure banned `blue hour, twilight, dusk`, `cold colour
+// grade, blue cast, teal tint` outright — for every shot, forever. Which is
+// correct for a golden-hour still and actively wrong for a shot that is MEANT
+// to be cold: a mechanic opening a shutter on a blue pre-dawn yard was about to
+// be animated with an instruction telling the model that everything the picture
+// is made of is a defect. The model does not know the difference between drift
+// and design; it only reads the list.
+//
+// So the list is split. The first half is true of every shot ever. The second
+// half holds a WARM grade, and is only sent when the shot actually has one.
+const MOTION_NEGATIVE_ALWAYS = [
   'text, watermark, logo, subtitles, caption',
   'extra fingers, deformed hands, warped face, identity change',
   'cut, shot change, morphing background',
-  // colour and lighting drift — the failure that cost a whole render
+  'season change, snow, rain added',
+]
+
+/** Only for shots whose light is warm. Sent to a cold shot it fights the shot. */
+const MOTION_NEGATIVE_KEEP_WARM = [
   'night, nighttime, moonlight, blue hour, twilight, dusk',
   'colour shift, color shift, changed lighting, changed time of day',
   'cold colour grade, blue cast, teal tint, desaturated, washed out',
-  'season change, snow, rain added',
-].join(', ')
+]
+
+/** Symmetrical: a cold shot needs its own light defended, in the other direction. */
+const MOTION_NEGATIVE_KEEP_COLD = [
+  'golden hour, warm orange cast, sunny daylight, midday sun',
+  'colour shift, color shift, changed lighting, changed time of day',
+  'oversaturated, warm colour grade',
+]
+
+const MOTION_NEGATIVE = [...MOTION_NEGATIVE_ALWAYS, ...MOTION_NEGATIVE_KEEP_WARM].join(', ')
+
+function motionNegativeFor(look: SceneLook): string {
+  const hold = look === 'cold' ? MOTION_NEGATIVE_KEEP_COLD
+    : look === 'none' ? []
+    : MOTION_NEGATIVE_KEEP_WARM
+  return [...MOTION_NEGATIVE_ALWAYS, ...hold].join(', ')
+}
 
 // Sent as the positive prompt so the instruction to hold the grade travels with
 // every job instead of relying on the edge function's generic default.
 const MOTION_PROMPT =
   'Subtle cinematic motion only: a slow gentle camera drift and small natural movement ' +
   'in the scene — drifting haze, moving leaves, people walking softly. ' +
-  'KEEP THE ORIGINAL PHOTOGRAPH EXACTLY: same composition, same colours, same warm ' +
-  'lighting, same time of day. Do NOT change the time of day, do NOT make it night, ' +
-  'do NOT cool or desaturate the colours. No cuts, no shot changes, no text.'
+  'KEEP THE ORIGINAL PHOTOGRAPH EXACTLY: same composition, same colours, same ' +
+  'lighting, same time of day. Do NOT change the time of day. ' +
+  'No cuts, no shot changes, no text.'
+
+/** What the light in a shot is, so the grade is held in the right direction. */
+type SceneLook = 'warm' | 'cold' | 'none'
+
+/**
+ * The shot's own direction, plus the instruction that holds its grade.
+ *
+ * A single global motion prompt is a storyboard with one frame in it. "Drifting
+ * haze, moving leaves, people walking softly" is a decent default for b-roll and
+ * says nothing whatsoever about a shutter going up or a light being switched
+ * off — which is to say, nothing about the two shots that carry the first two
+ * lines of this film. Per shot, or it is not direction.
+ */
+function motionPromptFor(sc: { motionPrompt?: string; look?: SceneLook }): string {
+  const own = (sc.motionPrompt || '').trim()
+  const look = sc.look ?? 'warm'
+  const hold = look === 'none' ? ''
+    : ` KEEP THE ORIGINAL PHOTOGRAPH EXACTLY: same composition, same colours, same ${look} lighting, same time of day.`
+  return (own || MOTION_PROMPT) + hold + ' No cuts, no shot changes, no text.'
+}
 interface Cue { start: number; end: number; text: string }
 
 // ── OVERLAYS ────────────────────────────────────────────────────────────────
@@ -343,6 +403,7 @@ export default function StudioPage() {
   const [subsOn, setSubsOn] = useState(true)
   const [subPos, setSubPos] = useState<SubPos>('jos')
   const [subScale, setSubScale] = useState(1)
+  const [renderMirror, setRenderMirror] = useState('')
 
   // Project persistence (studio_projects)
   const [projName, setProjName] = useState('')
@@ -364,6 +425,9 @@ export default function StudioPage() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<{ raf: number; stop: () => void } | null>(null)
+  const playingRef = useRef(false)
+  /** Where the preview is parked when it is not playing. Also where a cut lands. */
+  const [head, setHead] = useState(0)
   const mediaCache = useRef<Map<string, HTMLImageElement | HTMLVideoElement>>(new Map())
   const db = useMemo(() => supabase as unknown as SupabaseClient, [supabase])
 
@@ -667,55 +731,6 @@ export default function StudioPage() {
     return out
   }, [overlays, kit])
 
-  // A timeline containing ONLY the overlays, so the preview can draw them with
-  // the same compile-and-draw path the renderer uses. That is the whole reason
-  // templates are ordinary clips: what you see here is what the file gets, with
-  // no second implementation to drift.
-  const overlayTl = useMemo<Timeline | null>(() => {
-    const fps = fpsOut === 25 ? FPS.pal : FPS.web
-    const filmFrames = Math.max(1, Math.round((totalDur * fps.n) / fps.d))
-    const clips = overlayClips(fps, filmFrames)
-
-    // THE CAPTIONS COME THROUGH HERE TOO, and that is the point of this memo.
-    //
-    // The preview used to draw subtitles with its own code: uppercase, sized
-    // off frame HEIGHT, a rounded plate, two lines maximum. The file got the
-    // kit's caption style: mixed case, sized off the SHORT edge, a square
-    // plate, clamped into the safe area. On a 9:16 master the preview drew them
-    // at 69 px and the file at 49 — the preview was showing captions forty per
-    // cent larger than the ones being delivered, which is exactly the "the
-    // subtitles are too big" note from the very first film. It was fixed in the
-    // renderer and left standing here.
-    //
-    // Karaoke was worse than a mismatch: the renderer ignored the word timings
-    // completely and drew plain text, so it was a mode you could select, watch
-    // working, and never receive.
-    const captionTl = migrateLegacyProject(
-      { aspect, scenes: [], cues, words, capMode, subPos, subScale, subsOn },
-      { fps },
-    )
-    const capStyle: TextStyle = captionStyle(kit, subScale)
-    const capY = captionY(kit, SUB_POS[subPos])
-    const captionClips: Clip[] = (captionTl.tracks.find(t => t.kind === 'video' && t.z === 10)?.clips ?? [])
-      .filter(c => c.source.kind === 'text')
-      .map(c => ({
-        ...c,
-        source: c.source.kind === 'text'
-          ? { ...c.source, style: { ...capStyle, ...(c.source.words ? { maxLines: 1, activeColor: kit.colour.accent } : {}) } }
-          : c.source,
-        transform: { ...c.transform, position: { x: 0.5, y: capY } },
-      }))
-
-    const all = [...captionClips, ...clips]
-    if (!all.length) return null
-
-    let tl = migrateLegacyProject({ aspect, scenes: [] }, { fps })
-    tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
-    const track = emptyTrack('video', 'Grafică', 20)
-    tl = { ...tl, tracks: [track] }
-    for (const c of all) tl = addClip(tl, track.id, c)
-    return { ...tl, duration: Math.max(1, ...all.map(c => c.start + c.duration)) }
-  }, [overlayClips, fpsOut, aspect, W, H, totalDur, cues, words, capMode, subPos, subScale, subsOn, kit])
 
   function buildTimeline(forceCaptions = false): Timeline {
     const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
@@ -1107,8 +1122,8 @@ export default function StudioPage() {
         takes: n,
         // The loop is opt-in now. See the comment on motionLoop.
         ...(motionLoop && mm.endFrame ? { end_image_url: still } : {}),
-        prompt: MOTION_PROMPT,
-        negative_prompt: MOTION_NEGATIVE,
+        prompt: motionPromptFor(sc),
+        negative_prompt: motionNegativeFor(sc.look ?? 'warm'),
         cfg_scale: cfgScale,
         generate_audio: false,
       })
@@ -1264,17 +1279,161 @@ export default function StudioPage() {
     }
   }
 
+  /**
+   * Save the render.
+   *
+   * A cross-origin link cannot be made to download from the page: the `download`
+   * attribute is ignored across origins, so the browser follows the server's
+   * disposition and the server said `inline`. Fetching it into a blob puts the
+   * file on OUR origin, where `download` is honoured — which is why this works
+   * even against a worker that has not been redeployed yet.
+   */
+  async function saveRender(url: string) {
+    setError(''); setBusy('download')
+    try {
+      const r = await fetch(url.includes('?') ? url + '&download=1' : url + '?download=1')
+      if (!r.ok) throw new Error(`Workerul a răspuns ${r.status}. Linkul a expirat — randează din nou.`)
+      const blob = await r.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = `${(projName || 'film').replace(/[^\p{L}\d]+/gu, '-').toLowerCase()}-${fpsOut}fps.mp4`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(href), 120000)
+
+      // THE WORKER'S FILE IS NOT STORAGE. Jobs live in a Map and the key is
+      // checked against it, so once a job is swept — or the worker restarts —
+      // every link to that render returns 401 and the file is gone. A version
+      // you approved last week is not downloadable today. Mirroring the bytes
+      // into the bucket on the way past costs nothing and fixes that.
+      try {
+        const path = `renders/${Date.now()}-${uid()}.mp4`
+        const up = await supabase.storage.from('studio-assets').upload(path, blob, { contentType: 'video/mp4', upsert: false })
+        if (!up.error) {
+          const { data } = supabase.storage.from('studio-assets').getPublicUrl(path)
+          setRenderMirror(data.publicUrl)
+        }
+      } catch { /* the download already worked; the mirror is a bonus */ }
+    } catch (e) {
+      setError('Descărcare: ' + (e as Error).message)
+    } finally { setBusy('') }
+  }
+
   async function onMusic(file?: File) {
     if (!file) return
     setError(''); setBusy('music')
     try { setMusicUrl(await uploadAsset('music', file)) } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
 
+  // ─── UNDO ───────────────────────────────────────────────────────────────
+  //
+  // Sixty-eight pieces of state and, until now, no history at all: deleting a
+  // shot destroyed it, and the only recovery was to reopen the saved project
+  // and lose everything since.
+  //
+  // History covers the four lists where an edit is DESTRUCTIVE — shots, titles,
+  // sounds and cues. It deliberately does not cover the voice, the kit or the
+  // format: those are replaceable settings, and putting them in would mean
+  // Ctrl+Z sometimes changing the aspect ratio, which is worse than not having
+  // undo. The scope is stated in the tooltip rather than implied.
+  interface EditState { scenes: Scene[]; overlays: Overlay[]; sfx: Sfx[]; cues: Cue[] }
+  const histRef = useRef<HistoryState<EditState>>(
+    createHistory<EditState>({ scenes: [], overlays: [], sfx: [], cues: [] }, 'start'))
+  const [, bumpHist] = useState(0)
+  const labelRef = useRef('editare')
+  const applyingRef = useRef(false)
+
+  /** Names the next undo step. Called by a mutator just before it changes state. */
+  const mark = (label: string) => { labelRef.current = label }
+
+  useEffect(() => {
+    if (applyingRef.current) { applyingRef.current = false; return }
+    const next = pushHistory(histRef.current, { scenes, overlays, sfx, cues }, labelRef.current)
+    if (next !== histRef.current) { histRef.current = next; bumpHist(n => n + 1) }
+  }, [scenes, overlays, sfx, cues])
+
+  const applyHistory = useCallback((h: HistoryState<EditState>) => {
+    if (h === histRef.current) return
+    histRef.current = h
+    applyingRef.current = true
+    const v = h.present.value
+    setScenes(v.scenes); setOverlays(v.overlays); setSfx(v.sfx); setCues(v.cues)
+    bumpHist(n => n + 1)
+  }, [])
+
+  const doUndo = useCallback(() => applyHistory(undoHistory(histRef.current)), [applyHistory])
+  const doRedo = useCallback(() => applyHistory(redoHistory(histRef.current)), [applyHistory])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      // Never steal Ctrl+Z from a text field — the browser's own undo is right there.
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod || e.key.toLowerCase() !== 'z' && e.key.toLowerCase() !== 'y') return
+      e.preventDefault()
+      if (e.key.toLowerCase() === 'y' || e.shiftKey) doRedo(); else doUndo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [doUndo, doRedo])
+
   // ─── scene ops ──────────────────────────────────────────────────────────
-  const move = (i: number, d: number) => setScenes(s => { const n = [...s]; const j = i + d; if (j < 0 || j >= n.length) return s;[n[i], n[j]] = [n[j], n[i]]; return n })
-  const del = (id: string) => setScenes(s => s.filter(x => x.id !== id))
-  const setDur = (id: string, v: number) => setScenes(s => s.map(x => x.id === id ? { ...x, duration: Math.min(30, Math.max(1, v)) } : x))
-  const setKb = (id: string, kb: KB) => setScenes(s => s.map(x => x.id === id ? { ...x, kb } : x))
+  const move = (i: number, d: number) => { mark('mutare plan'); return setScenes(s => { const n = [...s]; const j = i + d; if (j < 0 || j >= n.length) return s;[n[i], n[j]] = [n[j], n[i]]; return n }) }
+  const del = (id: string) => { mark('ștergere plan'); setScenes(s => s.filter(x => x.id !== id)) }
+  const setDur = (id: string, v: number) => { mark('durată'); return setScenes(s => s.map(x => x.id === id ? { ...x, duration: Math.min(30, Math.max(1, v)) } : x)) }
+  const setKb = (id: string, kb: KB) => { mark('mișcare'); return setScenes(s => s.map(x => x.id === id ? { ...x, kb } : x)) }
+
+  /** What THIS shot does, and which way its light runs. Regie, per plan. */
+  const setDirection = (id: string, patch: Partial<Scene>) => {
+    mark('regie plan'); setScenes(s => s.map(x => x.id === id ? { ...x, ...patch } : x))
+  }
+
+  /** Seconds into the source a clip starts at. The other half of a trim. */
+  const setIn = (id: string, v: number) => { mark('punct de intrare'); setScenes(s => s.map(x => x.id === id ? { ...x, in: Math.max(0, v) } : x)) }
+
+  /**
+   * Cut a shot in two at the playhead.
+   *
+   * `splitClip` has existed in the timeline document, tested, since the document
+   * was written. The interface offered an up arrow, a down arrow and a bin — so
+   * the only way to shorten the middle of a take was to regenerate it. This is
+   * the same operation expressed on the scene list the UI actually edits: the
+   * first half keeps the in-point, the second half starts where the first ended.
+   */
+  const splitAtHead = (id: string) => {
+    const at = sceneLocalTime(id, head)
+    if (at == null) { setError('Mută capul de citire în interiorul planului ca să-l tai.'); return }
+    mark('tăiere plan')
+    setScenes(s => {
+      const i = s.findIndex(x => x.id === id)
+      if (i < 0) return s
+      const sc = s[i]
+      const MIN = 0.5
+      if (at < MIN || sc.duration - at < MIN) return s
+      const a: Scene = { ...sc, duration: at }
+      const b: Scene = { ...sc, id: uid(), duration: sc.duration - at, in: (sc.in ?? 0) + at,
+        takes: undefined, verdict: sc.verdict, name: sc.name }
+      return [...s.slice(0, i), a, b, ...s.slice(i + 1)]
+    })
+  }
+
+  /** Seconds into a given scene that the film-level playhead is sitting at. */
+  function sceneLocalTime(id: string, t: number): number | null {
+    let acc = 0
+    for (const sc of scenes) {
+      if (sc.id === id) return t >= acc && t <= acc + sc.duration ? t - acc : null
+      acc += sc.duration
+    }
+    return null
+  }
+
+  /** Film time at which a scene starts, for the ruler ticks. */
+  function sceneStart(id: string): number {
+    let acc = 0
+    for (const sc of scenes) { if (sc.id === id) return acc; acc += sc.duration }
+    return 0
+  }
 
   /**
    * Give every locked-off shot a camera.
@@ -1299,79 +1458,82 @@ export default function StudioPage() {
   })
   const cameraOffAll = () => setScenes(s => s.map(x => ({ ...x, kb: 'none' as KB })))
 
+  /**
+   * THE FILM, COMPILED. ONE OF THEM.
+   *
+   * The preview used to paint the picture itself — pick the active scene, work
+   * out a camera, drawImage — while the renderer compiled a timeline. Two
+   * implementations of the same idea, and they disagreed ten separate times
+   * this month: channel order, wordmark, safe-area guide, film length, clock
+   * source, caption size, caption case, karaoke, and the camera in three ways.
+   *
+   * Every one of those was found by watching a finished film, because nothing
+   * forced the two paths to agree. They are now the same path. `buildTimeline`
+   * is the function the cloud render calls; the preview draws its compiled
+   * frames through the same `drawFrame` the worker uses. There is no second
+   * implementation left to drift, so there is no eleventh bug of this kind.
+   */
+  const filmTl = useMemo<Timeline | null>(() => {
+    if (scenes.length === 0) return null
+    try { return buildTimeline() } catch { return null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenes, overlays, sfx, musicBed, cues, words, capMode, subsOn, subPos, subScale,
+      musicUrl, musicVol, voUrl, voDur, aspect, master, fpsOut, kit, W, H])
+
+  /**
+   * Hand the drawer the actual <img>/<video>, and put the video on the clip's
+   * clock rather than the film's.
+   *
+   * The old preview started EVERY video playing at film time zero. A five-second
+   * clip sitting at 0:20 had therefore finished fifteen seconds before it was
+   * due on screen, so shots two onward played as frozen last frames. The film
+   * looked static in the preview no matter how much the footage moved — which is
+   * a large part of why "they are too static" was reported about clips that
+   * measure 3.34 and 3.88 %/s.
+   *
+   * Each video is now driven from its own clip's local time.
+   */
+  const resolveMedia = useCallback((op: DrawOp): unknown => {
+    const src = op.source
+    if (src.kind !== 'image' && src.kind !== 'video') return null
+    const m = mediaCache.current.get(src.url)
+    if (!m) return null
+    if (m instanceof HTMLVideoElement) {
+      const fps = fpsOut === 25 ? 25 : 30
+      const want = op.localFrame / fps
+      if (playingRef.current) {
+        // Resync only when it has genuinely slipped — seeking every frame
+        // stutters, and a video decoding at its own pace is normally right.
+        if (Math.abs(m.currentTime - want) > 0.25) m.currentTime = want
+        if (m.paused) m.play().catch(() => {})
+      } else {
+        if (!m.paused) m.pause()
+        if (Math.abs(m.currentTime - want) > 0.05) m.currentTime = want
+      }
+    }
+    return m
+  }, [fpsOut])
+
   // ─── drawing ────────────────────────────────────────────────────────────
   function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
     const words = text.split(' '); const lines: string[] = []; let line = ''
     for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w } else line = t }
     if (line) lines.push(line); return lines
   }
-  function activeSceneAt(t: number): { scene: Scene; p: number } | null {
-    if (scenes.length === 0) return null
-    let acc = 0
-    for (const sc of scenes) { if (t < acc + sc.duration) return { scene: sc, p: (t - acc) / sc.duration }; acc += sc.duration }
-    const last = scenes[scenes.length - 1]; return { scene: last, p: 1 }
-  }
+
   function drawFrame(ctx: CanvasRenderingContext2D, t: number, guides = true) {
-    ctx.fillStyle = '#150b06'; ctx.fillRect(0, 0, W, H)
-    const a = activeSceneAt(t)
-    if (a) {
-      const m = mediaCache.current.get(a.scene.url)
-      if (m) {
-        const mW = m instanceof HTMLVideoElement ? m.videoWidth : m.naturalWidth
-        const mH = m instanceof HTMLVideoElement ? m.videoHeight : m.naturalHeight
-        if (mW && mH) {
-          // THE PREVIEW USED TO HAVE ITS OWN CAMERA, AND IT DISAGREED WITH THE
-          // RENDERER IN THREE SEPARATE WAYS.
-          //
-          //   static : preview 1.02, renderer 1.00 — every still shot in the
-          //            preview was two per cent tighter than the delivered one
-          //   zoom in: preview 1.02 → 1.12, renderer 1.00 → 1.12
-          //   pan    : preview slid ±0.06 at scale 1.10, renderer ±0.06 at 1.08
-          //            — both ran out of picture, by different amounts
-          //
-          // So it now evaluates the SAME keyframe curves the renderer does and
-          // lays the picture out with the SAME fitRect. There is no second
-          // camera left to drift.
-          const durF = Math.max(1, Math.round(a.scene.duration * fpsOut))
-          const tr = kenBurns(a.scene.kb, durF)
-          const local = a.p * durF
-          const scale = evalNumber(tr.scale, local)
-          const centre = evalPoint(tr.position, local)
-          const dest = fitRect('cover', mW / mH, {
-            x: (centre.x - 0.5) * W, y: (centre.y - 0.5) * H, w: W, h: H,
-          }, scale)
-          ctx.drawImage(m, dest.x, dest.y, dest.w, dest.h)
-        }
-      }
-    }
-    // SUBTITLES ARE NOT DRAWN HERE ANY MORE.
-    //
-    // They used to be, with their own font, their own case, their own plate and
-    // their own sizing — off frame height, which is the bug that made a caption
-    // render at 69 px in the preview and 49 px in the file on the same 9:16
-    // master. They now arrive through the same compile-and-draw path as the
-    // titles, from the same kit, so what you watch is what you get.
-
-    // THE WORDMARK USED TO BE PAINTED HERE, and that was the bug.
-    //
-    // It was hard-coded into this function, which draws the preview AND feeds
-    // the browser recorder — so it appeared in the preview and in a browser
-    // render, and was absent from every worker render, because the worker draws
-    // the timeline and the wordmark was never in it. Three outputs, two
-    // different films, and no way to switch it off.
-    //
-    // It is now an ordinary pair of clips from lib/brand/templates, off by
-    // default, and it arrives through the overlay path below like every other
-    // piece of type. Preview and file cannot disagree about it any more.
-
-    // TITLES, drawn through the SAME compile-and-draw path as the render.
-    if (overlayTl) {
+    // ONE PATH. The picture, the camera move, the titles, the captions and the
+    // karaoke all arrive as compiled draw operations from the same timeline the
+    // renderer is handed. Nothing below this line knows what a "scene" is.
+    if (!filmTl) {
+      ctx.fillStyle = '#150b06'; ctx.fillRect(0, 0, W, H)
+    } else {
       const fps = fpsOut === 25 ? 25 : 30
-      const f = Math.round(t * fps)
-      if (f >= 0 && f < overlayTl.duration) {
-        drawCompiled(ctx as unknown as Parameters<typeof drawCompiled>[0],
-          compileFrame(overlayTl, f), W, H, () => null, { clear: false })
-      }
+      const f = Math.max(0, Math.min(filmTl.duration - 1, Math.round(t * fps)))
+      drawCompiled(
+        ctx as unknown as Parameters<typeof drawCompiled>[0],
+        compileFrame(filmTl, f), W, H, resolveMedia,
+      )
     }
 
     // ── SAFE AREA ────────────────────────────────────────────────────────
@@ -1406,6 +1568,23 @@ export default function StudioPage() {
       ctx.restore()
     }
   }
+  /**
+   * THE PREVIEW IS NO LONGER BLACK UNTIL YOU PRESS PLAY.
+   *
+   * Now that the painter compiles the timeline rather than reaching for "the
+   * active scene", parking it at an arbitrary frame costs nothing — so there is
+   * a playhead, and the canvas shows the frame under it. That is what makes a
+   * cut possible: you can see where you are cutting.
+   */
+  useEffect(() => {
+    if (playingRef.current) return
+    const c = canvasRef.current
+    if (!c) return
+    const ctx = c.getContext('2d')
+    if (ctx) drawFrame(ctx, head)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [head, filmTl, showSafe, kit, subsOn, subPos, subScale])
+
   async function preloadAll() {
     for (const sc of scenes) {
       if (sc.kind === 'image') await loadImage(sc.url)
@@ -1423,8 +1602,21 @@ export default function StudioPage() {
     const ctx = canvasRef.current!.getContext('2d')!
     const audio = voUrl ? new Audio(voUrl) : null
     if (audio) { audio.crossOrigin = 'anonymous'; audio.currentTime = 0; audio.play().catch(() => {}) }
-    // play any video scenes
-    scenes.filter(s => s.kind === 'video').forEach(s => { const v = mediaCache.current.get(s.url); if (v instanceof HTMLVideoElement) { v.currentTime = 0; v.play().catch(() => {}) } })
+
+    // EVERY VIDEO USED TO BE STARTED HERE, AT FILM TIME ZERO.
+    //
+    // A five-second clip that belongs at 0:20 had therefore played out and
+    // stopped fifteen seconds before its cut, so shots two onward appeared as
+    // frozen last frames. The preview showed a slideshow of clips that move.
+    //
+    // Nothing is started here now. Each video is put on its own clip's clock by
+    // resolveMedia, which is the only place that knows how far into a clip the
+    // playhead is — the compiled op carries it.
+    scenes.filter(s => s.kind === 'video').forEach(s => {
+      const v = mediaCache.current.get(s.url)
+      if (v instanceof HTMLVideoElement) { v.pause(); v.currentTime = 0 }
+    })
+    playingRef.current = true
     const start = performance.now()
     let raf = 0
     const loop = () => {
@@ -1436,6 +1628,7 @@ export default function StudioPage() {
     }
     const stop = () => {
       cancelAnimationFrame(raf)
+      playingRef.current = false
       if (audio) audio.pause()
       scenes.filter(s => s.kind === 'video').forEach(s => { const v = mediaCache.current.get(s.url); if (v instanceof HTMLVideoElement) v.pause() })
       previewRef.current = null
@@ -1493,9 +1686,13 @@ export default function StudioPage() {
 
       const done = new Promise<Blob>(resolve => { rec.onstop = () => resolve(new Blob(chunks, { type: mime })) })
 
-      // start video scenes
+      // THE RECORDER HAD THE SAME FAULT AS THE PREVIEW: every video started at
+      // film time zero, so a clip belonging at 0:20 had already finished by the
+      // time its cut arrived and was captured as a frozen frame. Both are now
+      // driven per clip by resolveMedia, off the compiled op's local frame.
       const vids = scenes.filter(s => s.kind === 'video').map(s => mediaCache.current.get(s.url)).filter((v): v is HTMLVideoElement => v instanceof HTMLVideoElement)
-      vids.forEach(v => { v.currentTime = 0; v.play().catch(() => {}) })
+      vids.forEach(v => { v.pause(); v.currentTime = 0 })
+      playingRef.current = true
 
       rec.start(200)
       const t0 = ac.currentTime + 0.08
@@ -1525,6 +1722,7 @@ export default function StudioPage() {
         }
         loop()
       })
+      playingRef.current = false
       rec.stop(); voSrc?.stop(); muSrc?.stop(); vids.forEach(v => v.pause())
       const blob = await done
       ac.close()
@@ -1637,6 +1835,62 @@ export default function StudioPage() {
       }
     }
     setCloud({ status: 'timeout', url: '', msg: 'Randarea durează neobișnuit de mult.' })
+  }
+
+  /**
+   * THE WHOLE FAMILY, FROM ONE FILM.
+   *
+   * A campaign is 9:16 for Reels and TikTok, 4:5 and 1:1 for feed, 16:9 for
+   * YouTube and the site. Until now each of those was a manual rebuild, which
+   * costs a day and — worse — lets the versions drift, because a caption fixed
+   * in the vertical cut is not fixed in the square one.
+   *
+   * `retarget` reframes the finished timeline: picture clips need nothing at
+   * all because `fit: 'cover'` already fills any frame, and type is re-clamped
+   * into the destination format's safe area with its measure held constant.
+   * Same voice, same cuts, same loudness — only the frame moves.
+   */
+  const [variants, setVariants] = useState<{ aspect: string; state: string; url: string }[]>([])
+
+  async function renderAllAspects() {
+    if (scenes.length === 0) { setError('Adaugă cel puțin o scenă.'); return }
+    const base = buildTimeline()
+    const targets = [`${aspect}`, ...otherAspects(base)]
+    setVariants(targets.map(a => ({ aspect: a, state: 'în așteptare', url: '' })))
+    setError('')
+
+    for (const key of targets) {
+      const preset = ASPECT_PRESETS[key]
+      if (!preset) continue
+      const mark = (state: string, url = '') =>
+        setVariants(v => v.map(x => x.aspect === key ? { ...x, state, url } : x))
+      mark('randez')
+      try {
+        // The safe area follows the FORMAT, not the project: a 16:9 cut has no
+        // TikTok caption bar to duck under and should not be typeset as if it did.
+        const tl = retarget(base, {
+          width: preset.width, height: preset.height,
+          safe: SAFE_AREAS[preset.safeArea],
+        })
+        const problems = validate(tl).filter(x => x.severity === 'error')
+        if (problems.length) { mark('respins: ' + problems[0].message); continue }
+        const created = await invokeRaw('render-worker', { action: 'create', timeline: tl })
+        const id = String(created.id || '')
+        if (!id) { mark('eroare: fără id'); continue }
+        let done = false
+        for (let i = 0; i < 200 && !done; i++) {
+          await sleep(4000)
+          const st = await invokeRaw('render-worker', { action: 'status', id })
+          if (st.state === 'failed') { mark('eșuat: ' + String(st.error || '')); done = true; break }
+          if (String(st.state || '').startsWith('done')) {
+            mark((st.qc as { passed?: boolean } | null)?.passed === false ? 'gata · QC cu observații' : 'gata',
+              st.downloadKey ? `${String(created.workerUrl || '')}${st.path}?key=${st.downloadKey}` : '')
+            done = true
+          }
+        }
+        if (!done) mark('durează prea mult')
+      } catch (e) { mark('eroare: ' + (e as Error).message) }
+    }
   }
 
   async function renderCloud() {
@@ -2053,6 +2307,19 @@ export default function StudioPage() {
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40">Cronologie</p>
               <div className="flex items-center gap-2">
+                <button onClick={doUndo} disabled={!canUndo(histRef.current)}
+                  title={canUndo(histRef.current)
+                    ? `Anulează: ${undoLabel(histRef.current)} (Ctrl+Z). Acoperă planurile, titlurile, sunetele și replicile — nu vocea, kitul sau formatul.`
+                    : 'Nimic de anulat'}
+                  className="text-[11px] px-2 py-1 border border-white/10 text-white/60 hover:bg-white/5 disabled:opacity-30">
+                  ↶ anulează
+                </button>
+                <button onClick={doRedo} disabled={!canRedo(histRef.current)}
+                  title={canRedo(histRef.current) ? `Refă: ${redoLabel(histRef.current)} (Ctrl+Shift+Z)` : 'Nimic de refăcut'}
+                  className="text-[11px] px-2 py-1 border border-white/10 text-white/60 hover:bg-white/5 disabled:opacity-30">
+                  ↷ refă
+                </button>
+                <span className="text-white/15">·</span>
                 <button onClick={cameraOnAll}
                   title="Pune o mișcare de cameră pe fiecare plan care nu are una. Nu atinge planurile cărora le-ai dat deja o mișcare."
                   className="text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10">
@@ -2128,9 +2395,41 @@ export default function StudioPage() {
                         className={`bg-black border text-[11px] px-1.5 py-1 ${sc.kb === 'none' ? 'border-white/10 text-white/40' : 'border-amber-500/40 text-amber-300/90'}`}>
                         <option value="none">static</option><option value="in">zoom in</option><option value="out">zoom out</option><option value="left">pan ←</option><option value="right">pan →</option>
                       </select>
+                      {/* TRIM AND CUT, ON EVERY SHOT.
+                          Duration was image-only and there was no in-point at
+                          all, so a generated clip could be reordered or deleted
+                          and nothing else — the only way to shorten the middle
+                          of a take was to regenerate it. `splitClip`, `trimClip`
+                          and `moveClip` have been in the timeline document,
+                          tested, since it was written. */}
+                      <input type="number" min={0.5} max={30} step={0.5} value={sc.duration}
+                        onChange={e => setDur(sc.id, Number(e.target.value))}
+                        title="Durata pe cronologie, în secunde."
+                        className="w-14 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                      <span className="text-[10px] text-white/30">sec</span>
+                      {sc.kind === 'video' && <>
+                        <span className="text-[10px] uppercase tracking-wider text-white/25">de la</span>
+                        <input type="number" min={0} max={30} step={0.1} value={sc.in ?? 0}
+                          onChange={e => setIn(sc.id, Number(e.target.value))}
+                          title="Punctul de intrare: câte secunde din sursă sar peste. Cu asta poți arunca începutul unei duble, nu doar sfârșitul."
+                          className="w-14 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                        <button onClick={() => splitAtHead(sc.id)}
+                          title="Taie planul în două la capul de citire. Prima jumătate păstrează punctul de intrare; a doua începe de unde s-a oprit prima."
+                          className="text-[11px] px-2 py-1 border border-white/10 text-white/60 hover:bg-white/5">
+                          ✂ taie
+                        </button>
+                        <span className="text-[10px] text-white/25 tabular-nums">
+                          {formatTc(Math.round(sceneStart(sc.id) * (fpsOut === 25 ? 25 : 30)))}
+                        </span>
+                      </>}
+                      <select value={sc.look ?? 'warm'} onChange={e => setDirection(sc.id, { look: e.target.value as SceneLook })}
+                        title="Ce fel de lumină are planul. Un plan cald primește interdicția de derivă spre rece; unul rece primește exact opusul. Trimise amândouă la fel, instrucțiunea luptă cu jumătate din filme."
+                        className="bg-black border border-white/10 text-white/50 text-[11px] px-1.5 py-1">
+                        <option value="warm">lumină caldă</option>
+                        <option value="cold">lumină rece</option>
+                        <option value="none">nu fixa lumina</option>
+                      </select>
                       {sc.kind === 'image' && <>
-                        <input type="number" min={1} max={30} value={sc.duration} onChange={e => setDur(sc.id, Number(e.target.value))}
-                          className="w-14 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" /><span className="text-[10px] text-white/30">sec</span>
                         <button onClick={() => animateScene(sc.id)} disabled={sc.motion === 'working'}
                           title="Transformă fotografia într-un clip cu mișcare reală (Kling, prin fal.ai)"
                           className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10 disabled:opacity-60">
@@ -2177,7 +2476,21 @@ export default function StudioPage() {
                     whole layer exists to catch. */}
                 {(sc.verdict || (sc.takes && sc.takes.length > 0)) && (
                   <div className="border-t border-white/[0.07] px-2 py-1.5">
-                    {sc.verdict && (
+                    {/* REGIE, PER PLAN.
+                    There was one motion prompt for every shot in every film ever
+                    made — "drifting haze, moving leaves, people walking softly" —
+                    which says nothing about a shutter going up or a light being
+                    switched off. A single global motion prompt is a storyboard
+                    with one frame in it. */}
+                {sc.kind === 'image' && (
+                  <div className="px-2 pb-2">
+                    <input value={sc.motionPrompt ?? ''} onChange={e => setDirection(sc.id, { motionPrompt: e.target.value })}
+                      placeholder="Regie: ce se mișcă în acest plan (engleză). Gol = mișcarea implicită."
+                      title="Ce face planul, în cuvintele tale: obloanele urcă, mâna coboară comutatorul, lumina mătură podeaua. Trimis ca prompt pozitiv exact pentru acest plan."
+                      className="w-full bg-black border border-white/10 text-white/70 text-[11px] px-2 py-1.5 placeholder:text-white/20" />
+                  </div>
+                )}
+                {sc.verdict && (
                       <p className={'text-[10px] ' + (sc.motion === 'done' ? 'text-emerald-400/70' : 'text-amber-400/80')}>{sc.verdict}</p>
                     )}
                     {sc.takes && sc.takes.length > 0 && (
@@ -2441,7 +2754,17 @@ export default function StudioPage() {
             <div className="flex justify-center bg-black p-2">
               <canvas ref={canvasRef} width={W} height={H} style={{ width: previewW, height: previewW * H / W, maxWidth: '100%' }} className="bg-black" />
             </div>
-            <div className="flex gap-2 mt-3">
+            {/* THE PLAYHEAD. A cut needs somewhere to land, and an edit needs
+                checking at a frame rather than only in motion. Possible at all
+                because the painter now compiles any frame of the timeline
+                instead of hunting for "the active scene". */}
+            <div className="flex items-center gap-2 mt-3">
+              <input type="range" min={0} max={Math.max(0.1, filmDur)} step={1 / (fpsOut === 25 ? 25 : 30)}
+                value={Math.min(head, filmDur)} onChange={e => setHead(Number(e.target.value))}
+                aria-label="Cap de citire" className="flex-1 accent-brand-red" />
+              <span className="text-[11px] font-mono text-white/50 tabular-nums w-[84px] text-right">{formatTc(Math.round(head * (fpsOut === 25 ? 25 : 30)))}</span>
+            </div>
+            <div className="flex gap-2 mt-2">
               <button onClick={preview} disabled={rendering || busy === 'prep'} className="flex-1 flex items-center justify-center gap-1.5 bg-[#111] border border-white/[0.07] text-white text-[12px] font-bold py-2 hover:border-white/20 disabled:opacity-50">
                 {busy === 'preview' ? <><Square className="w-3.5 h-3.5" /> Stop</> : busy === 'prep' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Play className="w-3.5 h-3.5" /> Preview</>}
               </button>
@@ -2553,13 +2876,56 @@ export default function StudioPage() {
                   </ul>
                 </div>
               )}
+              {/* THE WHOLE FAMILY. One film, every format it will actually
+                  be published in, from one press. */}
+              <button onClick={renderAllAspects}
+                disabled={scenes.length === 0 || variants.some(v => v.state === 'randez')}
+                title="Randează filmul în toate formatele: 9:16 pentru Reels și TikTok, 4:5 și 1:1 pentru feed, 16:9 pentru YouTube și site. Aceeași voce, aceleași tăieturi — se remontează doar cadrul și tipografia."
+                className="w-full mt-2 flex items-center justify-center gap-1.5 border border-white/[0.07] bg-[#111] text-white text-[12px] font-bold py-2.5 hover:border-white/20 disabled:opacity-50">
+                <Crop className="w-3.5 h-3.5" /> Randează toate formatele
+              </button>
+              {variants.length > 0 && (
+                <div className="mt-2 border border-white/[0.07]">
+                  {variants.map(v => (
+                    <div key={v.aspect} className="flex items-center gap-2 px-2.5 py-1.5 border-b border-white/[0.05] last:border-0">
+                      <span className="font-mono text-[11px] text-white/60 w-10">{v.aspect}</span>
+                      <span className="text-[11px] text-white/35 flex-1 truncate">
+                        {ASPECT_PRESETS[v.aspect]?.name}
+                      </span>
+                      {v.url
+                        ? <a href={v.url} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-400/90 underline">{v.state}</a>
+                        : <span className={`text-[11px] ${/eșuat|eroare|respins/.test(v.state) ? 'text-red-400/90' : 'text-white/45'}`}>{v.state}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
               {cloud.status === 'succeeded' && cloud.url && (
                 <div className="mt-3 border border-white/[0.07]">
                   <video src={cloud.url} controls className="w-full" />
-                  <a href={cloud.url} target="_blank" rel="noreferrer"
-                    className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black">
-                    <Download className="w-3.5 h-3.5" /> Deschide / Descarcă MP4
-                  </a>
+                  {/* ONE BUTTON THAT DID TWO THINGS BADLY.
+                      "Deschide / Descarcă" was a plain link to a cross-origin
+                      URL served `inline`, so it could only ever open. The
+                      `download` attribute is ignored across origins, which is
+                      why adding it would not have helped either. Two buttons,
+                      each doing one thing, and the save goes through a blob so
+                      it works whatever the server sends. */}
+                  <div className="grid grid-cols-2">
+                    <a href={cloud.url} target="_blank" rel="noreferrer"
+                      className="flex items-center justify-center gap-1.5 bg-[#111] text-white/70 text-[12px] py-2.5 hover:bg-black border-r border-white/[0.07]">
+                      <Play className="w-3.5 h-3.5" /> Deschide
+                    </a>
+                    <button onClick={() => saveRender(cloud.url)} disabled={busy === 'download'}
+                      className="flex items-center justify-center gap-1.5 bg-[#111] text-white text-[12px] font-bold py-2.5 hover:bg-black disabled:opacity-60">
+                      {busy === 'download'
+                        ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Descarc…</>
+                        : <><Download className="w-3.5 h-3.5" /> Descarcă MP4</>}
+                    </button>
+                  </div>
+                  {renderMirror && (
+                    <p className="text-[11px] text-white/40 px-2.5 py-2 border-t border-white/[0.07]">
+                      Copie permanentă: <a href={renderMirror} target="_blank" rel="noreferrer" className="underline hover:text-white/70">în stocare</a> — linkul workerului expiră când jobul e măturat din memorie.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

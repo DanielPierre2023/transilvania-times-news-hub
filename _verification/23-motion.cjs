@@ -87,8 +87,13 @@ const clipOf = tl => tl.tracks.find(t => t.kind === 'video' && t.z === 0).clips[
   ok('the hand-rolled cover painter is gone', !/function drawCover/.test(src))
   ok('no hard-coded 1.02 baseline survives', !/scale = 1\.02/.test(src))
   ok('no hard-coded 0.12 pan survives', !/W \* 0\.12/.test(src))
-  ok('the preview evaluates the renderer curves', /kenBurns\(a\.scene\.kb/.test(src))
-  ok('...and lays out with the renderer fitRect', /fitRect\('cover', mW \/ mH/.test(src))
+  // Superseded. Evaluating the renderer's curves in the preview was the fix
+  // one step ago; the preview now compiles the renderer's FRAMES, so it does not
+  // evaluate a camera at all. Asserting the weaker property would now fail
+  // against better code.
+  ok('the preview does not evaluate a camera of its own',
+    !/kenBurns\(a\.scene\.kb/.test(src) && !/fitRect\('cover', mW \/ mH/.test(src))
+  ok('...because it compiles the renderer\'s frames instead', /compileFrame\(filmTl, f\)/.test(src))
   ok('the move control is no longer inside the image-only branch',
     src.indexOf('setKb(sc.id') < src.indexOf("{sc.kind === 'image' && <>"))
   ok('there is a way to fix a whole timeline at once', /cameraOnAll/.test(src) && /CAMERA_CYCLE/.test(src))

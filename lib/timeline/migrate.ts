@@ -26,6 +26,15 @@ export interface LegacyScene {
   /** Seconds. */
   duration: number
   kb: LegacyKenBurns
+  /**
+   * Seconds into the SOURCE at which this clip starts.
+   *
+   * Absent until now, which is why nothing could be trimmed: every clip read
+   * its source from zero, so shortening a scene threw away the end and there
+   * was no way to throw away the beginning instead. The document has always
+   * supported it — `Clip.sourceIn` — and the migration hard-coded zero.
+   */
+  in?: number
 }
 
 export interface LegacyCue {
@@ -176,7 +185,7 @@ export function migrateLegacyProject(
       source: { kind: scene.kind, url: scene.url },
       start: playhead,
       duration,
-      sourceIn: 0,
+      sourceIn: Math.max(0, secondsToFrames(scene.in ?? 0, fps)),
       // A CAMERA MOVE IS NOT A PROPERTY OF BEING A STILL.
       //
       // This read `scene.kind === 'image' ? kenBurns(...) : IDENTITY_TRANSFORM`,
