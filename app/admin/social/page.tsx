@@ -22,9 +22,9 @@
 // Breaking News badge: ONLY when the article's "Ultimele știri" box is checked
 // (blog_posts.is_breaking = true). Manual override available.
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { Download, RefreshCw, Image as ImageIcon, Radio, Sparkles, Copy, Check } from 'lucide-react'
+import { Download, RefreshCw, Image as ImageIcon, Radio, Sparkles, Copy, Check, Share2, Loader2, Clock, Hash, ExternalLink } from 'lucide-react'
 
 // ─── FORMATS ──────────────────────────────────────────────────────────────────
 
@@ -483,16 +483,75 @@ interface Article {
   is_breaking: boolean | null
 }
 
-// ─── SOCIAL COPY (from tt-social-copy edge function) ───────────────────────────
+// ─── SOCIAL PACK (from tt-social-copy v2 edge function) ───────────────────────
+// Article-side twin of the newsroom's SeoPack: a Discover headline, keyword
+// layer, tiered hashtags, hookA/hookB A/B variants and per-platform native copy.
 
-interface SocialCopy {
-  url: string
-  primary_keyword?: string
-  facebook?: { post?: string; first_comment?: string; hashtags?: string[] }
-  instagram_feed?: { caption?: string; hashtags?: string[] }
-  instagram_story?: { text?: string }
-  x?: { post?: string }
-  linkedin?: { post?: string; hashtags?: string[] }
+interface PackPlatforms {
+  facebook: { post: string; first_comment: string; hashtags: string[] }
+  instagram_feed: { caption: string; alt_text: string; cover_text: string; first_comment_hashtags: string; hashtags: string[] }
+  instagram_story: { text: string }
+  x: { post: string; hashtags: string[] }
+  linkedin: { post: string; hashtags: string[] }
+}
+interface SocialPack {
+  ok: boolean
+  lang: Lang
+  target_url: string
+  campaign: string
+  best_hours: string
+  primary_keyword: string
+  keywords: { primary: string; entities: string[]; questions: string[] }
+  discover_headline: string
+  variants: { hookA: string; hookB: string }
+  hashtag_tiers: { broad: string[]; geo: string[]; entity: string[]; brand: string[] }
+  platforms: PackPlatforms
+}
+type Variant = 'hookA' | 'hookB'
+type Platform = 'facebook' | 'instagram' | 'x' | 'linkedin'
+interface PubStatus { facebook: boolean; instagram: boolean; youtube: boolean; x: boolean; linkedin: boolean }
+
+const PLATFORMS: { key: Platform; label: string; dot: string }[] = [
+  { key: 'facebook', label: 'Facebook', dot: '#1877F2' },
+  { key: 'instagram', label: 'Instagram', dot: '#E1306C' },
+  { key: 'x', label: 'X', dot: '#7A7A7A' },
+  { key: 'linkedin', label: 'LinkedIn', dot: '#0A66C2' },
+]
+
+// Append UTM to the article link so article_hook_winner can compare hookA/hookB.
+function withUtm(url: string, source: string, campaign: string, content: string): string {
+  try {
+    const u = new URL(url)
+    u.searchParams.set('utm_source', source)
+    u.searchParams.set('utm_medium', 'social')
+    if (campaign) u.searchParams.set('utm_campaign', campaign)
+    if (content) u.searchParams.set('utm_content', content)
+    return u.toString()
+  } catch { return url }
+}
+function dataURLToBlob(dataUrl: string): Blob {
+  const [head, b64] = dataUrl.split(',')
+  const mime = /:(.*?);/.exec(head)?.[1] || 'image/png'
+  const bin = atob(b64)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return new Blob([arr], { type: mime })
+}
+// Instagram rejects PNG — re-encode the (already un-tainted) card PNG to JPEG.
+function toJpegBlob(dataUrl: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height
+      const ctx = c.getContext('2d')
+      if (!ctx) { reject(new Error('no 2d context')); return }
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height) // JPEG has no alpha
+      ctx.drawImage(img, 0, 0)
+      c.toBlob(b => b ? resolve(b) : reject(new Error('jpeg encode failed')), 'image/jpeg', 0.92)
+    }
+    img.onerror = () => reject(new Error('image load failed'))
+    img.src = dataUrl
+  })
 }
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
@@ -506,11 +565,6 @@ export default function SocialPage() {
   const [formatKey, setFormatKey] = useState<string>('story')
   const [isBreaking, setIsBreaking] = useState(false)
   const [breakingLabel, setBreakingLabel] = useState('BREAKING NEWS')
-  // Card banner: brand domain wordmark. Every share/screenshot becomes free
-  // brand + destination advertising, and it reads the same on every platform
-  // (unlike the old "ARTICOL ÎN COMENTARII!", which only made sense on a
-  // Facebook link-in-comments post). The link-in-comments tactic still lives
-  // in the generated Facebook copy below, where it belongs — in the post text.
   const [ctaRo, setCtaRo] = useState('transilvaniatimes.com')
   const [ctaEn, setCtaEn] = useState('transilvaniatimes.com')
   const [showOnlyBreaking, setShowOnlyBreaking] = useState(false)
@@ -518,13 +572,22 @@ export default function SocialPage() {
   const [imageData, setImageData] = useState('')
   const [logoUrl] = useState('/assets/logos/logo-transilvania-times.png')
 
-  // ── SEO / social copy (per platform) ──────────────────────────────────────
-  const [copy, setCopy] = useState<SocialCopy | null>(null)
+  // ── SEO / social pack ──────────────────────────────────────────────────────
+  const [copy, setCopy] = useState<SocialPack | null>(null)
   const [copyLoading, setCopyLoading] = useState(false)
   const [copyError, setCopyError] = useState('')
   const [copiedKey, setCopiedKey] = useState('')
+  const [variant, setVariant] = useState<Variant>('hookA')
+
+  // ── Direct publishing ──────────────────────────────────────────────────────
+  const [pub, setPub] = useState<PubStatus | null>(null)
+  const [pubBusy, setPubBusy] = useState<Platform | ''>('')
+  const [pubMsg, setPubMsg] = useState<Record<string, string>>({})
+  // Cache the uploaded public card URLs, keyed by the exact image currently shown.
+  const uploadedRef = useRef<{ data: string; png?: string; jpg?: string }>({ data: '' })
 
   const supabase = createSupabaseBrowserClient()
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
   useEffect(() => {
     supabase
@@ -536,10 +599,20 @@ export default function SocialPage() {
       .then(({ data }) => setArticles((data || []) as Article[]))
   }, [supabase])
 
+  // Which platforms are wired (secret-gated in the edge function).
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('publish-social', { body: { action: 'status' } })
+        if (!error && data) setPub(data as PubStatus)
+      } catch { /* function not deployed yet — panel shows "verifică" */ }
+    })()
+  }, [supabase])
+
   const selectArticle = useCallback((id: string) => {
     setSelectedId(id)
     setImageData('')
-    setCopy(null); setCopyError('')
+    setCopy(null); setCopyError(''); setPubMsg({})
     const a = articles.find(x => x.id === id)
     if (a) {
       setTitle(lang === 'ro' ? (a.title_ro || a.title_en || '') : (a.title_en || a.title_ro || ''))
@@ -548,11 +621,10 @@ export default function SocialPage() {
     }
   }, [articles, lang])
 
-  // Toggle language — if an article is selected, refresh title from its DB row
   const switchLang = useCallback((newLang: Lang) => {
     setLang(newLang)
     setImageData('')
-    setCopy(null); setCopyError('')
+    setCopy(null); setCopyError(''); setPubMsg({})
     if (selectedId) {
       const a = articles.find(x => x.id === selectedId)
       if (a) {
@@ -577,19 +649,20 @@ export default function SocialPage() {
     setGenerating(false)
   }, [title, coverUrl, formatKey, logoUrl, currentCta, isBreaking, breakingLabel])
 
-  // Generate reach-optimized, per-platform copy for the selected article.
+  // Generate the reach-optimized SEO + social pack for the selected article.
   const generateCopy = useCallback(async () => {
     if (!selectedId) return
     setCopyLoading(true)
     setCopyError('')
     setCopy(null)
+    setVariant('hookA')
     try {
       const { data, error } = await supabase.functions.invoke('tt-social-copy', {
         body: { post_id: selectedId, lang },
       })
       if (error) throw new Error(error.message)
       if (!data?.ok) throw new Error(data?.error || 'Generarea textului a eșuat.')
-      setCopy(data as SocialCopy)
+      setCopy(data as SocialPack)
     } catch (e) {
       setCopyError((e as Error).message)
     }
@@ -613,6 +686,137 @@ export default function SocialPage() {
     a.click()
   }, [imageData, lang, formatKey, selectedId, articles, isBreaking])
 
+  // ── Direct-publish plumbing ─────────────────────────────────────────────────
+
+  // supabase-js hides the function's real {error} body inside error.context.
+  async function invokeRaw(fn: string, reqBody: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data, error } = await supabase.functions.invoke(fn, { body: reqBody })
+    if (error) {
+      let detail = ''
+      const ctx = (error as { context?: unknown }).context
+      if (ctx && typeof (ctx as Response).json === 'function') {
+        try {
+          const b = await (ctx as Response).clone().json() as Record<string, unknown>
+          if (b && typeof b.error === 'string') detail = b.error
+        } catch { /* not JSON */ }
+      }
+      throw new Error(detail || error.message)
+    }
+    const d = (data || {}) as Record<string, unknown>
+    if (typeof d.error === 'string' && d.error) throw new Error(d.error)
+    return d
+  }
+
+  const linkFor = (source: string) => copy ? withUtm(copy.target_url, source, copy.campaign, variant) : ''
+
+  async function uploadCard(blob: Blob, ext: string): Promise<string> {
+    const slug = articles.find(a => a.id === selectedId)?.slug || selectedId || 'card'
+    const path = `social/${slug}/${formatKey}-${lang}-${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('studio-assets')
+      .upload(path, blob, { contentType: blob.type || (ext === 'jpg' ? 'image/jpeg' : 'image/png'), upsert: true })
+    if (error) throw new Error('Încărcarea imaginii a eșuat: ' + error.message)
+    return supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
+  }
+
+  // Meta/X/LinkedIn all fetch the image by URL, so the card must live at a public
+  // URL first. Upload once per generated card and per format (PNG, or JPEG for IG).
+  async function ensureCardUrl(kind: 'png' | 'jpg'): Promise<string> {
+    if (!imageData) throw new Error('Generează imaginea întâi.')
+    if (uploadedRef.current.data !== imageData) uploadedRef.current = { data: imageData }
+    const cache = uploadedRef.current
+    if (kind === 'png') {
+      if (!cache.png) cache.png = await uploadCard(dataURLToBlob(imageData), 'png')
+      return cache.png
+    }
+    if (!cache.jpg) cache.jpg = await uploadCard(await toJpegBlob(imageData), 'jpg')
+    return cache.jpg
+  }
+
+  async function logSocialPost(platform: Platform, externalId: string, permalink: string) {
+    try {
+      // social_posts is created by supabase/sql/04_article_ab_and_social_posts.sql.
+      // The generated Database types won't include it until they are regenerated,
+      // so this one insert is intentionally loosely typed (rather than forcing a
+      // type regen before the page can build). Regenerate types later to tighten it.
+      const table = supabase.from('social_posts' as never) as unknown as {
+        insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null }>
+      }
+      await table.insert({
+        article_id: selectedId || null,
+        platform, lang, format: formatKey, status: 'published',
+        external_id: externalId || null, permalink: permalink || null,
+        campaign: copy?.campaign || null, variant,
+        image_url: uploadedRef.current.png || uploadedRef.current.jpg || null,
+      })
+    } catch { /* social_posts table not created yet — publishing still worked */ }
+  }
+
+  async function publishTo(platform: Platform) {
+    if (!copy) { setPubMsg(m => ({ ...m, [platform]: 'Generează întâi textul social.' })); return }
+    if (!imageData) { setPubMsg(m => ({ ...m, [platform]: 'Generează întâi imaginea.' })); return }
+    setPubBusy(platform); setPubMsg(m => ({ ...m, [platform]: '' }))
+    const P = copy.platforms
+    try {
+      let externalId = ''; let permalink = ''
+      if (platform === 'facebook') {
+        const img = await ensureCardUrl('png')
+        const first = P.facebook.first_comment.includes('[LINK]')
+          ? P.facebook.first_comment.replace(/\[LINK\]/g, linkFor('facebook'))
+          : `${P.facebook.first_comment} ${linkFor('facebook')}`.trim()
+        const r = await invokeRaw('publish-social', {
+          action: 'facebook_photo', image_url: img, message: P.facebook.post, first_comment: first,
+        })
+        externalId = String(r.post_id || ''); permalink = String(r.permalink || '')
+        const note = r.comment_error ? ' — comentariul cu linkul a eșuat' : ''
+        setPubMsg(m => ({ ...m, facebook: '✓ Postat pe Facebook' + note }))
+      } else if (platform === 'instagram') {
+        const img = await ensureCardUrl('jpg')
+        // A 9:16 story card goes to an IG Story; square/landscape to the feed.
+        const isStory = formatKey === 'story'
+        const r = await invokeRaw('publish-social', {
+          action: 'instagram_image', image_url: img,
+          caption: P.instagram_feed.caption,
+          media_type: isStory ? 'STORIES' : undefined,
+        })
+        const creationId = String(r.creation_id || '')
+        if (!creationId) throw new Error('Instagram nu a returnat creation_id.')
+        setPubMsg(m => ({ ...m, instagram: 'Instagram procesează imaginea…' }))
+        for (let i = 0; i < 20; i++) {
+          await sleep(3000)
+          const st = await invokeRaw('publish-social', { action: 'instagram_status', creation_id: creationId })
+          const code = String(st.status_code || '')
+          if (code === 'FINISHED') break
+          if (code === 'ERROR') throw new Error('Instagram a respins imaginea: ' + String(st.status || ''))
+          if (i === 19) throw new Error('Instagram procesează prea mult — reîncearcă.')
+        }
+        const pr = await invokeRaw('publish-social', { action: 'instagram_publish', creation_id: creationId })
+        const mediaId = String(pr.media_id || ''); externalId = mediaId
+        // Stories can't be commented on — only feed posts take a hashtag comment.
+        if (!isStory && mediaId && P.instagram_feed.first_comment_hashtags) {
+          try { await invokeRaw('publish-social', { action: 'instagram_comment', media_id: mediaId, message: P.instagram_feed.first_comment_hashtags }) } catch { /* hashtags comment is best-effort */ }
+        }
+        setPubMsg(m => ({ ...m, instagram: '✓ Publicat pe Instagram' + (isStory ? ' (Story)' : '') }))
+      } else if (platform === 'x') {
+        const img = await ensureCardUrl('png')
+        const text = `${P.x.post} ${linkFor('x')}`.trim()
+        const r = await invokeRaw('publish-social', { action: 'x', text, image_url: img })
+        externalId = String(r.tweet_id || ''); permalink = String(r.url || '')
+        setPubMsg(m => ({ ...m, x: '✓ Postat pe X' + (permalink ? ': ' + permalink : '') }))
+      } else {
+        const img = await ensureCardUrl('png')
+        const tagLine = P.linkedin.hashtags.length ? '\n\n' + P.linkedin.hashtags.join(' ') : ''
+        const text = `${P.linkedin.post}\n\n${linkFor('linkedin')}${tagLine}`
+        const r = await invokeRaw('publish-social', { action: 'linkedin', text, image_url: img, title })
+        externalId = String(r.post_urn || ''); permalink = String(r.url || '')
+        const note = r.image_note ? ' — fără imagine' : ''
+        setPubMsg(m => ({ ...m, linkedin: '✓ Postat pe LinkedIn' + note }))
+      }
+      await logSocialPost(platform, externalId, permalink)
+    } catch (e) {
+      setPubMsg(m => ({ ...m, [platform]: '✗ ' + (e as Error).message }))
+    } finally { setPubBusy('') }
+  }
+
   const format = FORMATS[formatKey]
   const previewScale = Math.min(560 / format.width, 720 / format.height)
 
@@ -634,12 +838,19 @@ export default function SocialPage() {
   const sec = "bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4"
   const sh = "font-sans text-[11px] uppercase tracking-widest text-white/40 border-b border-white/[0.07] pb-3 mb-1"
 
+  // Per-platform, link-substituted copy for the result cards.
+  const fbFirstComment = copy
+    ? (copy.platforms.facebook.first_comment.includes('[LINK]')
+        ? copy.platforms.facebook.first_comment.replace(/\[LINK\]/g, linkFor('facebook'))
+        : `${copy.platforms.facebook.first_comment} ${linkFor('facebook')}`.trim())
+    : ''
+
   return (
     <div className="max-w-7xl">
       <div className="mb-6">
         <h1 className="font-serif text-2xl font-bold text-white">Social Media Generator</h1>
         <p className="font-sans text-[13px] text-white/40 mt-1">
-          Card cu titlu în Lora serif + text social optimizat SEO, per platformă (RO/EN)
+          Card cu titlu în Lora serif + pachet SEO &amp; social per platformă (RO/EN), cu publicare directă
         </p>
       </div>
 
@@ -666,7 +877,7 @@ export default function SocialPage() {
               </button>
             </div>
             <p className="font-sans text-[10px] text-white/20">
-              Schimbă titlul, textul CTA și numele fișierului PNG.
+              Schimbă titlul, textul CTA, pachetul social și numele fișierului PNG.
             </p>
           </div>
 
@@ -807,11 +1018,11 @@ export default function SocialPage() {
           <button onClick={generateCopy} disabled={copyLoading || !selectedId}
             className="w-full flex items-center justify-center gap-3 py-4 bg-[#0D1B4B] text-white font-sans text-[13px] font-bold uppercase tracking-widest hover:bg-[#0a1540] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             {copyLoading
-              ? <><RefreshCw className="w-4 h-4 animate-spin" /> Scriu textele...</>
-              : <><Sparkles className="w-4 h-4" /> Generează text social (SEO)</>}
+              ? <><RefreshCw className="w-4 h-4 animate-spin" /> Scriu pachetul...</>
+              : <><Sparkles className="w-4 h-4" /> Generează pachet SEO + social</>}
           </button>
           <p className="font-sans text-[10px] text-white/25 text-center">
-            Text optimizat pentru reach, separat pe Facebook, Instagram, X și LinkedIn — în limba {lang === 'ro' ? 'română' : 'engleză'}.
+            Titlu Discover, cuvinte-cheie, hashtag-uri pe niveluri și text nativ pentru Facebook, Instagram, X și LinkedIn — în limba {lang === 'ro' ? 'română' : 'engleză'}.
           </p>
         </div>
 
@@ -851,7 +1062,7 @@ export default function SocialPage() {
         </div>
       </div>
 
-      {/* SEO / SOCIAL COPY RESULTS ─────────────────────────────────────────── */}
+      {/* SEO / SOCIAL PACK RESULTS ───────────────────────────────────────────── */}
       {(copyError || copy) && (
         <div className="mt-8">
           {copyError && (
@@ -863,7 +1074,7 @@ export default function SocialPage() {
           {copy && (
             <div className="space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <h2 className="font-serif text-xl font-bold text-white">Text social — gata de postat</h2>
+                <h2 className="font-serif text-xl font-bold text-white">Pachet SEO &amp; social — gata de postat</h2>
                 {copy.primary_keyword && (
                   <span className="font-sans text-[11px] text-white/50">
                     Cuvânt-cheie: <span className="text-[#F0A500] font-bold">{copy.primary_keyword}</span>
@@ -871,42 +1082,149 @@ export default function SocialPage() {
                 )}
               </div>
 
+              {/* A/B variant + best hours */}
+              <div className="bg-[#12100c] border border-amber-400/25 p-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10.5px] font-bold uppercase tracking-widest text-amber-300/80">Cârlig A/B</span>
+                  {(['hookA', 'hookB'] as const).map(v => (
+                    <button key={v} onClick={() => setVariant(v)}
+                      className={'px-2.5 py-1 text-[11.5px] border ' + (variant === v ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>
+                      {v === 'hookA' ? 'A' : 'B'}
+                    </button>
+                  ))}
+                  <span className="text-[10px] text-white/30">se marchează în link ca utm_content — vezi article_hook_winner</span>
+                </div>
+                <p className="text-[12.5px] text-white/85">{copy.variants[variant]}</p>
+                <p className="text-[11px] text-sky-300/70 flex items-center gap-1.5"><Clock className="w-3 h-3" /> {copy.best_hours}</p>
+                <p className="text-[10.5px] text-white/30 break-all">link → {linkFor('facebook')}</p>
+              </div>
+
+              {/* Discover headline */}
+              <CopyCard title="Titlu Google Discover" accent="#F0A500"
+                blocks={[{ key: 'disc', label: 'Headline', text: copy.discover_headline }]}
+                copiedKey={copiedKey} onCopy={copyToClipboard} />
+
+              {/* Keywords / entities / questions */}
+              {(copy.keywords.entities.length > 0 || copy.keywords.questions.length > 0) && (
+                <div className="bg-[#1a1a1a] border border-white/[0.07] p-4 space-y-2">
+                  <span className="font-sans text-[10px] uppercase tracking-widest text-white/35">Semnal SEO</span>
+                  {copy.keywords.entities.length > 0 && (
+                    <p className="font-sans text-[12px] text-white/70"><span className="text-white/35">Entități:</span> {copy.keywords.entities.join(' · ')}</p>
+                  )}
+                  {copy.keywords.questions.length > 0 && (
+                    <p className="font-sans text-[12px] text-white/70"><span className="text-white/35">Ce caută cititorii:</span> {copy.keywords.questions.join(' | ')}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Hashtag tiers */}
+              <div className="bg-[#1a1a1a] border border-white/[0.07] p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-sans text-[10px] uppercase tracking-widest text-white/35 flex items-center gap-1.5"><Hash className="w-3 h-3" /> Hashtag-uri pe niveluri</span>
+                  <button onClick={() => copyToClipboard('all-tags', [...copy.hashtag_tiers.broad, ...copy.hashtag_tiers.geo, ...copy.hashtag_tiers.entity, ...copy.hashtag_tiers.brand].join(' '))}
+                    className="flex items-center gap-1 font-sans text-[10px] text-white/40 hover:text-white transition-colors">
+                    {copiedKey === 'all-tags' ? <><Check className="w-3 h-3 text-green-400" /> Copiat</> : <><Copy className="w-3 h-3" /> Copiază tot</>}
+                  </button>
+                </div>
+                {([['larg', 'broad'], ['local', 'geo'], ['entități', 'entity'], ['brand', 'brand']] as const).map(([label, key]) => {
+                  const list = copy.hashtag_tiers[key]
+                  return list.length ? (
+                    <p key={key} className="font-sans text-[12px] text-white/70">
+                      <span className="text-white/35 inline-block w-16">{label}:</span> {list.join(' ')}
+                    </p>
+                  ) : null
+                })}
+              </div>
+
+              {/* Per-platform copy */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <CopyCard title="Facebook" accent="#1877F2"
                   blocks={[
-                    { key: 'fb-post', label: 'Postare', text: copy.facebook?.post },
-                    { key: 'fb-comment', label: 'Primul comentariu (link)', text: copy.facebook?.first_comment },
-                    { key: 'fb-tags', label: 'Hashtag-uri', text: (copy.facebook?.hashtags || []).join(' ') },
+                    { key: 'fb-post', label: 'Postare', text: copy.platforms.facebook.post },
+                    { key: 'fb-comment', label: 'Primul comentariu (link)', text: fbFirstComment },
+                    { key: 'fb-tags', label: 'Hashtag-uri', text: copy.platforms.facebook.hashtags.join(' ') },
                   ]}
                   copiedKey={copiedKey} onCopy={copyToClipboard} />
 
                 <CopyCard title="Instagram — Feed" accent="#E1306C"
                   blocks={[
-                    { key: 'ig-cap', label: 'Descriere', text: copy.instagram_feed?.caption },
-                    { key: 'ig-tags', label: 'Hashtag-uri', text: (copy.instagram_feed?.hashtags || []).join(' ') },
+                    { key: 'ig-cap', label: 'Descriere', text: copy.platforms.instagram_feed.caption },
+                    { key: 'ig-alt', label: 'Text alternativ (alt)', text: copy.platforms.instagram_feed.alt_text },
+                    { key: 'ig-cover', label: 'Text pe copertă', text: copy.platforms.instagram_feed.cover_text },
+                    { key: 'ig-tags', label: 'Hashtag-uri (primul comentariu)', text: copy.platforms.instagram_feed.first_comment_hashtags },
                   ]}
                   copiedKey={copiedKey} onCopy={copyToClipboard} />
 
                 <CopyCard title="Instagram — Story" accent="#F0A500"
                   blocks={[
-                    { key: 'igs', label: 'Text (lângă sticker-ul de link)', text: copy.instagram_story?.text },
-                    { key: 'igs-link', label: 'Link pentru sticker', text: copy.url },
+                    { key: 'igs', label: 'Text (lângă sticker-ul de link)', text: copy.platforms.instagram_story.text },
+                    { key: 'igs-link', label: 'Link pentru sticker', text: linkFor('instagram') },
                   ]}
                   copiedKey={copiedKey} onCopy={copyToClipboard} />
 
-                <CopyCard title="X / Twitter" accent="#000000"
+                <CopyCard title="X / Twitter" accent="#7A7A7A"
                   blocks={[
-                    { key: 'x', label: `Tweet + link (${(copy.x?.post || '').length + 1 + (copy.url?.length || 0)} car.)`,
-                      text: copy.x?.post ? `${copy.x.post}\n${copy.url}` : copy.url },
+                    { key: 'x', label: `Tweet + link (${(copy.platforms.x.post || '').length + 1 + (linkFor('x')?.length || 0)} car.)`,
+                      text: copy.platforms.x.post ? `${copy.platforms.x.post} ${linkFor('x')}` : linkFor('x') },
+                    { key: 'x-tags', label: 'Hashtag-uri', text: copy.platforms.x.hashtags.join(' ') },
                   ]}
                   copiedKey={copiedKey} onCopy={copyToClipboard} />
 
                 <CopyCard title="LinkedIn" accent="#0A66C2"
                   blocks={[
-                    { key: 'li', label: 'Postare', text: copy.linkedin?.post ? `${copy.linkedin.post}\n\n${copy.url}` : copy.url },
-                    { key: 'li-tags', label: 'Hashtag-uri', text: (copy.linkedin?.hashtags || []).join(' ') },
+                    { key: 'li', label: 'Postare', text: copy.platforms.linkedin.post ? `${copy.platforms.linkedin.post}\n\n${linkFor('linkedin')}` : linkFor('linkedin') },
+                    { key: 'li-tags', label: 'Hashtag-uri', text: copy.platforms.linkedin.hashtags.join(' ') },
                   ]}
                   copiedKey={copiedKey} onCopy={copyToClipboard} />
+              </div>
+
+              {/* ── PUBLICARE DIRECTĂ ─────────────────────────────────────── */}
+              <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Share2 className="w-4 h-4 text-brand-red" />
+                  <h3 className="font-sans text-[12px] font-bold uppercase tracking-widest text-white">Publicare directă</h3>
+                </div>
+                <p className="font-sans text-[11px] text-white/40 -mt-1">
+                  Postează cardul generat + textul de mai sus. Facebook și Instagram folosesc cardul ca imagine (linkul stă în primul comentariu la Facebook); X și LinkedIn primesc cardul + linkul cu etichetă {variant === 'hookA' ? 'A' : 'B'}. Se scrie o intrare în social_posts.
+                </p>
+                {!imageData && (
+                  <p className="font-sans text-[11px] text-[#F0A500]">⚠ Generează întâi imaginea (butonul „Generează imagine”).</p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {PLATFORMS.map(pl => {
+                    const configured = pub ? pub[pl.key] : null
+                    const busy = pubBusy === pl.key
+                    return (
+                      <button key={pl.key} onClick={() => publishTo(pl.key)}
+                        disabled={busy || !!pubBusy || !imageData || !copy || configured === false}
+                        className="flex items-center justify-center gap-2 py-3 border border-white/10 bg-[#111] text-white font-sans text-[12px] font-bold hover:border-brand-red/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <span className="w-2.5 h-2.5 rounded-full" style={{ background: pl.dot }} />}
+                        {pl.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="space-y-1.5">
+                  {PLATFORMS.map(pl => {
+                    const configured = pub ? pub[pl.key] : null
+                    const msg = pubMsg[pl.key]
+                    if (configured === false) {
+                      return <p key={pl.key} className="font-sans text-[11px] text-white/30">{pl.label}: neconfigurat — adaugă cheile în secretele Supabase.</p>
+                    }
+                    if (!msg) return null
+                    const ok = msg.startsWith('✓')
+                    const linkMatch = msg.match(/https?:\/\/\S+/)
+                    return (
+                      <p key={pl.key} className={'font-sans text-[11.5px] break-all ' + (ok ? 'text-green-400' : msg.startsWith('✗') ? 'text-[#f3b4bb]' : 'text-white/55')}>
+                        <span className="text-white/40">{pl.label}:</span>{' '}
+                        {linkMatch
+                          ? <>{msg.slice(0, linkMatch.index)}<a href={linkMatch[0]} target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-1">{linkMatch[0]} <ExternalLink className="w-3 h-3" /></a></>
+                          : msg}
+                      </p>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           )}
