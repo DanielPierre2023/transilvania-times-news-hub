@@ -67,3 +67,64 @@ jobs:
           # GitHub Actions secret rather than hardcoding it in this file.
           NEXT_PUBLIC_SUPABASE_URL: 'https://placeholder.supabase.co'
           NEXT_PUBLIC_SUPABASE_ANON_KEY: 'placeholder'
+
+  # ── THE STUDIO SUITES ──────────────────────────────────────────────────
+  #
+  # 345 assertions across 16 suites existed for weeks and ran only when a human
+  # typed their names. Every regression they closed could reopen in silence, and
+  # several nearly did: a pan that put 21.6 px of black down one edge, a caption
+  # painter forty per cent out between preview and file, a karaoke mode that
+  # existed only on screen. Tests nobody runs are documentation.
+  #
+  # This job is deliberately separate from `build`. It needs ffmpeg and the
+  # node-canvas build chain, which take a couple of minutes to install, and a
+  # broken lockfile should still fail in seconds rather than after that install.
+  studio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ffmpeg does the encoding, the audio graph and the loudness measurement.
+      # The rest are node-canvas's build dependencies — the same list the
+      # worker's Dockerfile installs, kept in step with it on purpose.
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev \
+            librsvg2-dev pkg-config fonts-dejavu-core fonts-liberation2 \
+            fonts-ebgaramond fonts-inter
+          fc-cache -f > /dev/null
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The worker's own dependencies — node-canvas is compiled here, which is
+      # why the system packages above have to land first.
+      - name: Worker dependencies
+        working-directory: render-worker
+        run: npm install --no-audit --no-fund
+
+      # The suites read render-worker/dist/timeline, which is compiled from
+      # lib/timeline. Building it here is also a check in its own right: if the
+      # shared module stops compiling under the worker's stricter settings, CI
+      # says so before Railway does.
+      - name: Build the shared timeline
+        working-directory: render-worker
+        run: npm run build:timeline
+
+      # --strict turns "skipped because a dependency is missing" into a failure.
+      # On this runner everything is installed, so a skip here would mean the
+      # install step silently did not work — which must not pass quietly.
+      # doctor + lint + golden frames. Separate from the suites so a drawing
+      # regression is reported as one, rather than buried in an assertion count.
+      - name: Doctor, lint and golden frames
+        run: node tools/tt.cjs check
+
+      - name: Studio verification suites
+        run: node _verification/run-all.cjs --strict
