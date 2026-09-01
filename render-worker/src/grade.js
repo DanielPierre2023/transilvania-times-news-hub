@@ -40,6 +40,7 @@ const { FFMPEG } = require('./sources')
 // required by the worker and imported by the page.
 const {
   LUMA, LOOKS, normaliseLook, planGains, planShotGains, gradeResidual: residual, lutExpr,
+  saturationMixer,
   meanLinearFromRGBA,
 } = require('./timeline')
 
@@ -130,12 +131,23 @@ async function gradeFilm(input, output, shots, opts = {}) {
       // the final frames ungraded.
       const until = i === shots.length - 1 ? 1e9 : end
       stages.push(
-        `lutrgb=r='${lutExpr(gains[0])}':g='${lutExpr(gains[1])}':b='${lutExpr(gains[2])}'` +
+        // CONTRAST IS FOLDED INTO THE SAME PER-CHANNEL FUNCTION as the gain.
+        // It used to be a trailing `eq=contrast=`, which works in YUV and has
+        // no exact equivalent in a browser filter — so the render was
+        // measurably punchier than the preview the editor approved, on every
+        // film. Folded here it is a slope and an intercept, which is precisely
+        // what feComponentTransfer takes.
+        `lutrgb=r='${lutExpr(gains[0], con)}':g='${lutExpr(gains[1], con)}':b='${lutExpr(gains[2], con)}'` +
         `:enable='between(t,${start.toFixed(3)},${until})'`,
       )
     }
 
-    const chain = `[0:v]${stages.join(',')},eq=saturation=${sat}:contrast=${con}[vout]`
+    // Saturation as an EXPLICIT matrix rather than `eq=saturation`. ffmpeg's eq
+    // works in YUV with its own weights; SVG's feColorMatrix uses Rec.709 in
+    // sRGB. Writing the matrix out means both sides evaluate the same numbers
+    // in the same space, in the same order — after the per-channel pass.
+    const satStage = Math.abs(sat - 1) < 1e-6 ? '' : `,${saturationMixer(sat)}`
+    const chain = `[0:v]${stages.join(',')}${satStage}[vout]`
 
     await run(['-v', 'error', '-y', '-i', input, '-filter_complex', chain,
       '-map', '[vout]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '17',

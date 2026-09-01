@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { Save, Globe, ArrowLeft, Wand2, Upload, X, Loader2, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
-import { autoShareToFacebook } from '@/lib/social/share'
+import { autoShareOnPublish as runAutoShare, shareFlash } from '@/lib/social/share'
 
 const CATEGORIES = [
   'news', 'politics', 'technology', 'business',
@@ -232,27 +232,25 @@ export default function ArticleEditor({ articleId, autoShareOnPublish }: Article
       await fetch(`/api/revalidate?slug=${finalSlug}`, { method: 'POST' })
     }
 
-    // ── Auto-post to Facebook on publish (fully hands-off) ────────────────────
-    // Non-blocking: the article is already published; a Facebook failure only
-    // changes the flash, never the publish. Skipped when the article is flagged
-    // "nu posta pe Facebook", already posted (dedupe lives inside
-    // autoShareToFacebook), or auto-share isn't enabled for this editor context.
-    let fbNote = ''
+    // ── Auto-post to social on publish (fully hands-off, multi-platform) ──────
+    // Non-blocking: the article is already published; a social failure only
+    // changes the flash, never the publish. Fans out to every *configured*
+    // network (Facebook now; Instagram + LinkedIn light up when their secrets
+    // land). The per-article opt-out + per-platform dedupe live inside
+    // runAutoShare; this editor context gates it with autoShareOnPublish.
+    let socialNote = ''
     if (isPublish && autoShareOnPublish && !payload.skip_facebook && savedId) {
-      flash('✓ Publicat. Postez pe Facebook…')
+      flash('✓ Publicat. Postez pe rețele sociale…')
       try {
-        const res = await autoShareToFacebook(supabase, savedId)
-        if (res.ok && !res.skipped) fbNote = ' · postat pe Facebook'
-        else if (res.skipped) fbNote = ` · Facebook: ${res.reason || 'sărit'}`
-        else fbNote = ` · ⚠ Facebook: ${res.error || 'a eșuat'}`
+        socialNote = shareFlash(await runAutoShare(supabase, savedId))
       } catch (e) {
-        fbNote = ` · ⚠ Facebook: ${(e as Error).message}`
+        socialNote = ` · ⚠ rețele: ${(e as Error).message}`
       }
     }
 
     if (createdId) router.replace(`/admin/articles/${createdId}/edit`)
     setSaving(false)
-    flash((newStatus === 'published' ? '✓ Publicat și live' : '✓ Salvat') + fbNote)
+    flash((newStatus === 'published' ? '✓ Publicat și live' : '✓ Salvat') + socialNote)
   }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -647,7 +645,7 @@ if (!result?.ok) {
             {autoShareOnPublish && (
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={data.skip_facebook} onChange={e => set('skip_facebook', e.target.checked)} className="accent-brand-red w-4 h-4" />
-                <span className="font-sans text-[12px] text-white/60">🚫 Nu posta pe Facebook</span>
+                <span className="font-sans text-[12px] text-white/60">🚫 Nu posta pe rețele sociale (FB / Instagram / LinkedIn)</span>
               </label>
             )}
           </div>

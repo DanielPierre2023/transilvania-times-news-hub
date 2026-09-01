@@ -93,8 +93,26 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
   ok('the filter interpolates in linear light — this is the whole equivalence',
     /color-interpolation-filters="linearRGB"/.test(svg))
   ok('each channel is a linear slope', (svg.match(/type="linear"/g) || []).length === 3)
-  ok('the slopes ARE the gains',
-    gains.every(g => svg.includes(`slope="${g.toFixed(5)}"`)), svg)
+  // ASSERTED NUMERICALLY, NOT AS A STRING. This used to compare
+  // `slope="0.94235"` literally, and went red when the filter gained a contrast
+  // term and one more decimal place — a failure about formatting, against
+  // arithmetic that had not changed. What matters is that the slope IS the gain.
+  ok('the slopes ARE the gains, at whatever precision they are printed', (() => {
+    const slopes = [...svg.matchAll(/slope="([\d.]+)"/g)].map(m => Number(m[1]))
+    return slopes.length === 3 && slopes.every((v, i) => Math.abs(v - gains[i]) < 1e-4)
+  })(), svg)
+  ok('with no contrast asked for, the intercept is zero — a pure gain', (() => {
+    const ints = [...svg.matchAll(/intercept="([-\d.]+)"/g)].map(m => Number(m[1]))
+    return ints.length === 0 || ints.every(v => Math.abs(v) < 1e-9)
+  })(), svg)
+  ok('CONTRAST FOLDS INTO THE SAME SLOPE, which is what keeps the two engines ' +
+     'exactly equal rather than approximately equal', (() => {
+      const withC = T.svgGradeFilter(gains, 'g2', 1.25)
+      const slopes = [...withC.matchAll(/slope="([\d.]+)"/g)].map(m => Number(m[1]))
+      const ints = [...withC.matchAll(/intercept="([-\d.]+)"/g)].map(m => Number(m[1]))
+      return slopes.every((v, i) => Math.abs(v - gains[i] * 1.25) < 1e-4) &&
+             ints.every(v => Math.abs(v - 0.18 * (1 - 1.25)) < 1e-6)
+    })())
 
 }
 
@@ -167,7 +185,11 @@ function runPreviewChecks() {
   ok('...at the same 240px the worker uses', /const w = 240/.test(src))
   ok('...caching per url, look, strength and trim — a shot override is part of the key',
     /\$\{url\}\|\$\{look\}\|\$\{shot\?\.strength \?\? spec\.strength\}\|\$\{temp\}\|\$\{tint\}/.test(src))
-  ok('the canvas filter is the SVG filter', /svgGradeFilter\(gains, ID\)/.test(src))
+  ok('the canvas filter is the SVG filter', /svgGradeFilter\(gains, key/.test(src))
+  ok('AND IT CARRIES THE FILM CONTRAST AND SATURATION. It did not: the worker ' +
+     'applied them at a hard-coded 1.04/1.06 and the preview ignored both, so ' +
+     'every film rendered punchier than the picture that was approved.',
+    /gradeFilterUrl\(gains, kit\.grade\.contrast \?\? 1\.04, kit\.grade\.saturation \?\? 1\.06\)/.test(src))
   ok('...installed once, not per frame', /getElementById\(ID \+ '-host'\)/.test(src))
   ok('the picture and the type are drawn in two passes',
     /filter: o => o\.z < GRAPHICS_Z/.test(src) && /filter: o => o\.z >= GRAPHICS_Z/.test(src))

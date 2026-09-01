@@ -127,6 +127,41 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
     /image_urls: spec\.referenceUrls/.test(prod))
   ok('...and the generated shot can be kept', /Adaugă la referințe/.test(prod))
   ok('...or promoted to the fixed frame', /Fă-l cadrul fix/.test(prod))
+  ok('AN AVATAR CAN BE DELETED — found by testing the live environment, where a ' +
+     'test avatar could be created and never removed',
+    /from\('studio_avatars'\)\.delete\(\)/.test(prod))
+  ok('...and it asks first', /confirm\(/.test(prod))
+}
+
+// ── the grade style, and the divergence it closes ────────────────────────
+{
+  ok('THE PREVIEW PASSES CONTRAST AND SATURATION — it ignored both while the ' +
+     'worker applied them at a hard-coded 1.04/1.06, so every film rendered ' +
+     'punchier than the one that was approved',
+    /gradeFilterUrl\(gains, kit\.grade\.contrast/.test(studio))
+  ok('...and the filter is rebuilt when they change, not reused under the old id',
+    /\$\{ID\}-\$\{contrast\.toFixed/.test(studio))
+  ok('THERE IS A STYLE SELECTOR, so those are decisions rather than constants',
+    /GRADE_STYLES\[e\.target\.value as GradeStyleName\]/.test(studio))
+  ok('...showing which style is currently in force', /styleOf\(kit\.grade\.contrast/.test(studio))
+  ok('...and the actual numbers beside it', /kit\.grade\.saturation \?\? 1\.06/.test(studio))
+}
+
+// ── cutting to speech ────────────────────────────────────────────────────
+{
+  ok('THE CUTS CAN BE CHECKED AGAINST THE SPEECH', /syncToSpeech\(false\)/.test(studio))
+  ok('...and moved onto phrase boundaries', /syncToSpeech\(true\)/.test(studio))
+  ok('...using the shared aligner, not a second implementation',
+    /alignCutsToSpeech\(durations, words/.test(studio))
+  ok('THE PROBLEMS ARE SHOWN, not just fixed silently', /syncIssues\.slice\(0, 6\)/.test(studio))
+  ok('...and a clean film says so', /cade pe o margine de frază/.test(studio))
+  ok('THE SCRIPT CAN BE SHAPED SO THE VOICE BREATHES AT THE CUTS — pauses land ' +
+     'only between paragraphs, so a one-block script reads through every cut',
+    /shapeScriptForShots/.test(studio) && /splitScriptForShots\(script/.test(studio))
+  ok('...and it tells you to regenerate the voice, which is what actually ' +
+     'applies the pauses', /Regenerează vocea/.test(studio))
+  ok('sync is refused without word timings rather than guessing',
+    /Aliniază întâi subtitrările/.test(studio))
 }
 
 // ── templates and campaigns ──────────────────────────────────────────────

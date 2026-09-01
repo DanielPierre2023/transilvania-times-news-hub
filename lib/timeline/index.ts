@@ -69,9 +69,14 @@ export {
 } from './masters'
 
 export {
+  CONTRAST_PIVOT,
+  GRADE_STYLES,
   LOOKS,
   LUMA,
+  LUMA_709,
   applyGains,
+  saturationMixer,
+  styleOf,
   linearToSrgb,
   lutExpr,
   meanLinearFromRGBA,
@@ -117,6 +122,11 @@ export {
   DEFAULT_FILLERS, SYNC_CONFIDENCE_MIN, WHISPER_MAX_BYTES, alignOffset, chapters, findClips,
   planChunks, planTighten, retime, secondsRemoved, sentences, speakerCuts, stitch,
 } from './podcast'
+
+/** Cutting to speech, and shaping a script so the voice breathes at the cuts. */
+export {
+  MOVE_CAP_SECONDS, MOVE_FRACTION, alignCutsToSpeech, phrases as speechPhrases, scriptForShots, splitScriptForShots, syncReport,
+} from './sync'
 
 /** Speed ramps. The source offset is the INTEGRAL of the rate curve — see speed.ts. */
 export {

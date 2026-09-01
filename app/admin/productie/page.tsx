@@ -758,11 +758,32 @@ export default function ProductiePage() {
                   )}
                 </div>
 
-                <button onClick={() => saveAvatar(avatar)} disabled={busy === 'avatar'}
-                  className="justify-self-start flex items-center gap-2 px-4 py-2 text-[12px] font-bold bg-brand-red text-white disabled:opacity-50">
-                  {busy === 'avatar' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  Salvează avatarul
-                </button>
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={() => saveAvatar(avatar)} disabled={busy === 'avatar'}
+                    className="flex items-center gap-2 px-4 py-2 text-[12px] font-bold bg-brand-red text-white disabled:opacity-50">
+                    {busy === 'avatar' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Salvează avatarul
+                  </button>
+                  {/* THERE WAS NO WAY TO REMOVE ONE. Found by testing the live
+                      environment: a test avatar was created and could not be
+                      deleted from the interface. A library you can only add to
+                      fills up with mistakes. */}
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Ștergi „${avatar.name}”? Filmele deja randate nu se schimbă.`)) return
+                      setBusy('avatar'); setError('')
+                      try {
+                        const { error: e } = await db.from('studio_avatars').delete().eq('id', avatar.id)
+                        if (e) throw new Error(e.message)
+                        setAvatars(l => l.filter(x => x.id !== avatar.id))
+                        setAvId('')
+                      } catch (err) { setError((err as Error).message) } finally { setBusy('') }
+                    }}
+                    title="Șterge avatarul din bibliotecă. Filmele randate cu el rămân neatinse."
+                    className="flex items-center gap-2 px-3 py-2 text-[12px] border border-red-500/40 text-red-300/90 disabled:opacity-50">
+                    <Trash2 className="w-4 h-4" /> Șterge
+                  </button>
+                </div>
               </div>
             </Panel>
           )}

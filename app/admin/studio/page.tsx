@@ -35,19 +35,25 @@ import {
 import { describeLimitations, estimateCostUsd, readJobId, readJobStatus, toShotstackEdit } from '@/lib/timeline/render-spec'
 import { framesToSeconds, formatTimecode } from '@/lib/timeline/time'
 import { FPS } from '@/lib/timeline/time'
-import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
+import { validate } from '@/lib/timeline/document'
 import { compileFrame } from '@/lib/timeline/compile'
 import { ASPECT_PRESETS, otherAspects, retarget } from '@/lib/timeline/retarget'
 import { foreignObjectSvg, frameUrlAt, lintHtml, stampOf } from '@/lib/timeline/html'
 import { buildStoryboard, toMarkdown as storyboardMarkdown } from '@/lib/timeline/storyboard'
 import { AUDIO_PRESETS, describeChain } from '@/lib/timeline/audio'
-import { TRANSITIONS, applyTransitions, framesLostTo, type TransitionKind, type TransitionSpec } from '@/lib/timeline/transitions'
+import { TRANSITIONS, framesLostTo, type TransitionKind } from '@/lib/timeline/transitions'
 import { analyseBeats, cutsFromDurations, durationsFromCuts, snapToBeats, type BeatAnalysis } from '@/lib/timeline/beats'
+import {
+  alignCutsToSpeech, scriptForShots, splitScriptForShots, syncReport, type TimedWord,
+} from '@/lib/timeline/sync'
 import { buildProjectTimeline, type SavedProject } from '@/lib/timeline/project'
 import { overlayClipsFor } from '@/lib/brand/overlays'
 import { MASTERS, TIER_LABEL, TIER_ORDER, describeDelivery, type MasterTier } from '@/lib/timeline/masters'
 import { SPEED_PRESETS } from '@/lib/timeline/speed'
-import { meanLinearFromRGBA, planShotGains, svgGradeFilter, type ShotGrade } from '@/lib/timeline/grade'
+import {
+  GRADE_STYLES, meanLinearFromRGBA, planShotGains, styleOf, svgGradeFilter,
+  type GradeStyleName, type ShotGrade,
+} from '@/lib/timeline/grade'
 import {
   DEFAULT_PROMPTS, mergePrompts, motionPrompt as buildMotionPrompt,
   negativePrompt as buildNegativePrompt, partText, type PromptSet, type SceneLook,
@@ -55,13 +61,12 @@ import {
 import { GRAPHICS_Z } from '@/lib/timeline/compile'
 import type { DrawOp } from '@/lib/timeline/compile'
 import { drawFrame as drawCompiled } from '@/lib/timeline/draw'
-import type { Timeline, Clip, TextStyle } from '@/lib/timeline/types'
+import type { Timeline, Clip } from '@/lib/timeline/types'
 // tt-brand — the kit and the typography it dictates.
 import {
   KITS, SAFE_AREAS, TT_KIT, captionStyle, captionY, resolveKit, safeBox,
   type BrandKit, type SafeAreaName,
 } from '@/lib/brand/kit'
-import { endCard, lowerThird, titleCard, wordmark } from '@/lib/brand/templates'
 import {
   Clapperboard, ImagePlus, Upload, Mic, Captions, Music, Film,
   Sparkles, Loader2, Play, Square, Trash2, ArrowUp, ArrowDown, Download, AlertCircle, Wand2,
@@ -361,6 +366,8 @@ export default function StudioPage() {
   // the still; too high and the motion goes stiff.
   const [cfgScale, setCfgScale] = useState(0.5)
   const [syncEngine, setSyncEngine] = useState('latentsync')
+  const [syncIssues, setSyncIssues] = useState<ReturnType<typeof syncReport>>([])
+  const [syncPlan, setSyncPlan] = useState<ReturnType<typeof alignCutsToSpeech> | null>(null)
   const [voUrl, setVoUrl] = useState('')
   const [voDur, setVoDur] = useState(0)
   // The script the CURRENT voice was read from, and the voice the CURRENT
@@ -552,6 +559,52 @@ export default function StudioPage() {
    * is no longer the cut anyone chose, and the music serves the film rather than
    * the other way round.
    */
+  /**
+   * Cut to the SPEECH, not to the clock.
+   *
+   * A film of equal shots cuts on a metronome; the voice does not speak on one,
+   * so the cuts land mid-phrase — the eye moves before the ear does, and the
+   * film feels wrong in a way nobody can name. This is the single most common
+   * reason an assembled film reads as assembled.
+   *
+   * It needs word timings, which means the voice must have been aligned. It
+   * changes only durations, so nothing is regenerated and it is reversible with
+   * one undo.
+   */
+  function syncToSpeech(apply: boolean) {
+    if (!words.length) {
+      setError('Aliniază întâi subtitrările — sincronizarea are nevoie de marcajele de timp ale cuvintelor.')
+      return
+    }
+    const durations = scenes.map(sc => sc.duration)
+    const plan = alignCutsToSpeech(durations, words as TimedWord[])
+    const issues = syncReport(durations, words as TimedWord[])
+    setSyncIssues(issues)
+    setSyncPlan(plan)
+    if (!apply) return
+    mark('sincronizare')
+    setScenes(l => l.map((sc, i) => ({ ...sc, duration: Number(plan.durations[i].toFixed(3)) })))
+    setSyncIssues(syncReport(plan.durations, words as TimedWord[]))
+  }
+
+  /**
+   * Rewrite the script so the voice BREATHES where the film cuts.
+   *
+   * `generate-voiceover` inserts a real pause between paragraphs — blank-line
+   * separated — and nowhere else, deliberately, because many breaks in one
+   * generation destabilise the voice. So a script handed over as one block reads
+   * straight through every cut in the film. One paragraph per shot is the whole
+   * technique, and it costs one voice regeneration.
+   */
+  function shapeScriptForShots() {
+    const lines = splitScriptForShots(script, Math.max(1, scenes.length))
+    const shaped = scriptForShots(lines, { pauseMs: 450 })
+    mark('text pe planuri')
+    setScript(shaped.script)
+    setError(`Textul a fost împărțit în ${shaped.paragraphs} paragrafe, unul pe plan. ` +
+      `Regenerează vocea cu pauză de ${shaped.pauseMs} ms ca să respire la tăieturi.`)
+  }
+
   async function findBeats(snap: boolean) {
     if (!musicUrl) { setError('Încarcă întâi un track.'); return }
     setError(''); setBusy('beats')
@@ -1670,7 +1723,7 @@ export default function StudioPage() {
    * would leak one node per drawn frame; reusing a single node and rewriting its
    * three slopes costs nothing and keeps the DOM at one element.
    */
-  const gradeFilterUrl = useCallback((gains: number[]): string => {
+  const gradeFilterUrl = useCallback((gains: number[], contrast = 1, saturation = 1): string => {
     const ID = 'tt-grade-preview'
     let host = document.getElementById(ID + '-host') as HTMLElement | null
     if (!host) {
@@ -1680,8 +1733,18 @@ export default function StudioPage() {
       host.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden'
       document.body.appendChild(host)
     }
-    host.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0">${svgGradeFilter(gains, ID)}</svg>`
-    return `url(#${ID})`
+    // CONTRAST AND SATURATION BELONG HERE TOO.
+    //
+    // They were on GradeSpec, the worker applied them at a hard-coded 1.04/1.06,
+    // and this filter ignored them — so every film rendered measurably punchier
+    // than the picture that was approved, on every frame, and the only way to
+    // see it was to put the preview and the file side by side. The id carries
+    // the values so a style change rebuilds the filter instead of reusing the
+    // old one under the same name.
+    const key = `${ID}-${contrast.toFixed(3)}-${saturation.toFixed(3)}`
+    host.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0">${
+      svgGradeFilter(gains, key, contrast, saturation)}</svg>`
+    return `url(#${key})`
   }, [])
 
   const gainsFor = useCallback((url: string, shot?: ShotGrade | null): number[] | null => {
@@ -1790,7 +1853,7 @@ export default function StudioPage() {
 
       if (gains) {
         ctx.save()
-        ctx.filter = gradeFilterUrl(gains)
+        ctx.filter = gradeFilterUrl(gains, kit.grade.contrast ?? 1.04, kit.grade.saturation ?? 1.06)
         drawCompiled(Ctx, frame, W, H, resolveMedia, { filter: o => o.z < GRAPHICS_Z })
         ctx.restore()
         drawCompiled(Ctx, frame, W, H, resolveMedia, { clear: false, filter: o => o.z >= GRAPHICS_Z })
@@ -2416,6 +2479,25 @@ export default function StudioPage() {
                   <option value="topLeft">sus-stânga</option>
                   <option value="bottomLeft">jos-stânga</option>
                 </select>
+                {/* THE STYLE. Contrast and saturation were already on the kit
+                    and already applied by the worker at a hard-coded 1.04/1.06,
+                    with the preview ignoring them — so every film rendered
+                    punchier than the one that was approved. Named styles make
+                    that a decision instead of a constant. */}
+                <span className="text-[10px] uppercase tracking-wider text-white/25">stil</span>
+                <select
+                  value={styleOf(kit.grade.contrast, kit.grade.saturation)}
+                  onChange={e => { const st = GRADE_STYLES[e.target.value as GradeStyleName]
+                    setKit(k => ({ ...k, grade: { ...k.grade, contrast: st.contrast, saturation: st.saturation } })) }}
+                  title={GRADE_STYLES[styleOf(kit.grade.contrast, kit.grade.saturation)].note}
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {(Object.keys(GRADE_STYLES) as GradeStyleName[]).map(k => (
+                    <option key={k} value={k}>{GRADE_STYLES[k].label}</option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-white/25 tabular-nums">
+                  c {(kit.grade.contrast ?? 1.04).toFixed(2)} · s {(kit.grade.saturation ?? 1.06).toFixed(2)}
+                </span>
                 <span className="text-[10px] uppercase tracking-wider text-white/25">mix</span>
                 <select value={kit.loudness} onChange={e => setKit(k => ({ ...k, loudness: e.target.value as BrandKit['loudness'] }))}
                   title="Ținta de normalizare EBU R128. −16 LUFS pentru social, −23 pentru difuzare."
@@ -3232,6 +3314,46 @@ export default function StudioPage() {
                   className="text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10 disabled:opacity-30">
                   taie pe ritm
                 </button>
+                <span className="w-px h-4 bg-white/10 mx-1" />
+                <button onClick={() => syncToSpeech(false)} disabled={!words.length}
+                  title="Măsoară unde tăieturile cad peste vorbire. Nu mută nimic."
+                  className="text-[11px] px-2 py-1 border border-white/10 text-white/60 hover:bg-white/5 disabled:opacity-30">
+                  verifică sincronul
+                </button>
+                <button onClick={() => syncToSpeech(true)} disabled={!words.length || scenes.length < 2}
+                  title="Mută tăieturile pe marginile frazelor. Bugetul de mutare e 40% din durata planului, maxim 1.5s — o tăietură care ar trebui trasă mai mult nu era aproape corectă, iar trasul distruge un ritm pe care l-ai ales."
+                  className="text-[11px] font-bold px-2 py-1 border border-sky-500/40 text-sky-300/90 hover:bg-sky-500/10 disabled:opacity-30">
+                  taie pe vorbire
+                </button>
+                <button onClick={shapeScriptForShots} disabled={!script.trim() || scenes.length < 2}
+                  title="Împarte textul în paragrafe, unul pe plan, ca vocea să respire exact la tăieturi. Pauzele se pun DOAR între paragrafe — un text dintr-o bucată citește peste toate tăieturile."
+                  className="text-[11px] px-2 py-1 border border-white/10 text-white/60 hover:bg-white/5 disabled:opacity-30">
+                  text pe planuri
+                </button>
+                {syncPlan && (
+                  <span className="text-[11px] text-sky-300/70 font-mono">
+                    {syncPlan.moves.filter(m => Math.abs(m.movedBy) > 0.01).length} tăieturi mutate ·
+                    {' '}{syncPlan.seconds.toFixed(1)}s
+                  </span>
+                )}
+                {syncIssues.length > 0 && (
+                  <span className="basis-full grid gap-0.5 mt-1">
+                    {syncIssues.slice(0, 6).map((i, n) => (
+                      <span key={n} className={`text-[11px] ${
+                        i.kind === 'midWord' ? 'text-red-300/85' : 'text-amber-200/75'}`}>
+                        {i.message}
+                      </span>
+                    ))}
+                    {syncIssues.length > 6 && (
+                      <span className="text-[11px] text-white/30">+{syncIssues.length - 6} altele</span>
+                    )}
+                  </span>
+                )}
+                {syncPlan && syncIssues.length === 0 && (
+                  <span className="basis-full text-[11px] text-emerald-300/70 mt-1">
+                    Fiecare tăietură cade pe o margine de frază.
+                  </span>
+                )}
                 {beats && (
                   <span className="text-[11px] text-white/45 font-mono">
                     {beats.bpm ? `${beats.bpm.toFixed(1)} BPM · ${beats.beats.length} bătăi · încredere ${Math.round(beats.confidence * 100)}%` : 'fără ritm clar'}

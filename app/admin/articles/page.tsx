@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import Link from 'next/link'
 import { Plus, Search, Eye, Edit, Trash2, Globe, EyeOff, Image as ImageIcon } from 'lucide-react'
-import { autoShareToFacebook } from '@/lib/social/share'
+import { autoShareOnPublish } from '@/lib/social/share'
 
 interface Article {
   id: string
@@ -79,10 +79,11 @@ export default function ArticlesPage() {
     // Trigger ISR revalidation
     if (newStatus === 'published') {
       fetch(`/api/revalidate?slug=${article.slug}`, { method: 'POST' })
-      // Auto-post to Facebook (fully hands-off). Dedupe + the per-article
-      // "nu posta pe Facebook" opt-out are enforced inside autoShareToFacebook,
-      // so re-publishing never double-posts. Fire-and-forget: never blocks the list.
-      autoShareToFacebook(supabase, article.id).catch(() => {})
+      // Auto-post to every configured network (fully hands-off). Dedupe + the
+      // per-article "nu posta pe rețele sociale" opt-out are enforced inside
+      // autoShareOnPublish, so re-publishing never double-posts. Fire-and-forget:
+      // never blocks the list.
+      autoShareOnPublish(supabase, article.id).catch(() => {})
     }
     load()
   }
