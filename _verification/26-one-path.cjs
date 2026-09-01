@@ -28,7 +28,12 @@ const painter = (src.match(/function drawFrame\(ctx: CanvasRenderingContext2D[\s
   ok('the preview compiles a timeline', /compileFrame\(filmTl, f\)/.test(painter))
   ok('...and draws it with the shared drawer', /drawCompiled\(/.test(painter))
   ok('the picture is no longer painted by hand', !/drawImage/.test(painter))
+  // Still true after per-shot colour was added, and it took work to keep it
+  // true: the override rides on the compiled op rather than being looked up in
+  // the editor's scene list, because a painter that reaches back into the editor
+  // is the coupling this whole suite exists to prevent.
   ok('the painter no longer knows what a scene is', !/scene/i.test(painter.replace(/nu apare în film/g, '')))
+  ok('...and reads a shot override off the op instead', /pic\.grade \?\? null/.test(src))
   ok('the second camera is gone', !/kenBurns|evalNumber|evalPoint|fitRect/.test(painter))
   ok('only the guides are drawn outside the compiled frame',
     /guides && showSafe/.test(painter))
@@ -57,8 +62,8 @@ const painter = (src.match(/function drawFrame\(ctx: CanvasRenderingContext2D[\s
   // site before this landed: six scrub positions, five of them with ten
   // non-black pixels out of four thousand, because media was fetched only by
   // preloadAll() when Preview was pressed.
-  ok('a frame that wants a source it has not got fetches it', /pendingMedia\.current\.add\(src\.url\)/.test(src))
-  ok('...exactly once per url', /if \(!pendingMedia\.current\.has\(src\.url\)\)/.test(src))
+  ok('a frame that wants a source it has not got fetches it', /pendingMedia\.current\.add\(wanted\)/.test(src))
+  ok('...exactly once per url', /if \(!pendingMedia\.current\.has\(wanted\)\)/.test(src))
   ok('...and redraws when it lands', /bumpMedia\(n => n \+ 1\)/.test(src))
   ok('...and a dead url does not wedge the painter', /\.catch\(\(\) =>/.test(src) && /finally/.test(src))
   ok('the parked frame redraws on new media', /subScale, mediaTick\]/.test(src))

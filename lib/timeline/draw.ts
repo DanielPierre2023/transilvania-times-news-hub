@@ -287,6 +287,9 @@ export function drawFrame(
     const kind = op.source.kind
     if (kind === 'text') drawText(ctx, op, width, height)
     else if (kind === 'shape') drawShape(ctx, op)
+    // An html block is a bitmap by the time it reaches here — rasterised once,
+    // drawn identically by the preview and the renderer. That is the whole
+    // reason it is not an iframe on one side and headless Chrome on the other.
     else drawBitmap(ctx, op, resolve(op))
 
     ctx.restore()

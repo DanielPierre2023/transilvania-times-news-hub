@@ -70,10 +70,31 @@ export {
   meanLinearFromRGBA,
   normaliseLook,
   planGains,
+  planShotGains,
+  trimGains,
   residual as gradeResidual,
   srgbToLinear,
   svgGradeFilter,
 } from './grade'
+
+export type { HtmlProblem, HtmlSource } from './html'
+export { foreignObjectSvg, frameUrlAt, isStale, lintHtml, stampOf, wrapDocument } from './html'
+
+export type { StoryboardMeta, StoryboardShot } from './storyboard'
+export { buildStoryboard, toMarkdown as storyboardMarkdown } from './storyboard'
+
+export type { ShotGrade } from './grade'
+export type { AudioEffect, AudioEffectKind, GainPoint } from './audio'
+export {
+  AUDIO_PRESETS, compileChain, compileEffect, compileGainAutomation,
+  dbToLinear, describeChain, linearToDb,
+} from './audio'
+
+export type { TransitionKind, TransitionSpec, TransitionResult } from './transitions'
+export { MIN_DISSOLVE, TRANSITIONS, applyTransitions, framesLostTo } from './transitions'
+
+export type { BeatAnalysis } from './beats'
+export { analyseBeats, cutsFromDurations, durationsFromCuts, onsetCurve, snapToBeats } from './beats'
 
 export { GRAPHICS_Z, isGraphic } from './compile'
 export { evalNumber, evalPoint, isCurve, mapAnimatable, ramp } from './animate'

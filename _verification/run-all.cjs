@@ -27,8 +27,8 @@ const only = (process.argv.find(a => a.startsWith('--only=')) || '').slice(7)
 // What each suite needs beyond plain node. Derived by reading the suites, and
 // asserted below so this list cannot drift away from what they actually require.
 const NEEDS = {
-  canvas: ['13-resample', '14-brand', '15-colour', '16-layers', '19-wordmark', '22-captions-parity', '30-grade-parity'],
-  ffmpeg: ['12-inspect', '13-resample', '15-colour', '16-layers', '17-sound', '19-wordmark', '30-grade-parity'],
+  canvas: ['13-resample', '14-brand', '15-colour', '16-layers', '19-wordmark', '22-captions-parity', '30-grade-parity', '32-html-composition', '33-golden', '37-animated-compositions', '38-transitions', '40-shot-grade'],
+  ffmpeg: ['12-inspect', '13-resample', '15-colour', '16-layers', '17-sound', '19-wordmark', '30-grade-parity', '35-audio-chain', '39-beats'],
 }
 
 function have(what) {

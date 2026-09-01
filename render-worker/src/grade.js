@@ -39,7 +39,8 @@ const { FFMPEG } = require('./sources')
 // Same pattern as the timeline module: one implementation, compiled once,
 // required by the worker and imported by the page.
 const {
-  LUMA, LOOKS, normaliseLook, planGains, gradeResidual: residual, lutExpr, meanLinearFromRGBA,
+  LUMA, LOOKS, normaliseLook, planGains, planShotGains, gradeResidual: residual, lutExpr,
+  meanLinearFromRGBA,
 } = require('./timeline')
 
 
@@ -112,7 +113,12 @@ async function gradeFilm(input, output, shots, opts = {}) {
       const mid = start + (end - start) / 2
       const frame = await sampleAt(input, mid, dir, String(i))
       const mean = await measureFrame(frame)
-      const gains = planGains(mean, look, strength)
+      // A SHOT MAY OVERRIDE THE FILM'S LOOK.
+      //
+      // The adaptive grade is right nearly always and wrong exactly when a shot
+      // is meant to sit apart — a memory, a night exterior, a deliberately cold
+      // frame in a warm film. `shots[i].grade` is that shot saying so.
+      const gains = planShotGains(mean, { look, strength }, shots[i].grade)
       const before = residual(mean, [1, 1, 1], look)
       const after = residual(mean, gains, look)
       // A gain pinned to the clamp means the source is beyond rescue: the
@@ -150,4 +156,4 @@ async function gradeFilm(input, output, shots, opts = {}) {
   }
 }
 
-module.exports = { gradeFilm, planGains, measureFrame, residual, lutExpr, LOOKS, normaliseLook }
+module.exports = { gradeFilm, planGains, planShotGains, measureFrame, residual, lutExpr, LOOKS, normaliseLook }

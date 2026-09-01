@@ -101,6 +101,53 @@ export function planGains(
   })
 }
 
+/**
+ * One shot's own colour, when the automatic answer is not the right one.
+ *
+ * The grade is adaptive: it measures each shot and moves it onto the kit's look.
+ * That is right nearly always, and wrong exactly when a shot is *meant* to sit
+ * apart — a memory, a night exterior, a deliberately cold frame in a warm film.
+ * Until now there was no way to say so.
+ *
+ * `temperature` and `tint` are a trim on top of whatever the automatic pass
+ * decided, in the same units an editor expects: positive temperature is warmer,
+ * positive tint is greener. They multiply the computed gains rather than
+ * replacing them, so a shot keeps tracking the look and simply sits beside it.
+ */
+export interface ShotGrade {
+  readonly look?: LookName | 'none'
+  readonly strength?: number
+  /** −1..1. Positive is warmer. */
+  readonly temperature?: number
+  /** −1..1. Positive is greener. */
+  readonly tint?: number
+}
+
+/** The trim, as channel multipliers. Deliberately gentle: ±1 is about ±12%. */
+export function trimGains(temperature = 0, tint = 0): [number, number, number] {
+  const t = Math.max(-1, Math.min(1, temperature)) * 0.12
+  const g = Math.max(-1, Math.min(1, tint)) * 0.10
+  return [1 + t, 1 + g, 1 - t]
+}
+
+/**
+ * The gains for one shot, honouring its own override.
+ *
+ * A shot set to `look: 'none'` is left exactly as shot — the trim still applies,
+ * because "do not grade this" and "do not touch this" are different requests.
+ */
+export function planShotGains(
+  meanLinear: readonly number[],
+  delivery: { look: LookName | string; strength: number },
+  shot?: ShotGrade | null,
+): number[] {
+  const look = shot?.look ?? delivery.look
+  const strength = typeof shot?.strength === 'number' ? shot.strength : delivery.strength
+  const base = look === 'none' ? [1, 1, 1] : planGains(meanLinear, look, strength)
+  const trim = trimGains(shot?.temperature, shot?.tint)
+  return base.map((g, i) => g * trim[i])
+}
+
 /** What is left after grading, so the report can say whether it landed. */
 export function residual(meanLinear: readonly number[], gains: readonly number[], look: LookName | string): number {
   const target = normaliseLook(LOOKS[look as LookName] || LOOKS.neutral)

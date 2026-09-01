@@ -4,12 +4,15 @@
   "private": true,
   "description": "Deterministic video renderer for Transilvania Times Studio.",
   "main": "src/index.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/index.js",
     "build:timeline": "tsc ../lib/timeline/*.ts --outDir dist/timeline --module commonjs --target es2020 --moduleResolution node --skipLibCheck --strict"
   },
   "dependencies": {
-    "canvas": "^3.2.0"
+    "canvas": "^3.2.0",
+    "playwright": "^1.55.0"
   }
 }

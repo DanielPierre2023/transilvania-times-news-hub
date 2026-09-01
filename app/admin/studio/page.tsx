@@ -38,7 +38,16 @@ import { FPS } from '@/lib/timeline/time'
 import { validate, addClip, emptyTrack } from '@/lib/timeline/document'
 import { compileFrame } from '@/lib/timeline/compile'
 import { ASPECT_PRESETS, otherAspects, retarget } from '@/lib/timeline/retarget'
-import { meanLinearFromRGBA, planGains, svgGradeFilter } from '@/lib/timeline/grade'
+import { foreignObjectSvg, frameUrlAt, lintHtml, stampOf } from '@/lib/timeline/html'
+import { buildStoryboard, toMarkdown as storyboardMarkdown } from '@/lib/timeline/storyboard'
+import { AUDIO_PRESETS, describeChain } from '@/lib/timeline/audio'
+import { TRANSITIONS, applyTransitions, framesLostTo, type TransitionKind, type TransitionSpec } from '@/lib/timeline/transitions'
+import { analyseBeats, cutsFromDurations, durationsFromCuts, snapToBeats, type BeatAnalysis } from '@/lib/timeline/beats'
+import { meanLinearFromRGBA, planShotGains, svgGradeFilter, type ShotGrade } from '@/lib/timeline/grade'
+import {
+  DEFAULT_PROMPTS, mergePrompts, motionPrompt as buildMotionPrompt,
+  negativePrompt as buildNegativePrompt, partText, type PromptSet, type SceneLook,
+} from '@/lib/prompts/library'
 import { GRAPHICS_Z } from '@/lib/timeline/compile'
 import type { DrawOp } from '@/lib/timeline/compile'
 import { drawFrame as drawCompiled } from '@/lib/timeline/draw'
@@ -62,6 +71,9 @@ interface Take { url: string; score: number; accepted: boolean; why: string; mov
 interface Scene {
   id: string; kind: 'image' | 'video'; url: string; name: string; duration: number; kb: KB
   in?: number               // seconds into the SOURCE this clip starts at
+  grade?: ShotGrade         // this shot's own colour, when the automatic one is wrong
+  trans?: TransitionKind    // how we ARRIVE at this shot
+  transFrames?: number
   motionPrompt?: string     // what this shot DOES. Empty falls back to the default.
   look?: SceneLook          // which way its grade must be held
   motion?: 'idle' | 'working' | 'done'; sync?: 'idle' | 'working' | 'done'
@@ -93,79 +105,16 @@ const SYNC_ENGINES: { key: string; label: string }[] = [
 ]
 // Kept out of every clip unless you ask for it. Text and logos hallucinated
 // into a marketing clip are the single most common reason to reshoot.
-// The motion model re-renders the picture, and left to itself it drifts — a
-// warm golden-hour still came back as a cold blue night. Asking the positive
-// prompt to "preserve the colour grade" is not enough; the drift has to be
-// named and forbidden where the model actually listens.
+// THE DIRECTION LANGUAGE MOVED TO lib/prompts/library.ts.
 //
-// BUT HALF OF THAT LIST WAS A TRAP, AND A DAWN SHOT WALKED STRAIGHT INTO IT.
+// It was a wall of TypeScript consts here: the motion prompt, three negative
+// lists and the house style. Which is why the day one of those lists was found
+// fighting a deliberately cold shot, the fix was a code change, a build and a
+// deploy — for what is, in the end, copy. Nobody in marketing can edit a const.
 //
-// The fix for that one failure banned `blue hour, twilight, dusk`, `cold colour
-// grade, blue cast, teal tint` outright — for every shot, forever. Which is
-// correct for a golden-hour still and actively wrong for a shot that is MEANT
-// to be cold: a mechanic opening a shutter on a blue pre-dawn yard was about to
-// be animated with an instruction telling the model that everything the picture
-// is made of is a defect. The model does not know the difference between drift
-// and design; it only reads the list.
-//
-// So the list is split. The first half is true of every shot ever. The second
-// half holds a WARM grade, and is only sent when the shot actually has one.
-const MOTION_NEGATIVE_ALWAYS = [
-  'text, watermark, logo, subtitles, caption',
-  'extra fingers, deformed hands, warped face, identity change',
-  'cut, shot change, morphing background',
-  'season change, snow, rain added',
-]
-
-/** Only for shots whose light is warm. Sent to a cold shot it fights the shot. */
-const MOTION_NEGATIVE_KEEP_WARM = [
-  'night, nighttime, moonlight, blue hour, twilight, dusk',
-  'colour shift, color shift, changed lighting, changed time of day',
-  'cold colour grade, blue cast, teal tint, desaturated, washed out',
-]
-
-/** Symmetrical: a cold shot needs its own light defended, in the other direction. */
-const MOTION_NEGATIVE_KEEP_COLD = [
-  'golden hour, warm orange cast, sunny daylight, midday sun',
-  'colour shift, color shift, changed lighting, changed time of day',
-  'oversaturated, warm colour grade',
-]
-
-function motionNegativeFor(look: SceneLook): string {
-  const hold = look === 'cold' ? MOTION_NEGATIVE_KEEP_COLD
-    : look === 'none' ? []
-    : MOTION_NEGATIVE_KEEP_WARM
-  return [...MOTION_NEGATIVE_ALWAYS, ...hold].join(', ')
-}
-
-// Sent as the positive prompt so the instruction to hold the grade travels with
-// every job instead of relying on the edge function's generic default.
-const MOTION_PROMPT =
-  'Subtle cinematic motion only: a slow gentle camera drift and small natural movement ' +
-  'in the scene — drifting haze, moving leaves, people walking softly. ' +
-  'KEEP THE ORIGINAL PHOTOGRAPH EXACTLY: same composition, same colours, same ' +
-  'lighting, same time of day. Do NOT change the time of day. ' +
-  'No cuts, no shot changes, no text.'
-
-/** What the light in a shot is, so the grade is held in the right direction. */
-type SceneLook = 'warm' | 'cold' | 'none'
-
-/**
- * The shot's own direction, plus the instruction that holds its grade.
- *
- * A single global motion prompt is a storyboard with one frame in it. "Drifting
- * haze, moving leaves, people walking softly" is a decent default for b-roll and
- * says nothing whatsoever about a shutter going up or a light being switched
- * off — which is to say, nothing about the two shots that carry the first two
- * lines of this film. Per shot, or it is not direction.
- */
-function motionPromptFor(sc: { motionPrompt?: string; look?: SceneLook }): string {
-  const own = (sc.motionPrompt || '').trim()
-  const look = sc.look ?? 'warm'
-  const hold = look === 'none' ? ''
-    : ` KEEP THE ORIGINAL PHOTOGRAPH EXACTLY: same composition, same colours, same ${look} lighting, same time of day.`
-  return (own || MOTION_PROMPT) + hold + ' No cuts, no shot changes, no text.'
-}
+// The library is data now, with per-part overrides saved against the project, so
+// the words can be edited in the app and a part we later improve still reaches
+// every project that never overrode it.
 interface Cue { start: number; end: number; text: string }
 
 // ── OVERLAYS ────────────────────────────────────────────────────────────────
@@ -174,7 +123,7 @@ interface Cue { start: number; end: number; text: string }
 // at build time. Storing the expansion instead would freeze every film against
 // the version of the design it was made with; storing the intent means a fix to
 // a template improves every project that has one.
-type OverlayKind = 'title' | 'lower' | 'end'
+type OverlayKind = 'title' | 'lower' | 'end' | 'html'
 interface Overlay {
   id: string
   kind: OverlayKind
@@ -183,6 +132,16 @@ interface Overlay {
   a: string           // title / name / heading
   b?: string          // kicker / role / line
   c?: string          // subtitle / — / url
+  // An html composition keeps its markup as the source of truth and its raster
+  // as the thing that is drawn. `stamp` is how a stale bitmap is spotted: edit
+  // the markup without re-rasterising and the two stop matching.
+  html?: string
+  url?: string
+  frames?: string[]
+  frameFps?: number
+  stamp?: string
+  w?: number
+  h?: number
 }
 // ── REVIEW ──────────────────────────────────────────────────────────────────
 // studio_project_versions has held immutable snapshots and a
@@ -211,8 +170,21 @@ const STATE_TONE: Record<VersionState, string> = {
 }
 
 const OVERLAY_LABEL: Record<OverlayKind, string> = {
-  title: 'Titlu', lower: 'Nume (burtieră)', end: 'Card final',
+  title: 'Titlu', lower: 'Nume (burtieră)', end: 'Card final', html: 'Compoziție HTML',
 }
+
+// What a new composition starts as. Deliberately something that already looks
+// like a real lower third rather than a "hello world": the point of the panel is
+// that CSS can draw things the templates cannot, and a gradient, a blend mode
+// and a reflowing flex row make that visible in the first three seconds.
+const SAMPLE_COMPOSITION = `<div style="position:absolute;left:6%;bottom:22%;display:flex;align-items:stretch;gap:0">
+  <div style="width:10px;background:linear-gradient(180deg,#CA2222,#7d1414)"></div>
+  <div style="padding:22px 34px 22px 26px;background:linear-gradient(90deg,rgba(12,10,8,.92),rgba(12,10,8,.55));backdrop-filter:blur(2px)">
+    <div style="font:600 26px/1 Inter,sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#CA2222">Reportaj</div>
+    <div style="font:400 66px/1.05 'EB Garamond',Georgia,serif;color:#fff;margin-top:10px">Ioana Pop</div>
+    <div style="font:400 28px/1.2 Inter,sans-serif;color:rgba(255,255,255,.66);margin-top:8px">corespondent, Cluj</div>
+  </div>
+</div>`
 
 // ── SOUND DESIGN ────────────────────────────────────────────────────────────
 // A cut with nothing under it sounds like a slideshow. These are synthesised by
@@ -337,6 +309,18 @@ export default function StudioPage() {
   // Brand kit: the answer to "which red, which face, where may type sit, what
   // are we mixing to" — given once instead of remembered per film.
   const [kit, setKit] = useState<BrandKit>(TT_KIT)
+  // Per-part overrides travel WITH the project, like the kit does: a film
+  // approved in March must still generate from March's direction language.
+  const [promptOverrides, setPromptOverrides] = useState<Record<string, string>>({})
+  const [houseStyle, setHouseStyle] = useState(true)
+  // Which processing chain the voice and the bed go through. Normalisation and
+  // ducking were the whole audio stage before this: a good mastering step and no
+  // processing at all.
+  const [voiceFx, setVoiceFx] = useState<string>('voice')
+  /** Transitions live on the scene BEFORE which they happen. Index 0 is unused. */
+  const [beats, setBeats] = useState<BeatAnalysis | null>(null)
+  const [musicFx, setMusicFx] = useState<string>('music')
+  const prompts: PromptSet = useMemo(() => mergePrompts(DEFAULT_PROMPTS, promptOverrides), [promptOverrides])
   const [kitList, setKitList] = useState<BrandKit[]>(KITS as BrandKit[])
   const [overlays, setOverlays] = useState<Overlay[]>([])
   const [showSafe, setShowSafe] = useState(true)
@@ -542,6 +526,210 @@ export default function StudioPage() {
     return await ctx.decodeAudioData(buf)
   }
 
+  /**
+   * The film, written down, beside the film.
+   *
+   * A project is a database row: to review a spot you open the Studio, and to
+   * hand one to somebody you send a video and hope they can describe the change
+   * they want. A storyboard is the film as a document — every shot, what it
+   * does, what is said over it, what was measured about it. It reviews in a pull
+   * request, it diffs, and it outlives the tool that made it.
+   */
+  /**
+   * Find the beat in the uploaded track, then move the cuts onto it.
+   *
+   * Most of what makes a promo feel professional is not the pictures — it is
+   * that the edit agrees with the music. Miss the downbeat by three frames and
+   * the film reads as amateur without anyone being able to say why.
+   *
+   * The snap is deliberately timid: a cut only moves if a beat is already within
+   * a quarter of a second. A cut dragged a second and a half to reach a downbeat
+   * is no longer the cut anyone chose, and the music serves the film rather than
+   * the other way round.
+   */
+  async function findBeats(snap: boolean) {
+    if (!musicUrl) { setError('Încarcă întâi un track.'); return }
+    setError(''); setBusy('beats')
+    try {
+      const buf = await (await fetch(musicUrl)).arrayBuffer()
+      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ac = new AC()
+      const decoded = await ac.decodeAudioData(buf.slice(0))
+      // Mono at a low rate: onset detection does not need stereo or 48 kHz, and
+      // a three-minute track at full rate is a lot of arithmetic for no gain.
+      const src = decoded.getChannelData(0)
+      const step = Math.max(1, Math.round(decoded.sampleRate / 22050))
+      const mono = new Float32Array(Math.floor(src.length / step))
+      for (let i = 0; i < mono.length; i++) mono[i] = src[i * step]
+      const a = analyseBeats(mono, decoded.sampleRate / step)
+      ac.close()
+      setBeats(a)
+      if (!a.bpm || a.beats.length < 2) { setError('Nu am găsit un ritm clar în track.'); return }
+      if (!snap) return
+
+      const cuts = cutsFromDurations(scenes.map(sc => sc.duration))
+      const moved = snapToBeats(cuts, a.beats, 0.25)
+      const changed = moved.filter((t, i) => Math.abs(t - cuts[i]) > 0.001).length
+      if (changed === 0) { setError('Tăieturile sunt deja pe ritm — nimic de mutat.'); return }
+      const total = scenes.reduce((n, sc) => n + sc.duration, 0)
+      const next = durationsFromCuts(moved, total)
+      mark('tăieturi pe ritm')
+      setScenes(list => list.map((sc, i) => ({ ...sc, duration: Number((next[i] ?? sc.duration).toFixed(3)) })))
+    } catch (e) { setError('Ritm: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
+  function exportStoryboard() {
+    if (scenes.length === 0) { setError('Nimic de povestit — adaugă planuri.'); return }
+    const tl = buildTimeline()
+    const notes: Record<string, { measured?: string; direction?: string }> = {}
+    const picture = tl.tracks.find(t => t.kind === 'video' && t.z === 0)
+    ;(picture?.clips ?? []).forEach((c, i) => {
+      const sc = scenes[i]
+      if (!sc) return
+      notes[c.id] = {
+        measured: sc.verdict || undefined,
+        direction: [sc.motionPrompt, sc.kb !== 'none' ? `cameră: ${sc.kb}` : '', sc.look && sc.look !== 'warm' ? `lumină ${sc.look}` : '']
+          .filter(Boolean).join(' · ') || undefined,
+      }
+    })
+    const board = buildStoryboard(tl, { name: projName || 'Film', shotNotes: notes })
+    const md = storyboardMarkdown(board, script)
+    const dl = (name: string, body: string, type: string) => {
+      const url = URL.createObjectURL(new Blob([body], { type }))
+      const a = document.createElement('a')
+      a.href = url; a.download = name
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30000)
+    }
+    const slug = (projName || 'film').replace(/[^\p{L}\d]+/gu, '-').toLowerCase()
+    dl(`${slug}-STORYBOARD.md`, md, 'text/markdown')
+    dl(`${slug}-meta.json`, JSON.stringify(board, null, 2), 'application/json')
+  }
+
+  // ─── HTML COMPOSITIONS ──────────────────────────────────────────────────
+  //
+  // The authoring surface a person who knows CSS can already use. Everything the
+  // brand templates cannot draw — gradient meshes, blend modes, masks, real
+  // typography, layered SVG, a lower third that reflows around a long name —
+  // is a CSS problem rather than a node-canvas problem once this exists.
+  //
+  // It rasterises ONCE, in the browser, through an SVG foreignObject. That is
+  // the whole design decision: the browser lays the HTML out itself and hands
+  // back pixels, and from that moment the block is an ordinary image drawn
+  // identically by the preview and the renderer. An iframe here and headless
+  // Chrome there would have been two engines for one picture, which is the bug
+  // class this codebase spent a month closing.
+  /**
+   * TABS, BECAUSE THE PAGE HAD BECOME A SCROLL.
+   *
+   * Library, brand, review, compositions, prompts, timeline, voice, subtitles,
+   * music and delivery in one column is a list of everything the tool can do,
+   * ordered by the sequence the features were built in rather than the order the
+   * work happens in. These are the four things a person is actually doing at a
+   * given moment. The preview stays pinned beside all of them, because the film
+   * is the point of every one.
+   *
+   * Panels hide with the `hidden` attribute rather than being unmounted: a
+   * half-typed prompt, a scroll position and an open composition survive a trip
+   * to another tab, which is the difference between tabs and four pages.
+   */
+  const [tab, setTab] = useState<'compune' | 'aspect' | 'sunet' | 'livrare'>('compune')
+  const [htmlOpen, setHtmlOpen] = useState(false)
+  const [htmlSrc, setHtmlSrc] = useState(SAMPLE_COMPOSITION)
+  // How long the composition MOVES. Zero is a still block; anything above it
+  // rasterises that many seconds of animation and then holds the last frame,
+  // because a lower third is a reveal and then a hold.
+  const [htmlAnim, setHtmlAnim] = useState(0)
+  const [htmlPreview, setHtmlPreview] = useState('')
+  const htmlProblems = useMemo(() => lintHtml(htmlSrc), [htmlSrc])
+
+  /**
+   * THE EDITOR PREVIEW IS A DISPLAY, NOT A RASTERISER.
+   *
+   * The first version of this read the composition back off a canvas and
+   * uploaded the result. It cannot: Chrome taints a canvas the moment an SVG
+   * carrying a foreignObject is drawn on it, so `getImageData` and `toBlob`
+   * both throw SecurityError. Measured in this very app —
+   *
+   *   plain <svg><rect/><text/>     drawImage → getImageData → 24000 px, ok
+   *   the same svg + foreignObject  drawImage ok, getImageData → SecurityError
+   *
+   * — and no amount of testing in Node could have found it, because Node has no
+   * such rule and no foreignObject at all. It took running the shipped code in
+   * the browser it ships to.
+   *
+   * Displaying it is allowed, and that is all this does: an <img> of the same
+   * markup, so you can see what you are writing. The PNG that reaches the film
+   * is laid out by Chrome in the worker, once, and both the preview and the
+   * renderer draw that one file — so the property that matters is untouched.
+   */
+  const previewSvgUrl = useCallback((html: string, w: number, h: number): string => {
+    return URL.createObjectURL(new Blob([foreignObjectSvg(html, w, h)], { type: 'image/svg+xml;charset=utf-8' }))
+  }, [])
+
+  useEffect(() => {
+    if (!htmlOpen) return
+    if (htmlProblems.some(p => p.severity === 'error')) { setHtmlPreview(''); return }
+    const t = setTimeout(() => {
+      const url = previewSvgUrl(htmlSrc, 540, Math.round(540 * H / W))
+      setHtmlPreview(prev => { if (prev) URL.revokeObjectURL(prev); return url })
+    }, 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [htmlSrc, htmlOpen, W, H, htmlProblems])
+
+  /**
+   * Lay it out in the worker, store the PNG, put it on the timeline.
+   *
+   * The worker returns base64 rather than uploading itself: it holds no storage
+   * credentials, and giving a render box write access to the asset bucket to
+   * save one hop is a poor trade.
+   */
+  async function addHtmlComposition() {
+    const bad = htmlProblems.filter(p => p.severity === 'error')
+    if (bad.length) { setError(bad[0].message); return }
+    setError(''); setBusy('html')
+    try {
+      const w = W * 2, h = H * 2
+      const r = await invokeRaw('render-worker', {
+        action: 'raster', html: htmlSrc, width: w, height: h,
+        animateSeconds: htmlAnim, animateFps: 25,
+      })
+      if (r.error) throw new Error(String(r.error))
+
+      const toBlob = (b64: string) =>
+        new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], { type: 'image/png' })
+      const put = async (blob: Blob) => {
+        const path = `html/${Date.now()}-${uid()}.png`
+        const up = await supabase.storage.from('studio-assets').upload(path, blob, { contentType: 'image/png', upsert: false })
+        if (up.error) throw new Error(up.error.message)
+        return supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
+      }
+
+      let url: string | undefined
+      let frames: string[] | undefined
+      let frameFps: number | undefined
+      if (Array.isArray(r.frames) && r.frames.length) {
+        // Uploaded in parallel: twenty small PNGs one after another is twenty
+        // round trips, and the wait is what makes a feature feel heavy.
+        frames = await Promise.all((r.frames as string[]).map(b => put(toBlob(b))))
+        frameFps = Number(r.fps) || 25
+        url = frames[frames.length - 1]     // the held frame, for anything asking for one
+      } else {
+        if (!r.png) throw new Error('Workerul nu a returnat o imagine. Are chromium? Vezi /health.')
+        url = await put(toBlob(String(r.png)))
+      }
+
+      mark('compoziție HTML')
+      setOverlays(o => [...o, {
+        id: uid(), kind: 'html', at: Math.round(head * 10) / 10, dur: 4,
+        a: '', b: '', c: '',
+        html: htmlSrc, url, frames, frameFps, stamp: stampOf(htmlSrc), w, h,
+      } as Overlay])
+      setHtmlOpen(false)
+    } catch (e) { setError('Compoziție HTML: ' + (e as Error).message) } finally { setBusy('') }
+  }
+
   // ─── asset actions ──────────────────────────────────────────────────────
   const genImage = useCallback(async () => {
     if (!imgPrompt.trim()) { setError('Scrie sau alege un prompt de imagine.'); return }
@@ -557,10 +745,18 @@ export default function StudioPage() {
       // a Ken Burns push enlarged it further. Twice the master gives the render
       // something to downsample and the push somewhere to go.
       const big = MASTER_STILL[imgAspect as Aspect] || MASTER_STILL['16:9']
+      // THE HOUSE STYLE TRAVELS WITH EVERY STILL, FROM THE LIBRARY.
+      //
+      // Framing, grain, the empty lower fifth where captions sit, the ban on
+      // invented lettering — those were retyped into every prompt by hand, so a
+      // shot generated on a tired evening quietly lost them. Appended once, from
+      // a part a writer can edit.
+      const house = partText(prompts, 'still.house')
+      const full = houseStyle ? `${imgPrompt.trim()} ${house}`.replace(/\s+/g, ' ').trim() : imgPrompt.trim()
       const r = refImageUrl
-        ? await invoke<{ publicUrl: string }>('generate-image-edit', { image_urls: [refImageUrl], prompt: imgPrompt.trim(), aspect: imgAspect })
+        ? await invoke<{ publicUrl: string }>('generate-image-edit', { image_urls: [refImageUrl], prompt: full, aspect: imgAspect })
         : await invoke<{ publicUrl: string; provider?: string; renderedAt?: string }>('generate-cover-image',
-            { raw_prompt: imgPrompt.trim(), aspect: imgAspect, width: big[0], height: big[1] })
+            { raw_prompt: full, aspect: imgAspect, width: big[0], height: big[1] })
       const at = (r as { renderedAt?: string }).renderedAt
       setScenes(s => [...s, { id: uid(), kind: 'image', url: r.publicUrl, name: (refImageUrl ? 'Editată · ' : 'AI · ') + imgAspect + (at ? ` · ${at}` : ''), duration: 4, kb: 'in' }])
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
@@ -728,6 +924,18 @@ export default function StudioPage() {
       const ctx = { kit, fps, start, duration }
       if (o.kind === 'title') out.push(...titleCard(ctx, { kicker: o.b || undefined, title: o.a, sub: o.c || undefined }))
       else if (o.kind === 'lower') out.push(...lowerThird(ctx, { name: o.a, role: o.b || undefined }))
+      else if (o.kind === 'html') {
+        if (!o.url && !(o.frames || []).length) continue   // never rasterised
+        out.push({
+          id: o.id, name: 'Compoziție HTML',
+          source: { kind: 'html', html: o.html || '', url: o.url, stamp: o.stamp,
+            frames: o.frames, frameFps: o.frameFps,
+            naturalWidth: o.w, naturalHeight: o.h },
+          start, duration, sourceIn: 0,
+          transform: { position: { x: 0.5, y: 0.5 }, scale: 1, rotation: 0, opacity: 1 },
+          fit: 'contain', fadeIn: 0, fadeOut: 0, enabled: true,
+        })
+      }
       else out.push(...endCard(ctx, { title: o.a, line: o.b || undefined, url: o.c || undefined }))
     }
     return out
@@ -760,6 +968,40 @@ export default function StudioPage() {
         }),
       }),
       delivery: { ...tl.delivery, grade: kit.grade, loudness: kit.loudness },
+    }
+
+    // TRANSITIONS, AS A TIMELINE TRANSFORM.
+    //
+    // Nothing in the renderer changes: a dissolve is two clips overlapping while
+    // one fades down and the other fades up, and both of those already existed.
+    // A dip is a colour clip over the join. See lib/timeline/transitions.ts.
+    const specs: (TransitionSpec | undefined)[] = scenes.map(sc =>
+      sc.trans && sc.trans !== 'cut'
+        ? { kind: sc.trans, frames: Math.max(2, Math.round(sc.transFrames ?? 12)) }
+        : undefined)
+    if (specs.some(Boolean)) {
+      tl = applyTransitions(tl, specs, { brandColour: kit.colour.accent }).timeline
+    }
+
+    // THE PROCESSING CHAINS, ONTO THE AUDIO CLIPS.
+    //
+    // Normalisation and a duck were the whole audio stage: a voice recorded in
+    // a room still sounded like a room, and the bed fought the voice in the
+    // same frequencies rather than making space for it. The chains are chosen
+    // per project and compiled by lib/timeline/audio.ts, so what the panel names
+    // is exactly what ffmpeg runs.
+    const voiceChain = AUDIO_PRESETS[voiceFx]?.chain
+    const musicChain = AUDIO_PRESETS[musicFx]?.chain
+    tl = {
+      ...tl,
+      tracks: tl.tracks.map(track => track.kind !== 'audio' ? track : {
+        ...track,
+        clips: track.clips.map(c => {
+          const chain = track.z === 0 ? voiceChain : musicChain
+          if (!chain || chain.length === 0) return c
+          return { ...c, audio: { ...(c.audio || { gain: 1 }), effects: chain } }
+        }),
+      }),
     }
 
     // A synthesised bed, only when no real track was uploaded — an uploaded
@@ -883,7 +1125,7 @@ export default function StudioPage() {
       // The kit travels WITH the project, not as a reference. A film approved in
       // March must still render in March's brand in September, and it would not
       // if it read a row somebody has since edited.
-      brandKit: kit, overlays, sfx, musicBed }
+      brandKit: kit, overlays, sfx, musicBed, promptOverrides, voiceFx, musicFx }
   }
   // The library lives in the database so a kit can be edited without a deploy;
   // the built-in kits stay as a fallback so Studio works before the migration
@@ -1048,6 +1290,11 @@ export default function StudioPage() {
       if (typeof d.subScale === 'number') setSubScale(d.subScale)
       if (typeof d.musicUrl === 'string') setMusicUrl(d.musicUrl)
       if (typeof d.musicVol === 'number') setMusicVol(d.musicVol)
+      if (d.promptOverrides && typeof d.promptOverrides === 'object') {
+        setPromptOverrides(d.promptOverrides as Record<string, string>)
+      }
+      if (typeof d.voiceFx === 'string') setVoiceFx(d.voiceFx)
+      if (typeof d.musicFx === 'string') setMusicFx(d.musicFx)
       // resolveKit fills anything the saved copy predates, so an old project
       // opens with the current defaults for fields it never had.
       setKit(resolveKit((d.brandKit as Partial<BrandKit>) || null))
@@ -1124,8 +1371,8 @@ export default function StudioPage() {
         takes: n,
         // The loop is opt-in now. See the comment on motionLoop.
         ...(motionLoop && mm.endFrame ? { end_image_url: still } : {}),
-        prompt: motionPromptFor(sc),
-        negative_prompt: motionNegativeFor(sc.look ?? 'warm'),
+        prompt: buildMotionPrompt(prompts, sc),
+        negative_prompt: buildNegativePrompt(prompts, sc.look ?? 'warm'),
         cfg_scale: cfgScale,
         generate_audio: false,
       })
@@ -1535,10 +1782,13 @@ export default function StudioPage() {
     return `url(#${ID})`
   }, [])
 
-  const gainsFor = useCallback((url: string): number[] | null => {
+  const gainsFor = useCallback((url: string, shot?: ShotGrade | null): number[] | null => {
     const spec = kit.grade
-    if (!spec || spec.look === 'none') return null
-    const key = `${url}|${spec.look}|${spec.strength}`
+    if (!spec) return null
+    const look = shot?.look ?? spec.look
+    const temp = shot?.temperature || 0, tint = shot?.tint || 0
+    if (look === 'none' && !temp && !tint) return null
+    const key = `${url}|${look}|${shot?.strength ?? spec.strength}|${temp}|${tint}`
     const hit = gradeCache.current.get(key)
     if (hit) return hit
     const m = mediaCache.current.get(url)
@@ -1556,7 +1806,7 @@ export default function StudioPage() {
       const cx = c.getContext('2d', { willReadFrequently: true })
       if (!cx) return null
       cx.drawImage(m, 0, 0, w, h)
-      const gains = planGains(meanLinearFromRGBA(cx.getImageData(0, 0, w, h).data), spec.look, spec.strength)
+      const gains = planShotGains(meanLinearFromRGBA(cx.getImageData(0, 0, w, h).data), spec, shot)
       gradeCache.current.set(key, gains)
       return gains
     } catch { return null }   // a tainted canvas is not worth a broken preview
@@ -1564,8 +1814,14 @@ export default function StudioPage() {
 
   const resolveMedia = useCallback((op: DrawOp): unknown => {
     const src = op.source
-    if (src.kind !== 'image' && src.kind !== 'video') return null
-    const m = mediaCache.current.get(src.url)
+    if (src.kind !== 'image' && src.kind !== 'video' && src.kind !== 'html') return null
+    // An animated composition is a sequence of stills; the shared helper says
+    // which one belongs to this frame, so the renderer cannot choose another.
+    const wanted = src.kind === 'html'
+      ? frameUrlAt(src, op.localFrame, fpsOut === 25 ? 25 : 30)
+      : src.url
+    if (!wanted) return null
+    const m = mediaCache.current.get(wanted)
     if (!m) {
       // THE PLAYHEAD HAS TO SHOW A PICTURE, NOT A BLACK RECTANGLE.
       //
@@ -1577,12 +1833,12 @@ export default function StudioPage() {
       //
       // So a frame that asks for a source it does not have starts fetching it,
       // once, and redraws when it lands.
-      if (!pendingMedia.current.has(src.url)) {
-        pendingMedia.current.add(src.url)
-        const load = src.kind === 'image' ? loadImage(src.url) : loadVideo(src.url)
+      if (!pendingMedia.current.has(wanted)) {
+        pendingMedia.current.add(wanted)
+        const load = src.kind === 'video' ? loadVideo(wanted) : loadImage(wanted)
         load.then(() => bumpMedia(n => n + 1))
           .catch(() => { /* a dead url is the library's problem, not the painter's */ })
-          .finally(() => pendingMedia.current.delete(src.url))
+          .finally(() => pendingMedia.current.delete(wanted))
       }
       return null
     }
@@ -1625,8 +1881,10 @@ export default function StudioPage() {
       // the titles, which is not parity.
       const pic = frame.video.find(o => o.z < GRAPHICS_Z &&
         (o.source.kind === 'image' || o.source.kind === 'video'))
+      // The override rides on the compiled op, so the painter still knows
+      // nothing about scenes.
       const gains = pic && (pic.source.kind === 'image' || pic.source.kind === 'video')
-        ? gainsFor(pic.source.url) : null
+        ? gainsFor(pic.source.url, pic.grade ?? null) : null
 
       if (gains) {
         ctx.save()
@@ -2104,8 +2362,25 @@ export default function StudioPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* LEFT: controls */}
         <div className="lg:col-span-2 space-y-5">
+          {/* The four things a person is actually doing, in the order the work
+              happens rather than the order the features were built. */}
+          <div className="flex items-center gap-1 border-b border-white/[0.07]">
+            {([
+              ['compune', 'Compune', 'Planurile și cronologia — ce se vede și în ce ordine.'],
+              ['aspect', 'Aspect', 'Kitul, titlurile, compozițiile HTML și limbajul de regie.'],
+              ['sunet', 'Sunet', 'Vocea, subtitrările și muzica.'],
+              ['livrare', 'Livrare', 'Revizuire, aprobare, formate, storyboard.'],
+            ] as const).map(([id, label, hint]) => (
+              <button key={id} onClick={() => setTab(id)} title={hint}
+                className={`px-3 py-2 text-[12px] font-bold border-b-2 -mb-px ${
+                  tab === id ? 'border-brand-red text-white' : 'border-transparent text-white/40 hover:text-white/70'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* Assets */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+          <div hidden={tab !== 'compune'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
             <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-3 flex items-center gap-2"><ImagePlus className="w-3.5 h-3.5" /> Bibliotecă · scene</p>
             <div className="flex flex-wrap gap-2 mb-3">
               {LIB_CATS.map(c => (
@@ -2139,6 +2414,11 @@ export default function StudioPage() {
               {['1:1', '4:5', '9:16', '16:9'].map(a => (
                 <button key={a} onClick={() => setImgAspect(a)} className={'px-2.5 py-1.5 text-[11px] border ' + (imgAspect === a ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/50 border-white/[0.07]')}>{a}</button>
               ))}
+              <label className="flex items-center gap-1 text-[11px] text-white/45 cursor-pointer mr-1"
+                title="Adaugă stilul casei la prompt: încadrare, granulație, treimea de jos liberă pentru subtitrări, interdicția de text inventat. Se editează în PROMPTURI.">
+                <input type="checkbox" checked={houseStyle} onChange={e => setHouseStyle(e.target.checked)} className="accent-brand-red" />
+                stil casă
+              </label>
               <button onClick={genImage} disabled={!!busy} className="flex items-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-1.5 hover:bg-red-700 disabled:opacity-50">
                 {busy === 'image' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Generează imagine
               </button>
@@ -2171,7 +2451,7 @@ export default function StudioPage() {
               what the mix is delivered to — once, for every film. Titles are
               stored as intent and expanded into real clips at build time, so
               improving a template improves every project that uses one. */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+          <div hidden={tab !== 'aspect'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
                 <Type className="w-3.5 h-3.5" /> Brand și titluri
@@ -2310,7 +2590,7 @@ export default function StudioPage() {
               its timeline change after insert, and refuses to approve it while
               a note against it is still open. So "approved" means something,
               and an approved film re-renders a year later byte for byte. */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+          <div hidden={tab !== 'livrare'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
                 <ShieldCheck className="w-3.5 h-3.5" /> Revizuire și aprobare
@@ -2405,8 +2685,128 @@ export default function StudioPage() {
             </div>
           </div>
 
+          {/* ── COMPOZIȚIE HTML ──────────────────────────────────────────
+              Anything CSS can express, drawn into the film. The block is
+              rasterised once and both sides draw that bitmap, so this adds an
+              authoring surface without adding a second renderer. */}
+          <div hidden={tab !== 'aspect'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40">Compoziție HTML</p>
+              <button onClick={() => setHtmlOpen(o => !o)}
+                className="text-[11px] px-2 py-1 border border-white/10 text-white/60 hover:bg-white/5">
+                {htmlOpen ? 'închide' : 'deschide editorul'}
+              </button>
+            </div>
+            <p className="text-[12px] text-white/35 mb-3 max-w-[70ch]">
+              Scrie HTML și CSS, vezi rezultatul, pune-l pe cronologie. Se rasterizează o
+              singură dată la {W * 2}×{H * 2} și de acolo e o imagine ca oricare alta —
+              previzualizarea și randarea desenează exact același fișier.
+            </p>
+            {htmlOpen && (
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
+                  <textarea value={htmlSrc} onChange={e => setHtmlSrc(e.target.value)} rows={16} spellCheck={false}
+                    className="w-full bg-black border border-white/10 text-white/75 text-[11.5px] px-2 py-2 font-mono leading-relaxed" />
+                  {htmlProblems.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {htmlProblems.map((pb, i) => (
+                        <li key={i} className={`text-[11px] ${pb.severity === 'error' ? 'text-red-300/90' : 'text-amber-300/80'}`}>
+                          {pb.severity === 'error' ? '✕' : '!'} {pb.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-2 text-[11px] text-white/30 max-w-[60ch]">
+                    Fără adrese externe: un SVG încărcat ca imagine nu poate descărca nimic.
+                    Fonturile și pozele trebuie încorporate ca <code className="text-white/50">data:</code> URI.
+                    Markup-ul trebuie să fie XHTML valid — <code className="text-white/50">&lt;br /&gt;</code>, nu <code className="text-white/50">&lt;br&gt;</code>.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    <span className="text-[10px] uppercase tracking-wider text-white/25">animație</span>
+                    <input type="number" min={0} max={3} step={0.1} value={htmlAnim}
+                      onChange={e => setHtmlAnim(Math.max(0, Math.min(3, Number(e.target.value))))}
+                      title="Câte secunde se MIȘCĂ compoziția. 0 = bloc static. Scrie animația în CSS obișnuit (@keyframes, animation) — se caută cadru cu cadru cu Web Animations API, deci întârzierile și easing-ul tale se respectă exact. După ultimul cadru, ține."
+                      className="w-16 bg-black border border-white/10 text-white/80 text-[11px] px-1.5 py-1" />
+                    <span className="text-[10px] text-white/30">
+                      {htmlAnim > 0 ? `${Math.round(htmlAnim * 25) + 1} cadre, apoi ține` : 'bloc static'}
+                    </span>
+                  </div>
+                  <button onClick={addHtmlComposition} disabled={busy === 'html' || htmlProblems.some(p => p.severity === 'error')}
+                    className="mt-2 flex items-center justify-center gap-1.5 bg-brand-red text-white text-[12px] font-bold px-3 py-2 hover:opacity-90 disabled:opacity-40">
+                    {busy === 'html' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Type className="w-3.5 h-3.5" />}
+                    Rasterizează și pune pe cronologie
+                  </button>
+                </div>
+                <div className="bg-black border border-white/[0.07] flex items-center justify-center min-h-[220px] p-2">
+                  {htmlPreview
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={htmlPreview} alt="" style={{ maxHeight: 320 }} />
+                    : <span className="text-[11px] text-white/25">
+                        {htmlProblems.some(p => p.severity === 'error') ? 'corectează erorile de mai sus' : 'se randează…'}
+                      </span>}
+                </div>
+              </div>
+            )}
+            {overlays.some(o => o.kind === 'html' && o.html && o.stamp !== stampOf(o.html)) && (
+              <p className="mt-3 text-[11px] text-amber-300/85">
+                O compoziție de pe cronologie a fost modificată după rasterizare — filmul
+                încă folosește imaginea veche. Rasterizeaz-o din nou.
+              </p>
+            )}
+          </div>
+
+          {/* ── PROMPTURI ─────────────────────────────────────────────────
+              The words a model is given are copy, not code. They used to be
+              TypeScript consts inside this file, which is why fixing a negative
+              list that fought a cold shot needed a build and a deploy. */}
+          <div hidden={tab !== 'aspect'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+              <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40">Prompturi</p>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-white/25">{Object.keys(promptOverrides).length} modificate</span>
+                <button onClick={() => { mark('prompturi'); setPromptOverrides({}) }}
+                  disabled={Object.keys(promptOverrides).length === 0}
+                  title="Revino la biblioteca implicită. Părțile pe care nu le-ai schimbat se îmbunătățesc singure cu fiecare versiune."
+                  className="text-[11px] px-2 py-1 border border-white/10 text-white/50 hover:bg-white/5 disabled:opacity-30">
+                  resetează
+                </button>
+              </div>
+            </div>
+            <p className="text-[12px] text-white/35 mb-3 max-w-[70ch]">
+              Limbajul de regie trimis modelelor. Se salvează cu proiectul, ca și kitul — un film
+              aprobat trebuie să se genereze la fel și peste un an. Ce nu modifici rămâne legat de
+              bibliotecă și se îmbunătățește odată cu ea.
+            </p>
+            <div className="space-y-2">
+              {prompts.parts.map(part => {
+                const changed = typeof promptOverrides[part.id] === 'string'
+                return (
+                  <details key={part.id} className="border border-white/[0.07] bg-[#111]">
+                    <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-white/70 flex items-center gap-2">
+                      <span className={changed ? 'text-amber-300/90' : ''}>{part.label}</span>
+                      <span className="font-mono text-[10px] text-white/20">{part.id}</span>
+                      {changed && <span className="text-[10px] text-amber-300/70">modificat</span>}
+                    </summary>
+                    <div className="px-3 pb-3">
+                      {part.note && <p className="text-[11px] text-white/35 mb-2 max-w-[80ch]">{part.note}</p>}
+                      <textarea value={part.text} rows={Math.min(8, Math.max(2, Math.ceil(part.text.length / 90)))}
+                        onChange={e => { mark('prompt'); setPromptOverrides(o => ({ ...o, [part.id]: e.target.value })) }}
+                        className="w-full bg-black border border-white/10 text-white/75 text-[12px] px-2 py-2 font-mono leading-relaxed" />
+                      {changed && (
+                        <button onClick={() => { mark('prompt'); setPromptOverrides(o => { const n = { ...o }; delete n[part.id]; return n }) }}
+                          className="mt-1 text-[11px] text-white/40 hover:text-white/70 underline">
+                          revino la implicit
+                        </button>
+                      )}
+                    </div>
+                  </details>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Timeline */}
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+          <div hidden={tab !== 'compune'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40">Cronologie</p>
               <div className="flex items-center gap-2">
@@ -2436,6 +2836,16 @@ export default function StudioPage() {
                 <span className="text-[10px] text-white/25">
                   {scenes.filter(x => x.kb === 'none').length} din {scenes.length} static
                 </span>
+                {(() => {
+                  const lost = framesLostTo(scenes, scenes.map(sc =>
+                    sc.trans && sc.trans !== 'cut' ? { kind: sc.trans, frames: Math.round(sc.transFrames ?? 12) } : undefined))
+                  return lost > 0 ? (
+                    <span className="text-[10px] text-amber-300/70"
+                      title="Un fondu suprapune două planuri, deci filmul se scurtează. Dacă vocea a fost tăiată pe lungimea veche, acum va trece dincolo de imagine.">
+                      −{(lost / (fpsOut === 25 ? 25 : 30)).toFixed(1)}s din treceri
+                    </span>
+                  ) : null
+                })()}
               </div>
               {/* ── MOTOR VIDEO ────────────────────────────────────────────
                   The same Kling engine the kling.ai site runs, driven from
@@ -2525,6 +2935,55 @@ export default function StudioPage() {
                           {formatTc(Math.round(sceneStart(sc.id) * (fpsOut === 25 ? 25 : 30)))}
                         </span>
                       </>}
+                      {i > 0 && (
+                        <select value={sc.trans ?? 'cut'}
+                          onChange={e => { mark('trecere'); setScenes(l => l.map(x => x.id === sc.id ? { ...x, trans: e.target.value as TransitionKind } : x)) }}
+                          title="Cum se AJUNGE la acest plan. Un fondu mănâncă durată — două planuri de 5s cu un fondu de 12 cadre ocupă 9.5s. O trecere prin culoare nu costă timp."
+                          className={`bg-black border text-[11px] px-1.5 py-1 ${(sc.trans && sc.trans !== 'cut') ? 'border-amber-500/40 text-amber-300/90' : 'border-white/10 text-white/40'}`}>
+                          {Object.entries(TRANSITIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                      )}
+                      <select value={sc.grade?.look ?? 'auto'}
+                        onChange={e => { mark('culoare plan'); const v = e.target.value
+                          setScenes(l => l.map(x => x.id === sc.id ? { ...x,
+                            grade: v === 'auto' ? undefined : { ...(x.grade || {}), look: v as 'warm' } } : x)) }}
+                        title="Culoarea acestui plan. „Automat” urmează kitul, ca până acum. Alege altceva doar când planul TREBUIE să stea deoparte — o amintire, un exterior de noapte, un cadru rece într-un film cald."
+                        className={`bg-black border text-[11px] px-1.5 py-1 ${sc.grade ? 'border-amber-500/40 text-amber-300/90' : 'border-white/10 text-white/40'}`}>
+                        <option value="auto">culoare: automat</option>
+                        <option value="warm">cald</option>
+                        <option value="cool">rece</option>
+                        <option value="golden">oră de aur</option>
+                        <option value="neutral">neutru</option>
+                        <option value="none">negradat</option>
+                      </select>
+                      {/* Temperature and tint were honoured by both engines and by the
+                          worker, with tests, and there was NO WAY TO SET THEM.
+                          Same failure as the audio chain: implemented, compiled,
+                          unreachable. ±1 is about ±12%, so the slider cannot
+                          make a shot unusable. */}
+                      {(['temperature', 'tint'] as const).map(k => {
+                        const v = sc.grade?.[k] ?? 0
+                        return (
+                          <label key={k} className="flex items-center gap-1"
+                            title={k === 'temperature'
+                              ? 'Cald ↔ rece, peste culoarea aleasă mai sus. Se aplică și pe un plan „negradat”: „nu-l grada” și „nu-l atinge” sunt cereri diferite.'
+                              : 'Verde ↔ magenta. Pentru planurile trase sub neon sau fluorescent, unde temperatura singură nu ajunge.'}>
+                            <span className={`text-[10px] ${v ? 'text-amber-300/90' : 'text-white/25'}`}>
+                              {k === 'temperature' ? '🌡' : '◐'}{v ? (v > 0 ? '+' : '') + v.toFixed(1) : ''}
+                            </span>
+                            <input type="range" min={-1} max={1} step={0.1} value={v}
+                              onChange={e => { mark('culoare plan'); const n = Number(e.target.value)
+                                setScenes(l => l.map(x => {
+                                  if (x.id !== sc.id) return x
+                                  const g = { ...(x.grade || {}), [k]: n }
+                                  // An override that says nothing is not an override.
+                                  const empty = !g.look && !g.strength && !g.temperature && !g.tint
+                                  return { ...x, grade: empty ? undefined : g }
+                                })) }}
+                              className="w-12 accent-amber-500" />
+                          </label>
+                        )
+                      })}
                       <select value={sc.look ?? 'warm'} onChange={e => setDirection(sc.id, { look: e.target.value as SceneLook })}
                         title="Ce fel de lumină are planul. Un plan cald primește interdicția de derivă spre rece; unul rece primește exact opusul. Trimise amândouă la fel, instrucțiunea luptă cu jumătate din filme."
                         className="bg-black border border-white/10 text-white/50 text-[11px] px-1.5 py-1">
@@ -2618,8 +3077,18 @@ export default function StudioPage() {
 
           {/* Voice + subtitles + music */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div hidden={tab !== 'sunet'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1 flex items-center gap-2"><Mic className="w-3.5 h-3.5" /> Voce (voiceover)</p>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wider text-white/25">procesare</span>
+                <select value={voiceFx} onChange={e => { mark('procesare voce'); setVoiceFx(e.target.value) }}
+                  title="Lanțul prin care trece vocea înainte de normalizare: taie zgomotul, scoate boala de piept, deschide consoanele, egalizează nivelul. Se aplică la randare."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {Object.entries(AUDIO_PRESETS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+                <span className="text-[10px] text-white/30 font-mono">{describeChain(AUDIO_PRESETS[voiceFx]?.chain)}</span>
+              </div>
+              <p className="text-[11px] text-white/30 mb-2 max-w-[62ch]">{AUDIO_PRESETS[voiceFx]?.note}</p>
               <p className="text-[11px] mb-3" style={{ color: elConfigured ? '#7ec8a3' : '#8fb8d8' }}>
                 {elConfigured
                   ? `Motoare voce: ${[providers.minimax ? 'fal/MiniMax (fără abonament)' : '', providers.elevenlabs ? 'ElevenLabs (premium)' : ''].filter(Boolean).join(' · ')} · voci naturale RO/EN + clonarea vocii tale`
@@ -2720,7 +3189,7 @@ export default function StudioPage() {
               )}
             </div>
 
-            <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
+            <div hidden={tab !== 'sunet'} className="bg-[#1a1a1a] border border-white/[0.07] p-5">
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mb-3 flex items-center gap-2"><Captions className="w-3.5 h-3.5" /> Subtitrări</p>
               <div className="flex items-center gap-2 flex-wrap">
                 <button onClick={genSubs} disabled={!!busy || !voUrl} className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/80 text-[12px] font-bold px-3 py-1.5 hover:border-brand-red/60 disabled:opacity-40">
@@ -2809,6 +3278,33 @@ export default function StudioPage() {
               </div>
 
               <p className="font-sans text-[11px] font-bold uppercase tracking-widest text-white/40 mt-5 mb-2 flex items-center gap-2"><Music className="w-3.5 h-3.5" /> Muzică</p>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <button onClick={() => findBeats(false)} disabled={!musicUrl || busy === 'beats'}
+                  title="Găsește tempoul și grila de bătăi din track, fără să miște nimic."
+                  className="text-[11px] px-2 py-1 border border-white/10 text-white/60 hover:bg-white/5 disabled:opacity-30">
+                  {busy === 'beats' ? 'ascult…' : 'găsește ritmul'}
+                </button>
+                <button onClick={() => findBeats(true)} disabled={!musicUrl || busy === 'beats' || scenes.length < 2}
+                  title="Mută tăieturile pe cea mai apropiată bătaie — dar numai dacă e deja la mai puțin de 0.25s. O tăietură trasă o secundă și jumătate nu mai e tăietura pe care ai ales-o."
+                  className="text-[11px] font-bold px-2 py-1 border border-amber-500/40 text-amber-300/90 hover:bg-amber-500/10 disabled:opacity-30">
+                  taie pe ritm
+                </button>
+                {beats && (
+                  <span className="text-[11px] text-white/45 font-mono">
+                    {beats.bpm ? `${beats.bpm.toFixed(1)} BPM · ${beats.beats.length} bătăi · încredere ${Math.round(beats.confidence * 100)}%` : 'fără ritm clar'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wider text-white/25">procesare</span>
+                <select value={musicFx} onChange={e => { mark('procesare muzică'); setMusicFx(e.target.value) }}
+                  title="Ce lanț trece patul muzical. „Sub voce” scoate din muzică exact banda în care stă vocea, în loc să dai muzica mai încet până dispare."
+                  className="bg-black border border-white/10 text-white/70 text-[11px] px-1.5 py-1">
+                  {Object.entries(AUDIO_PRESETS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+                <span className="text-[10px] text-white/30 font-mono">{describeChain(AUDIO_PRESETS[musicFx]?.chain)}</span>
+              </div>
+              <p className="text-[11px] text-white/30 mb-2 max-w-[62ch]">{AUDIO_PRESETS[musicFx]?.note}</p>
               <label className="flex items-center gap-1.5 bg-[#111] border border-white/[0.07] text-white/70 text-[12px] font-bold px-3 py-1.5 cursor-pointer hover:border-white/20 w-fit">
                 {busy === 'music' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Încarcă track
                 <input type="file" accept="audio/*" hidden onChange={e => onMusic(e.target.files?.[0])} />
@@ -2981,6 +3477,11 @@ export default function StudioPage() {
               )}
               {/* THE WHOLE FAMILY. One film, every format it will actually
                   be published in, from one press. */}
+              <button onClick={exportStoryboard} disabled={scenes.length === 0}
+                title="Descarcă filmul ca document: fiecare plan, ce face, ce se spune peste el, ce s-a măsurat. Se citește într-un pull request, se compară între versiuni și supraviețuiește uneltei."
+                className="w-full mt-2 flex items-center justify-center gap-1.5 border border-white/[0.07] bg-[#111] text-white/70 text-[12px] py-2 hover:border-white/20 disabled:opacity-40">
+                <Download className="w-3.5 h-3.5" /> Storyboard (.md + .json)
+              </button>
               <button onClick={renderAllAspects}
                 disabled={scenes.length === 0 || variants.some(v => v.state === 'randez')}
                 title="Randează filmul în toate formatele: 9:16 pentru Reels și TikTok, 4:5 și 1:1 pentru feed, 16:9 pentru YouTube și site. Aceeași voce, aceleași tăieturi — se remontează doar cadrul și tipografia."

@@ -2345,7 +2345,12 @@ export default function NewsroomPage() {
       if (bedOn) {
         const bed = ac.createGain(); bed.gain.value = 0
         bed.connect(dest); bed.connect(ac.destination)
-        const bT0 = acT0 + INTRO, bEnd = bT0 + dur
+        // The bed is on the AUDIO clock while the content is now on the MEDIA
+        // clock, so playback start-up shifts them apart by a few hundred ms.
+        // The tail carries a 1.5 s allowance: better that the pad holds a
+        // moment past the sign-off than that it dips under the last sentence.
+        const BED_TAIL_ALLOWANCE = 1.5
+        const bT0 = acT0 + INTRO, bEnd = bT0 + dur + BED_TAIL_ALLOWANCE
         bed.gain.setValueAtTime(0, bT0)
         bed.gain.linearRampToValueAtTime(bedLevel, bT0 + 1.4)
         bed.gain.setValueAtTime(bedLevel, Math.max(bT0 + 1.4, bEnd - 1.0))
@@ -2391,18 +2396,57 @@ export default function NewsroomPage() {
         pulse.connect(pulseHp); pulseHp.connect(pulseG); pulseG.connect(bed)
         pulse.start(bT0); pulse.stop(bEnd + OUTRO)
       }
+      // ── RENDER CLOCK ──────────────────────────────────────────────────
+      // FIXED 1 Sep 2026. THIS was the decalage, and it caused all three
+      // symptoms at once: headlines early, presenter late, ending cut.
+      //
+      // The loop drove every graphic from the WALL CLOCK (performance.now())
+      // while the speech came from the video element, which is started by
+      // v.play() — an ASYNCHRONOUS call. The element needs time to decode and
+      // begin presenting frames, so playback always began some way AFTER the
+      // moment the graphics thought content had started. That offset is
+      // constant for the whole bulletin:
+      //
+      //   • lower-thirds and photos ran EARLY against the voice — the first
+      //     headline came up while the anchor was still greeting;
+      //   • the presenter appeared LATE, because the video really did start
+      //     late;
+      //   • and the recorder stopped at INTRO + dur on the wall clock while
+      //     the media still had that offset left to play, so the sign-off was
+      //     CUT.
+      //
+      // Graphics are now driven by the MEDIA clock — v.currentTime — so they
+      // cannot drift from the speech no matter how long the element takes to
+      // spin up. And the content phase ends when the MEDIA ends, not when a
+      // stopwatch says so, so nothing is ever cut.
       const t0 = performance.now()
       let started = false
+      let contentEndedAt = 0        // wall-clock second at which the media finished
+      // Hard ceiling so a stalled element can never record forever.
+      const HARD_STOP = INTRO + dur + OUTRO + 30
       await new Promise<void>(resolve => {
         const loop = () => {
           const t = (performance.now() - t0) / 1000
-          setCompPct(Math.min(99, Math.round((t / total) * 100)))
-          if (t < INTRO) drawIntro(t)
-          else if (t < INTRO + dur) {
+
+          if (t < INTRO) {
+            setCompPct(Math.min(99, Math.round((t / total) * 100)))
+            drawIntro(t)
+          } else if (!contentEndedAt) {
             if (!started) { started = true; ac.resume(); v.play().catch(() => {}) }
-            drawContent(t)
-          } else { v.pause(); drawOutro(t) }
-          if (t >= total) { resolve(); return }
+            // MEDIA time, not elapsed time. While the element is still starting
+            // this stays at 0 and the frame simply holds — no drift is possible.
+            const mt = Math.min(v.currentTime || 0, dur)
+            setCompPct(Math.min(99, Math.round(((INTRO + mt) / total) * 100)))
+            drawContent(INTRO + mt)
+            if (v.ended || (v.currentTime || 0) >= dur - 0.05) contentEndedAt = t
+          } else {
+            v.pause()
+            // Outro still runs on the wall clock — it has no media to follow.
+            drawOutro(INTRO + dur + (t - contentEndedAt))
+          }
+
+          if (contentEndedAt && t - contentEndedAt >= OUTRO) { resolve(); return }
+          if (t >= HARD_STOP) { resolve(); return }
           requestAnimationFrame(loop)
         }
         loop()

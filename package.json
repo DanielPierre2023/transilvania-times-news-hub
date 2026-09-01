@@ -9,7 +9,11 @@
     "start": "next start",
     "lint": "next lint",
     "verify": "node _verification/run-all.cjs",
-    "verify:strict": "node _verification/run-all.cjs --strict"
+    "verify:strict": "node _verification/run-all.cjs --strict",
+    "doctor": "node tools/tt.cjs doctor",
+    "lint:film": "node tools/tt.cjs lint",
+    "snapshot": "node tools/tt.cjs snapshot",
+    "check": "node tools/tt.cjs check"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

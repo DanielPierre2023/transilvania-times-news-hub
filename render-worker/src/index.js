@@ -18,6 +18,7 @@ const crypto = require('crypto')
 const { renderTimeline } = require('./render')
 const { inspect } = require('./qc')
 const { analyseClip, judge, selectBest, DEFAULT_SPEC } = require('./vision')
+const { rasterHtml, rasterHtmlFrames, findChromium } = require('./raster')
 const timeline = require('./timeline')
 
 const PORT = Number(process.env.PORT || 8080)
@@ -344,6 +345,8 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       running,
       concurrency: CONCURRENCY,
+      // Whether HTML compositions can be rasterised on this box at all.
+      chromium: !!findChromium(),
       queued: queue.length,
       jobs: jobs.size,
       retention: RETENTION_MS,
@@ -354,6 +357,46 @@ const server = http.createServer(async (req, res) => {
 
   // The finished file may also be fetched with the job's own download key, so
   // a browser can download a render without being given the worker's token.
+  // ── HTML COMPOSITIONS ────────────────────────────────────────────────
+  //
+  // Layout happens once, here, and everything downstream draws the PNG. The
+  // browser cannot do this itself: Chrome taints a canvas the moment an SVG
+  // containing a foreignObject is drawn on it, so the page can DISPLAY a
+  // composition and cannot READ it back. Measured in the live app before this
+  // route existed — plain SVG reads fine, the same SVG with a foreignObject
+  // throws SecurityError on getImageData.
+  if (req.method === 'POST' && url.pathname === '/raster') {
+    if (!authorised(req)) return json(res, 401, { error: 'Unauthorized' })
+    let body
+    try { body = await readBody(req, 2 * 1024 * 1024) }
+    catch (e) { return json(res, 400, { error: e.message }) }
+    try {
+      const seconds = Number(body.animateSeconds) || 0
+      if (seconds > 0) {
+        const { fps, frames } = await rasterHtmlFrames(body.html, body.width, body.height,
+          { seconds, fps: Number(body.animateFps) || 25 })
+        return json(res, 200, {
+          ok: true,
+          width: Math.round(Number(body.width)),
+          height: Math.round(Number(body.height)),
+          fps,
+          frames: frames.map(f => f.toString('base64')),
+          bytes: frames.reduce((n, f) => n + f.length, 0),
+        })
+      }
+      const png = await rasterHtml(body.html, body.width, body.height)
+      return json(res, 200, {
+        ok: true,
+        width: Math.round(Number(body.width)),
+        height: Math.round(Number(body.height)),
+        bytes: png.length,
+        png: png.toString('base64'),
+      })
+    } catch (e) {
+      return json(res, 422, { error: e.message })
+    }
+  }
+
   const fileRoute = url.pathname.match(/^\/jobs\/([0-9a-f-]{36})\/file$/i)
   const suppliedKey = url.searchParams.get('key') || ''
   if (req.method === 'GET' && fileRoute && suppliedKey) {

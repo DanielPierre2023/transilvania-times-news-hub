@@ -106,7 +106,28 @@ export interface TemplateSource {
   readonly params: Readonly<Record<string, string | number | boolean>>
 }
 
-export type Source = MediaSource | TextSource | ShapeSource | TemplateSource
+/**
+ * A block authored in HTML and CSS, rasterised once into a bitmap.
+ *
+ * It behaves as an image from the moment it is rasterised — the preview and the
+ * renderer draw the SAME file, so there is no second engine and no way for the
+ * two to disagree. The markup stays on the clip so the block can be re-opened,
+ * edited and re-rasterised, and so a stale bitmap can be detected rather than
+ * silently shipped. See lib/timeline/html.ts.
+ */
+export interface HtmlSource {
+  readonly kind: 'html'
+  readonly html: string
+  readonly url?: string
+  readonly naturalWidth?: number
+  readonly naturalHeight?: number
+  readonly stamp?: string
+  /** One url per frame of the animated opening; after it, the last frame holds. */
+  readonly frames?: readonly string[]
+  readonly frameFps?: number
+}
+
+export type Source = MediaSource | TextSource | ShapeSource | TemplateSource | HtmlSource
 
 export interface Transform {
   /** Normalised centre of the clip within the frame. */
@@ -120,6 +141,16 @@ export interface Transform {
 }
 
 export interface ClipAudio {
+  /**
+   * The clip's own processing chain and its automation envelope.
+   *
+   * Normalisation and ducking were the whole of the audio stage: a good
+   * mastering step and no processing at all. A voice recorded in a room still
+   * sounded like a room. See lib/timeline/audio.ts.
+   */
+  readonly effects?: readonly import('./audio').AudioEffect[]
+  readonly gainPoints?: readonly import('./audio').GainPoint[]
+
   /** Linear gain, 1 = unity. Keyframe this and you have manual ducking. */
   readonly gain: Animatable<number>
   /** Marks the clip as a ducking TARGET, pulled down under any duckSource. */
@@ -138,6 +169,9 @@ export interface Clip {
   readonly duration: number
   /** Frames into the source media. Zero for stills, text and shapes. */
   readonly sourceIn: number
+  /** This shot's own colour, when the automatic grade is not what it needs. */
+  readonly grade?: import('./grade').ShotGrade
+
   readonly transform: Transform
   readonly fit: Fit
   readonly audio?: ClipAudio

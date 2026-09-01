@@ -17,6 +17,7 @@
 
 const { spawn } = require('child_process')
 const { FFMPEG } = require('./sources')
+const timeline = require('./timeline')
 
 const TARGETS = {
   broadcast: { I: -23, TP: -1, LRA: 7 },
@@ -89,6 +90,11 @@ function collectAudio(timeline, framesToSeconds) {
         fadeIn: framesToSeconds(clip.fadeIn),
         fadeOut: framesToSeconds(clip.fadeOut),
         name: clip.name,
+        // The per-clip processing chain and its automation envelope. Both are
+        // compiled by lib/timeline/audio.ts, so the Studio can show exactly the
+        // filters that will run rather than a hopeful description of them.
+        effects: clip.audio?.effects || null,
+        gainPoints: clip.audio?.gainPoints || null,
       })
     }
   }
@@ -110,6 +116,22 @@ function buildGraph(items, sampleRate, totalSeconds, sourceKeyGain = []) {
       'aformat=sample_fmts=fltp:channel_layouts=stereo',
       `volume=${item.gain.toFixed(4)}`,
     ]
+
+    // PROCESSING, BEFORE THE FADES AND THE DELAY.
+    //
+    // A gate and a compressor have to see the clip's own dynamics, not a fade
+    // that has already flattened its opening, and certainly not silence padded
+    // in front of it by adelay. Order matters here for the same reason it
+    // matters inside the chain itself.
+    const fx = timeline.compileChain(item.effects)
+    if (fx) chain.push(fx)
+
+    // Automation last of the level moves: a hand-drawn envelope is intent, and
+    // it should not be re-shaped by a compressor that ran after it.
+    if (item.gainPoints && item.gainPoints.length) {
+      const auto = timeline.compileGainAutomation(item.gainPoints)
+      if (auto) chain.push(auto)
+    }
     if (item.fadeIn > 0.001) chain.push(`afade=t=in:st=0:d=${item.fadeIn.toFixed(3)}`)
     if (item.fadeOut > 0.001) {
       chain.push(`afade=t=out:st=${Math.max(0, item.duration - item.fadeOut).toFixed(3)}:d=${item.fadeOut.toFixed(3)}`)

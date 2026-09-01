@@ -35,6 +35,15 @@ export interface DrawOp {
   readonly z: number
   /** Frames since this clip started. Karaoke captions need it; nothing else does. */
   readonly localFrame: number
+  /**
+   * The shot's own colour override, carried on the op.
+   *
+   * Put here rather than looked up by the caller on purpose: a painter that
+   * reaches back into the editor's scene list to find out how to draw is the
+   * coupling this codebase spent a month removing. Everything a frame needs
+   * travels with the frame.
+   */
+  readonly grade?: import('./grade').ShotGrade
   readonly source: Source
   /** Seconds into the source media. Zero for stills, text and shapes. */
   readonly sourceTime: number
@@ -92,7 +101,7 @@ function fadeFactor(clip: Clip, local: number): number {
 }
 
 function sourceAspect(source: Source): number | null {
-  if (source.kind === 'image' || source.kind === 'video') {
+  if (source.kind === 'image' || source.kind === 'video' || source.kind === 'html') {
     if (source.naturalWidth && source.naturalHeight) {
       return source.naturalWidth / source.naturalHeight
     }
@@ -185,6 +194,7 @@ function compileClip(
     clipId: clip.id,
     z,
     localFrame: local,
+    ...(clip.grade ? { grade: clip.grade } : {}),
     source: clip.source,
     sourceTime: clip.source.kind === 'video' ? fpsSeconds(clip.sourceIn + local) : 0,
     dest,

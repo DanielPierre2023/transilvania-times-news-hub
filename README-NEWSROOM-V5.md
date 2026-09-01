@@ -118,7 +118,54 @@ one deterministic converter owns the conversion.
 Lower-thirds are deliberately **left as digits** — a caption is read by the eye,
 and `o sută treizeci și nouă de lei` does not fit in 38 characters.
 
-## 3 · `app/admin/newsroom/page.tsx` — the early graphics
+## 3 · `app/admin/newsroom/page.tsx` — THE DECALAGE. One bug, three symptoms.
+
+I was wrong twice about this and did not read far enough. The cause is in the
+render loop, and it explains **all three complaints at once**.
+
+Every graphic was driven by the WALL CLOCK:
+
+```ts
+const t = (performance.now() - t0) / 1000
+if (t < INTRO) drawIntro(t)
+else if (t < INTRO + dur) {
+  if (!started) { started = true; v.play().catch(() => {}) }   // ← ASYNCHRONOUS
+  drawContent(t)                                                // ← wall clock
+} else { v.pause(); drawOutro(t) }
+if (t >= total) { resolve(); return }                           // ← stops on a stopwatch
+```
+
+`v.play()` is asynchronous. The element must decode and begin presenting before
+a single frame — or a single word — comes out. `drawContent(t)` did not wait for
+any of that: it started drawing the instant the stopwatch crossed `INTRO`.
+
+So playback always began **after** the graphics thought content had started, by a
+constant offset:
+
+| symptom | cause |
+|---|---|
+| headline and photo come up while she is still greeting | graphics ran on the stopwatch, speech ran on the video |
+| presenter appears late | the video genuinely did start late |
+| bulletin cut before the sign-off | the recorder stopped at `INTRO + dur` on the stopwatch while the media still had that offset left |
+
+**The fix: graphics now run on the MEDIA clock.**
+
+```ts
+const mt = Math.min(v.currentTime || 0, dur)
+drawContent(INTRO + mt)
+if (v.ended || (v.currentTime || 0) >= dur - 0.05) contentEndedAt = t
+```
+
+While the element is still spinning up, `v.currentTime` is 0 and the frame simply
+holds — drift is now impossible, whatever the machine or the network does. And
+the content phase ends when the **media** ends, not when a stopwatch says so, so
+the sign-off cannot be cut. A hard ceiling still stops a stalled element from
+recording forever.
+
+The music bed gained a 1.5 s tail allowance for the same reason: better that the
+pad holds a moment past the sign-off than that it dips under the last sentence.
+
+### And the greeting floor (kept, as a safety net)
 
 Story 1 was clamped only at `0`, so its start was whatever the proportional
 estimate said. That estimate is `words / total × duration`: it assumes a

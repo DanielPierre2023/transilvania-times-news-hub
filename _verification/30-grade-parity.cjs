@@ -161,16 +161,18 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
 function runPreviewChecks() {
 // ── the preview actually applies it, and only to the picture ─────────────
 {
-  ok('the preview measures the shot', /meanLinearFromRGBA\(/.test(src) && /planGains\(/.test(src))
+  ok('the preview measures the shot', /meanLinearFromRGBA\(/.test(src) && /planShotGains\(/.test(src))
   ok('...at the same 240px the worker uses', /const w = 240/.test(src))
-  ok('...caching per url, look and strength', /\$\{url\}\|\$\{spec\.look\}\|\$\{spec\.strength\}/.test(src))
+  ok('...caching per url, look, strength and trim — a shot override is part of the key',
+    /\$\{url\}\|\$\{look\}\|\$\{shot\?\.strength \?\? spec\.strength\}\|\$\{temp\}\|\$\{tint\}/.test(src))
   ok('the canvas filter is the SVG filter', /svgGradeFilter\(gains, ID\)/.test(src))
   ok('...installed once, not per frame', /getElementById\(ID \+ '-host'\)/.test(src))
   ok('the picture and the type are drawn in two passes',
     /filter: o => o\.z < GRAPHICS_Z/.test(src) && /filter: o => o\.z >= GRAPHICS_Z/.test(src))
   ok('...so the grade never lands on a caption', /clear: false, filter: o => o\.z >= GRAPHICS_Z/.test(src))
   ok('no grade means one pass, as before', /drawCompiled\(Ctx, frame, W, H, resolveMedia\)/.test(src))
-  ok('a look of none is not graded', /spec\.look === 'none'/.test(src))
+  ok("a look of none is not graded — unless a trim was asked for, which is a different request",
+    /look === 'none' && !temp && !tint/.test(src))
   ok('a tainted canvas does not break the preview', /catch \{ return null \}/.test(src))
 }
 

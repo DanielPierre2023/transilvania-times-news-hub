@@ -61,6 +61,24 @@ async function renderTimeline(tl, opts = {}) {
   for (const track of tl.tracks) {
     for (const clip of track.clips) {
       if (clip.source.kind === 'image') stillUrls.add(clip.source.url)
+      // AN HTML BLOCK IS A BITMAP BY THE TIME IT GETS HERE.
+      //
+      // It was rasterised once, in the browser, into a real file — so the worker
+      // loads that file exactly as it loads any still. No headless Chrome in the
+      // render path, and no second layout engine that could disagree with the
+      // one the author was looking at.
+      //
+      // A block with no url has never been rasterised. Failing loudly is right:
+      // a silently missing layer is how a film ships without its lower third.
+      if (clip.source.kind === 'html') {
+        if (!clip.source.url && !(clip.source.frames || []).length) {
+          throw new Error(`Compoziția HTML "${clip.name || clip.id}" nu a fost rasterizată. ` +
+            'Deschide-o în Studio și apasă Rasterizează.')
+        }
+        if (clip.source.url) stillUrls.add(clip.source.url)
+        // An animated composition is a sequence; every frame is a still.
+        for (const u of clip.source.frames || []) stillUrls.add(u)
+      }
     }
   }
   for (const url of stillUrls) await images.get(url)
@@ -194,6 +212,12 @@ async function renderTimeline(tl, opts = {}) {
 
       const resolve = op => {
         if (op.source.kind === 'video') return bitmaps.get(op.clipId) || null
+        // An animated composition holds a sequence; the shared helper decides
+        // which frame is on screen, so the preview cannot pick a different one.
+        if (op.source.kind === 'html') {
+          const u = timeline.frameUrlAt(op.source, op.localFrame, fps)
+          return (u && images.map.get(u)) || null
+        }
         return images.map.get(op.source.url) || null
       }
 
@@ -232,11 +256,17 @@ async function renderTimeline(tl, opts = {}) {
   let picture = silentVideo
   if (gradeActive) {
     const cuts = timeline.cutFrames(tl)
+    // A shot's own colour override travels on the clip that starts it, so the
+    // cut list is matched back to the picture clips rather than being a bare
+    // list of times.
+    const pictureClips = (tl.tracks.find(t => t.kind === 'video' && t.z === 0)?.clips || [])
+      .slice().sort((a, b) => a.start - b.start)
+    const gradeAt = (frame) => pictureClips.find(c => frame >= c.start && frame < c.start + c.duration)?.grade || null
     const shots = []
     for (let i = 0; i < cuts.length - 1; i++) {
       const a = timeline.framesToSeconds(cuts[i], rational)
       const b = timeline.framesToSeconds(cuts[i + 1], rational)
-      if (b - a > 0.25) shots.push({ start: a, end: b })
+      if (b - a > 0.25) shots.push({ start: a, end: b, grade: gradeAt(cuts[i]) })
     }
     if (shots.length) {
       const graded = path.join(workDir, `graded.${extension}`)

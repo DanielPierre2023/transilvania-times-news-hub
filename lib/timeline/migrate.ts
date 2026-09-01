@@ -35,6 +35,8 @@ export interface LegacyScene {
    * supported it — `Clip.sourceIn` — and the migration hard-coded zero.
    */
   in?: number
+  /** This shot's own colour override. */
+  grade?: import('./grade').ShotGrade
 }
 
 export interface LegacyCue {
@@ -196,6 +198,9 @@ export function migrateLegacyProject(
       // while, applied the move to any cached media, image or video: one more
       // way for what you watch and what you receive to disagree.
       transform: kenBurns(scene.kb, duration),
+      // A shot's own colour travels with the shot, so the renderer can honour it
+      // without the caller having to rebuild the grade spec.
+      ...(scene.grade ? { grade: scene.grade } : {}),
       fit: 'cover',
       fadeIn: 0,
       fadeOut: 0,

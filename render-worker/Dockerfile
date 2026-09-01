@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-liberation2 \
       fonts-ebgaramond \
       fonts-inter \
+      chromium \
   && rm -rf /var/lib/apt/lists/*
 
 # THE BRAND FACES HAVE TO EXIST HERE, NOT ONLY IN THE KIT.
@@ -58,6 +59,15 @@ RUN npm install --no-save typescript@5 \
  && rm -rf ./src-timeline ./node_modules/typescript
 
 COPY render-worker/src ./src
+
+# HTML COMPOSITIONS ARE LAID OUT BY CHROME, HERE.
+#
+# The page cannot do it: Chrome taints a canvas when an SVG carrying a
+# foreignObject is drawn on it, so a composition can be displayed in the editor
+# and never read back. Debian's chromium rather than a downloaded build — it is
+# already pinned by the base image and it is what the security updates track.
+ENV CHROMIUM_PATH=/usr/bin/chromium
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 ENV NODE_ENV=production
 ENV PORT=8080
