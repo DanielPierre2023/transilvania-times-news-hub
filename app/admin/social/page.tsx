@@ -19,6 +19,7 @@ interface Article {
   cover_image: string | null
   published_at: string | null
   is_breaking: boolean | null
+  category: string | null
 }
 
 // ─── SOCIAL PACK (from tt-social-copy v2 edge function) ───────────────────────
@@ -43,9 +44,10 @@ export default function SocialPage() {
   const [lang, setLang] = useState<Lang>('ro')
   const [title, setTitle] = useState('')
   const [coverUrl, setCoverUrl] = useState('')
-  const [formatKey, setFormatKey] = useState<string>('story')
+  const [formatKey, setFormatKey] = useState<string>('portrait')
   const [isBreaking, setIsBreaking] = useState(false)
-  const [breakingLabel, setBreakingLabel] = useState('BREAKING NEWS')
+  const [breakingLabel, setBreakingLabel] = useState('ULTIMA ORĂ')
+  const [rubric, setRubric] = useState('')
   const [ctaRo, setCtaRo] = useState('transilvaniatimes.com')
   const [ctaEn, setCtaEn] = useState('transilvaniatimes.com')
   const [showOnlyBreaking, setShowOnlyBreaking] = useState(false)
@@ -73,7 +75,7 @@ export default function SocialPage() {
   useEffect(() => {
     supabase
       .from('blog_posts')
-      .select('id, slug, title_ro, title_en, cover_image, published_at, is_breaking')
+      .select('id, slug, title_ro, title_en, cover_image, published_at, is_breaking, category')
       .eq('status', 'published')
       .order('published_at', { ascending: false })
       .limit(50)
@@ -99,6 +101,7 @@ export default function SocialPage() {
       setTitle(lang === 'ro' ? (a.title_ro || a.title_en || '') : (a.title_en || a.title_ro || ''))
       setCoverUrl(a.cover_image || '')
       setIsBreaking(a.is_breaking === true)
+      setRubric((a.category || '').toUpperCase())
     }
   }, [articles, lang])
 
@@ -122,13 +125,16 @@ export default function SocialPage() {
     setImageData('')
     try {
       const fmt = FORMATS[formatKey]
-      const data = await renderCard(coverUrl, title, logoUrl, fmt, currentCta, isBreaking, breakingLabel)
+      const data = await renderCard({
+        coverUrl, title, rubric, domain: currentCta, logoUrl,
+        format: fmt, isBreaking, breakingLabel, band: 'cream',
+      })
       setImageData(data)
     } catch (e) {
       console.error('Gen failed:', e)
     }
     setGenerating(false)
-  }, [title, coverUrl, formatKey, logoUrl, currentCta, isBreaking, breakingLabel])
+  }, [title, coverUrl, formatKey, logoUrl, currentCta, isBreaking, breakingLabel, rubric])
 
   // Generate the reach-optimized SEO + social pack for the selected article.
   const generateCopy = useCallback(async () => {

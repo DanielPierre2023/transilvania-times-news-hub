@@ -39,15 +39,17 @@ import {
   statusRenderBody, type RowMedia,
 } from '@/lib/campaign/build'
 import { TT_KIT } from '@/lib/brand/kit'
+import { costPerRow, generateRow, type GenerateHooks } from '@/lib/campaign/generate'
+import { buildClipProject } from '@/lib/podcast/clip'
 import { voiceSeconds } from '@/lib/media/duration'
 import {
   CHUNK_SECONDS, MAX_UPLOAD_BYTES, OVERLAP_SECONDS, encodeWav, monoSlice,
 } from '@/lib/media/wav'
 import type { Progress } from '@/lib/campaign/queue'
 import {
-  DEVICE_FRAMES, SYNC_CONFIDENCE_MIN, alignOffset, chapters as findChapters, cropKeys,
-  deadAir, findClips, planChunks, planTighten, readability, retime, secondsRemoved,
-  skipPoints, speakerCuts, stitch,
+  DEVICE_FRAMES, SEPARATION_MIN, SYNC_CONFIDENCE_MIN, alignOffset, assignSpeakers,
+  chapters as findChapters, cropKeys, deadAir, findClips, planChunks, planTighten,
+  readability, retime, secondsRemoved, separationOf, skipPoints, speakerCuts, stitch,
 } from '@/lib/timeline'
 
 type Tab = 'avatare' | 'campanii' | 'podcast' | 'ecran'
@@ -145,9 +147,17 @@ export default function ProductiePage() {
   const draft = useMemo(() => buildDraft(template, slotValues), [template, slotValues])
   const estimate = useMemo(() => {
     const one = sheet.rows[0] ? buildDraft(template, slotValues, sheet.rows[0]) : draft
+    // THE ESTIMATE COUNTS WHAT THE LOOP WILL ACTUALLY GENERATE.
+    //
+    // It used to count the template's beats without a picture slot, which is
+    // close and not the same: a beat whose slot the campaign has already filled
+    // costs nothing, and counting it inflated every fully-generated estimate.
+    // `costPerRow` reads the same draft the generator will walk, so the number
+    // shown and the number spent come from one source.
+    const picturesPerFilm = Math.round(costPerRow(one) / 0.04)
     return estimateCampaign(template, mode, sheet.rows.length, {
       scriptChars: one.script.length,
-      picturesPerFilm: template.beats.filter(b => !b.pictureSlot).length,
+      picturesPerFilm,
       motionSecondsPerFilm: 0,
     })
   }, [template, mode, sheet.rows, slotValues, draft])
@@ -224,11 +234,55 @@ export default function ProductiePage() {
           media = { voiceUrl, voiceSeconds: await voiceSeconds(voiceUrl, draft.script) }
         }
 
-        const project = draftToProject(draft, media, {
+        // FULLY GENERATED: the pictures are made for THIS row.
+        //
+        // Priced and gated for weeks before it was built, because a few hundred
+        // rows is a few hundred dollars. The budget is checked between
+        // pictures, not between rows — a row with four shots can otherwise
+        // spend four times the per-row estimate before anything looks.
+        let rowDraft = draft
+        if (mode === 'fullyGenerated') {
+          const genHooks: GenerateHooks = {
+            image: async (prompt, aspect) => {
+              const r = await db.functions.invoke('generate-cover-image', {
+                body: { raw_prompt: prompt, aspect },
+              })
+              if (r.error) throw new Error(r.error.message)
+              const d = r.data as { publicUrl?: string; error?: string }
+              if (d?.error) throw new Error(d.error)
+              if (!d?.publicUrl) throw new Error('image generation returned no file')
+              return d.publicUrl
+            },
+            meter: async (kind, usd, meta) => {
+              await db.from('studio_usage').insert({
+                kind, usd, campaign_id: id, row_index: rowIndex, meta: meta ?? null,
+              })
+            },
+            canSpend: async (usd) => {
+              const { data } = await db.from('studio_campaigns')
+                .select('spent_usd, ceiling_usd').eq('id', id).maybeSingle()
+              const row = data as { spent_usd?: number; ceiling_usd?: number } | null
+              if (!row) return true
+              return Number(row.spent_usd ?? 0) + usd <= Number(row.ceiling_usd ?? ceiling)
+            },
+          }
+          const gen = await generateRow(draft, sheet.rows[rowIndex] ?? {}, genHooks,
+            { fields: template.merge ?? [] })
+          rowDraft = gen.draft
+          if (gen.haltedOnBudget) throw new Error('budget exhausted mid-row')
+          if (signal.aborted) throw new Error('aborted')
+        }
+
+        const project = draftToProject(rowDraft, media, {
           kit, master: '1080', fpsOut: 25,
           subsOn: !!media.voiceUrl, voiceFx: 'voice', musicFx: 'none',
         })
         const timeline = rowTimeline(project, '1080')
+
+        // The timeline is written back onto the row, so a poller or a rerun
+        // renders exactly this and not a rebuild of it.
+        await db.from('studio_campaign_jobs')
+          .update({ timeline }).eq('campaign_id', id).eq('row_index', rowIndex)
 
         const created = await db.functions.invoke('render-worker', {
           body: createRenderBody(timeline),
@@ -301,11 +355,34 @@ export default function ProductiePage() {
       })
       if (e) throw new Error(e.message)
 
-      // Rows are inserted once and left alone on a resume: the primary key
-      // stops a row being queued twice, and re-inserting would reset the
-      // attempts of rows that already succeeded.
+      // EACH ROW CARRIES ITS OWN FINISHED TIMELINE.
+      //
+      // Built once, here, and stored. After this a driver — this tab, or the
+      // poller on the render worker — only has to render a document that
+      // already exists. The films a poller makes are then identical to the ones
+      // this tab makes, not because two builders agree but because there is one
+      // document. It also makes a campaign inspectable: a row that produced a
+      // wrong film can be read.
+      //
+      // Only text-only campaigns can have their timelines built up front —
+      // the other modes generate media per row, at render time.
+      const upfront = mode === 'textOnly'
       await db.from('studio_campaign_jobs').upsert(
-        built.drafts.map((_, i) => ({ campaign_id: id, row_index: i, state: 'pending' })),
+        built.drafts.map((d, i) => {
+          const base: Record<string, unknown> = { campaign_id: id, row_index: i, state: 'pending' }
+          if (upfront) {
+            try {
+              const project = draftToProject(d,
+                { voiceUrl: sharedVoiceUrl, voiceSeconds: sharedVoiceSeconds },
+                { kit, master: '1080', fpsOut: 25, subsOn: !!sharedVoiceUrl, voiceFx: 'voice', musicFx: 'none' })
+              base.timeline = rowTimeline(project, '1080')
+            } catch { /* a row that will not build is caught at render time */ }
+          }
+          return base
+        }),
+        // Rows are inserted once and left alone on a resume: the primary key
+        // stops a row being queued twice, and re-inserting would reset the
+        // attempts of rows that already succeeded.
         { onConflict: 'campaign_id,row_index', ignoreDuplicates: true })
 
       setCampaignId(id)
@@ -343,6 +420,7 @@ export default function ProductiePage() {
   const [tracks, setTracks] = useState<Track[]>([])
   const [words, setWords] = useState<{ word: string; start: number; end: number; speaker?: string }[]>([])
   const [podDur, setPodDur] = useState(0)
+  const [separation, setSeparation] = useState(0)
   const cuts = useMemo(() => words.length ? planTighten(words) : [], [words])
   const tightened = useMemo(() => words.length ? retime(words, cuts) : [], [words, cuts])
   const clips = useMemo(() => tightened.length ? findClips(tightened, { want: 10 }) : [], [tightened])
@@ -395,10 +473,48 @@ export default function ProductiePage() {
         parts.push({ chunk, words: ws.map(w => ({ ...w, speaker: mic.speaker })) })
       }
 
-      await ctx.close()
       // Each chunk's timestamps start again at zero; stitch shifts them into the
       // whole recording and drops the repeated head.
-      setWords(stitch(parts))
+      let all = stitch(parts)
+
+      // WHO IS SPEAKING, WITHOUT A DIARISER.
+      //
+      // Whisper does not diarise, and the usual answers are a second paid
+      // service or a clustering model. Neither is needed with a lapel on each
+      // speaker: the person talking is the one whose OWN microphone is loud,
+      // and every other track hears them across the room, quieter. That is a
+      // measurement the recording already contains — more reliable on this
+      // material than a diariser, which works from one mixed track and has to
+      // infer what two tracks state outright.
+      const mics = tracks.filter(t => t.kind === 'mic' && t.speaker)
+      if (mics.length > 1) {
+        const HZ = 100
+        const envelopes = []
+        for (const m of mics) {
+          const buf = await ctx.decodeAudioData(await (await fetch(m.url)).arrayBuffer())
+          const ch = buf.getChannelData(0)
+          const per = Math.max(1, Math.round(buf.sampleRate / HZ))
+          // The offset measured by the aligner is applied HERE. Attributing
+          // words with unaligned envelopes picks whoever was loudest half a
+          // second later, which is the other speaker about as often as not.
+          const shift = Math.round((m.offset ?? 0) * HZ)
+          const env: number[] = []
+          for (let i = 0; i + per <= ch.length; i += per) {
+            let acc = 0
+            for (let j = 0; j < per; j++) acc += ch[i + j] * ch[i + j]
+            env.push(Math.sqrt(acc / per))
+          }
+          const aligned = shift === 0 ? env
+            : shift > 0 ? [...Array(shift).fill(0), ...env]
+              : env.slice(-shift)
+          envelopes.push({ speaker: m.speaker, envelope: aligned })
+        }
+        all = assignSpeakers(all, envelopes, { hz: HZ })
+        setSeparation(separationOf(all, envelopes, { hz: HZ }))
+      }
+
+      await ctx.close()
+      setWords(all)
     } catch (err) { setError((err as Error).message) } finally { setBusy('') }
   }, [tracks, db, upload, log])
 
@@ -1162,6 +1278,16 @@ export default function ProductiePage() {
               <Panel title="Clipuri pentru social"
                 note="Un clip nu e un fragment. Un fragment începe unde a început vorbitorul; un clip începe unde ar începe să îi pese celui care se uită.">
                 <div className="grid gap-2">
+                  {separation > 0 && (
+                    <Note level={separation >= SEPARATION_MIN ? 'info' : 'warn'}>
+                      {separation >= SEPARATION_MIN
+                        ? `Microfoanele separă vorbitorii clar (raport ${separation.toFixed(1)}×). ` +
+                          'Atribuirea vine din măsurătoare, nu dintr-un model.'
+                        : `Microfoanele nu separă vorbitorii (raport doar ${separation.toFixed(1)}×) — ` +
+                          'probabil două microfoane omnidirecționale pe aceeași masă. Atribuirea e ' +
+                          'nesigură; verific-o înainte de a publica.'}
+                    </Note>
+                  )}
                   {clips.map((c, i) => (
                     <div key={i} className="border border-white/[0.07] p-3 grid gap-1">
                       <span className="flex gap-3 items-baseline flex-wrap">
@@ -1169,6 +1295,38 @@ export default function ProductiePage() {
                           {fmt(c.start)} – {fmt(c.end)} · {(c.end - c.start).toFixed(0)}s
                         </span>
                         <span className="font-mono text-[11px] text-amber-300/70">scor {c.score}</span>
+                        {/* A LIST OF TIMECODES IS NOT A DELIVERABLE. Turning one
+                            into a vertical with burned-in captions was still a
+                            manual job per clip — exactly the work this tab was
+                            meant to remove. */}
+                        <button
+                          onClick={() => {
+                            const cams = tracks.filter(t => t.kind === 'camera')
+                            const project = buildClipProject({
+                              start: c.start, end: c.end, words: tightened,
+                              sources: cams.length
+                                ? cams.map(t => ({ url: t.url, kind: 'video' as const,
+                                    speaker: t.speaker, offsetSeconds: t.offset ?? 0 }))
+                                : tracks.slice(0, 1).map(t => ({ url: t.url, kind: 'video' as const })),
+                              attribution: c.text.match(/^[^.!?]{0,40}/)?.[0] ? undefined : undefined,
+                              aspect: '9:16',
+                            })
+                            const blob = new Blob([JSON.stringify(project, null, 2)],
+                              { type: 'application/json' })
+                            const a = document.createElement('a')
+                            a.href = URL.createObjectURL(blob)
+                            a.download = `clip-${Math.round(c.start)}s.json`
+                            a.click()
+                            URL.revokeObjectURL(a.href)
+                            setError(project.warnings.length
+                              ? `Clip pregătit, cu observații: ${project.warnings.join(' ')}`
+                              : `Clip pregătit: ${project.scenes.length} ${project.scenes.length === 1 ? 'plan' : 'planuri'}, ` +
+                                `${project.cues.length} subtitrări, ${project.seconds.toFixed(1)}s. ` +
+                                'Deschide-l în Studio ca proiect.')
+                          }}
+                          className="ml-auto text-[11px] px-2 py-1 border border-sky-500/40 text-sky-300/90 hover:bg-sky-500/10">
+                          pregătește vertical
+                        </button>
                       </span>
                       <span className="text-[12px] text-white/60 leading-relaxed">{c.text.slice(0, 220)}…</span>
                       <span className="text-[11px] text-white/30">{c.why}</span>

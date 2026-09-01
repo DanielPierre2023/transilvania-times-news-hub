@@ -16,6 +16,7 @@ const os = require('os')
 const crypto = require('crypto')
 
 const { renderTimeline } = require('./render')
+const { startPoller } = require('./campaign-poller')
 const { inspect } = require('./qc')
 const { analyseClip, judge, selectBest, DEFAULT_SPEC } = require('./vision')
 const { rasterHtml, rasterHtmlFrames, findChromium } = require('./raster')
@@ -338,13 +339,42 @@ const server = http.createServer(async (req, res) => {
     // Redeploy that rebuilt the same snapshot. Every one of those cost an hour
     // of debugging the wrong thing, because /health said "ok" either way.
     //
-    // So health now reports the live gate thresholds. They change whenever the
-    // measurement changes, which makes them a fingerprint of the deployed
-    // code that needs no build metadata and cannot drift out of date.
+    // So health reports the live gate thresholds — a fingerprint of the code
+    // that needs no build metadata and cannot drift out of date.
+    //
+    // THAT WAS NOT ENOUGH, AND TESTING THE LIVE SITE PROVED IT. The thresholds
+    // only change when the MEASUREMENT changes, so a deploy that altered speed
+    // ramps, wipes or the grade left them untouched and /health looked
+    // identical before and after. The only way to tell whether a ramp would
+    // actually play was to pay for a render and watch the file.
+    //
+    // `features` fixes that: each flag is derived from the shared code that is
+    // actually loaded, not from a version string somebody has to remember to
+    // bump. A worker without `speedRamps` cannot play a ramp, and now says so.
     return json(res, 200, {
       ok: true,
       running,
       concurrency: CONCURRENCY,
+      features: {
+        // The variable-pace tap: without it a ramped clip renders at normal
+        // speed while the preview shows the ramp, and nothing throws.
+        speedRamps: typeof require('./sources').VideoTap.prototype.advanceTo === 'function'
+          && typeof timeline.sourceOffset === 'function',
+        // The mask draw mode. Without it a wipe renders as a hard cut.
+        wipes: typeof timeline.applyMask === 'function' && Array.isArray(timeline.WIPE_KINDS),
+        // Contrast folded into the per-channel LUT, saturation as an explicit
+        // matrix. Without it the render keeps the old YUV contrast and looks
+        // punchier than the preview.
+        gradeStyles: typeof timeline.saturationMixer === 'function'
+          && typeof timeline.GRADE_STYLES === 'object',
+        // Delivery above 1080.
+        masters: Array.isArray(timeline.TIER_ORDER) && timeline.TIER_ORDER.includes('2160'),
+        // Animated HTML compositions need Chrome AND the frame sequence helper.
+        animatedHtml: typeof timeline.frameUrlAt === 'function',
+        // Podcast and campaign helpers, for a poller running on this box.
+        podcast: typeof timeline.planChunks === 'function',
+        campaignPoller: !!process.env.CAMPAIGN_POLL,
+      },
       // Whether HTML compositions can be rasterised on this box at all.
       chromium: !!findChromium(),
       queued: queue.length,
@@ -520,6 +550,60 @@ const server = http.createServer(async (req, res) => {
   return json(res, 404, { error: 'Not found' })
 })
 
+/**
+ * Render one stored timeline, for the campaign poller.
+ *
+ * Goes through the SAME job pipeline as an HTTP request — the same queue, the
+ * same concurrency limit, the same QC. A second render path inside one process
+ * would be two sets of behaviour under load, and the load is exactly when a
+ * campaign runs.
+ */
+function renderForCampaign(tl) {
+  return new Promise((resolve, reject) => {
+    const id = crypto.randomUUID()
+    const job = {
+      id,
+      timeline: tl,
+      state: 'queued',
+      workDir: fs.mkdtempSync(path.join(WORK_ROOT, `camp-${id.slice(0, 8)}-`)),
+      queuedAt: Date.now(),
+    }
+    jobs.set(id, job)
+    queue.push(job)
+    setImmediate(pump)
+
+    const started = Date.now()
+    const tick = setInterval(() => {
+      const j = jobs.get(id)
+      if (!j) { clearInterval(tick); reject(new Error('job disappeared')); return }
+      if (j.state === 'failed' || j.state === 'error') {
+        clearInterval(tick); reject(new Error(j.error || 'render failed')); return
+      }
+      if (j.state && j.state.startsWith('done')) {
+        clearInterval(tick)
+        const base = (process.env.RENDER_WORKER_PUBLIC_URL || '').replace(/\/$/, '')
+        if (!base) {
+          // Without a public base the file exists and nothing can reach it.
+          // Said out loud rather than returning a URL that 404s for the client.
+          reject(new Error('RENDER_WORKER_PUBLIC_URL is not set — the finished file has no reachable address'))
+          return
+        }
+        resolve({
+          url: `${base}/jobs/${id}/file?key=${encodeURIComponent(j.downloadKey)}`,
+          costUsd: 0,
+          seconds: j.result && j.result.durationSeconds,
+        })
+        return
+      }
+      // The claim lease is ten minutes; give up inside it so the row is not
+      // reclaimed by another driver while this one is still waiting.
+      if (Date.now() - started > 9 * 60_000) {
+        clearInterval(tick); reject(new Error('timeout waiting for the render'))
+      }
+    }, 2_000)
+  })
+}
+
 server.listen(PORT, () => {
   if (!TOKEN) {
     console.error('RENDER_WORKER_TOKEN is not set — every request will be refused. Set it and redeploy.')
@@ -527,6 +611,10 @@ server.listen(PORT, () => {
   // Finished films come back after a redeploy instead of turning into 401s.
   const restored = loadIndex()
   console.log(`render worker listening on ${PORT} · concurrency ${CONCURRENCY} · ${restored} render${restored === 1 ? '' : 's'} restored`)
+
+  // OFF UNLESS EXPLICITLY TURNED ON. It needs a service key, which bypasses row
+  // level security entirely — a real decision, not a default.
+  startPoller({ render: renderForCampaign })
 })
 
 module.exports = { server }

@@ -119,7 +119,8 @@ export {
 
 /** Podcast: chunked transcription, multi-recorder alignment, tightening, clips. */
 export {
-  DEFAULT_FILLERS, SYNC_CONFIDENCE_MIN, WHISPER_MAX_BYTES, alignOffset, chapters, findClips,
+  DEFAULT_FILLERS, SEPARATION_MIN, SYNC_CONFIDENCE_MIN, WHISPER_MAX_BYTES,
+  alignOffset, assignSpeakers, separationOf, chapters, findClips,
   planChunks, planTighten, retime, secondsRemoved, sentences, speakerCuts, stitch,
 } from './podcast'
 

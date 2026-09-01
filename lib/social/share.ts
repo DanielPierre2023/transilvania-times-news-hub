@@ -132,7 +132,7 @@ async function alreadyPosted(supabase: SupaClient, articleId: string, platform: 
 interface ArticleRow {
   slug?: string | null; title_ro?: string | null; title_en?: string | null
   cover_image?: string | null; is_breaking?: boolean | null
-  status?: string | null; skip_facebook?: boolean | null
+  status?: string | null; skip_facebook?: boolean | null; category?: string | null
 }
 
 // Everything a platform poster needs (built once, reused by all).
@@ -250,7 +250,7 @@ export async function autoShareOnPublish(supabase: SupaClient, articleId: string
     // 1. Read the article + the per-article opt-out flag.
     const { data: artData, error: aErr } = await supabase
       .from('blog_posts')
-      .select('slug, title_ro, title_en, cover_image, is_breaking, status, skip_facebook')
+      .select('slug, title_ro, title_en, cover_image, is_breaking, status, skip_facebook, category')
       .eq('id', articleId).single()
     if (aErr || !artData) return { ran: false, note: 'articolul nu a putut fi citit', results: [] }
     const art = artData as ArticleRow
@@ -274,12 +274,14 @@ export async function autoShareOnPublish(supabase: SupaClient, articleId: string
     if (!cfg.facebook && !cfg.instagram && !cfg.linkedin) return { ran: true, results: [] }
 
     // 3. Render the branded card once; upload PNG (FB/LinkedIn) + JPEG (IG only).
-    const dataUrl = await renderCard(
-      cover, title, '/assets/logos/logo-transilvania-times.png',
-      FORMATS.square, 'transilvaniatimes.com', art.is_breaking === true, 'ULTIMA ORĂ',
-    )
+    const dataUrl = await renderCard({
+      coverUrl: cover, title, rubric: (art.category || '').toUpperCase(),
+      domain: 'transilvaniatimes.com', logoUrl: '/assets/logos/logo-transilvania-times.png',
+      format: FORMATS.portrait, isBreaking: art.is_breaking === true, breakingLabel: 'ULTIMA ORĂ',
+      band: 'cream',
+    })
     const slug = art.slug || articleId
-    const stem = `social/${slug}/auto-square-ro-${Date.now()}`
+    const stem = `social/${slug}/auto-card-ro-${Date.now()}`
     const { error: upErr } = await supabase.storage.from('studio-assets')
       .upload(`${stem}.png`, dataURLToBlob(dataUrl), { contentType: 'image/png', upsert: true })
     if (upErr) return { ran: true, note: 'încărcarea cardului a eșuat: ' + upErr.message, results: [] }

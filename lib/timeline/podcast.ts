@@ -215,6 +215,100 @@ export function alignOffset(
   }
 }
 
+// ── 2b · who is speaking, without a diariser ─────────────────────────────
+
+/**
+ * Assign each word to a microphone, by which microphone actually heard it.
+ *
+ * WHISPER DOES NOT DIARISE, and the usual answers to that are a second paid
+ * service or a clustering model. Neither is needed here, because the recording
+ * already contains the answer: with a lapel on each speaker, the person talking
+ * is the one whose OWN microphone is loud. Every other track hears them across
+ * the room, quieter and later.
+ *
+ * So this is not a guess dressed up as one. It is a measurement, and it is more
+ * reliable than a diariser on exactly this material — a diariser works from one
+ * mixed track and has to infer what two tracks state outright.
+ *
+ * `envelopes` are per-track loudness at `hz`, ALREADY ALIGNED — offsets applied.
+ * Feeding unaligned envelopes assigns words to whoever was loudest half a second
+ * later, which is the other speaker about as often as not.
+ */
+export interface SpeakerTrack {
+  readonly speaker: string
+  /** Loudness envelope, aligned to the same clock as the words. */
+  readonly envelope: readonly number[]
+}
+
+export function assignSpeakers(
+  words: readonly Word[],
+  tracks: readonly SpeakerTrack[],
+  { hz = 100, margin = 1.35 }: { hz?: number; margin?: number } = {},
+): Word[] {
+  if (tracks.length === 0) return [...words]
+  if (tracks.length === 1) return words.map(w => ({ ...w, speaker: tracks[0].speaker }))
+
+  const energyOf = (env: readonly number[], from: number, to: number): number => {
+    const a = Math.max(0, Math.floor(from * hz))
+    const b = Math.min(env.length, Math.ceil(to * hz))
+    if (b <= a) return 0
+    let acc = 0
+    for (let i = a; i < b; i++) acc += env[i] * env[i]
+    return Math.sqrt(acc / (b - a))
+  }
+
+  let previous = tracks[0].speaker
+  return words.map(w => {
+    const scores = tracks.map(t => ({ speaker: t.speaker, e: energyOf(t.envelope, w.start, w.end) }))
+    scores.sort((a, b) => b.e - a.e)
+    const [top, second] = scores
+    // A CLEAR WINNER, OR THE PREVIOUS SPEAKER.
+    //
+    // Bleed makes the two tracks similar during a pause or an overlap, and a
+    // bare argmax then flips speaker on individual words in the middle of a
+    // sentence — which reads as nonsense in a transcript and cuts the camera
+    // back and forth. Requiring the winner to be clearly louder, and otherwise
+    // keeping whoever was already talking, is what turns a measurement into a
+    // usable attribution.
+    if (!second || second.e <= 0 || top.e >= second.e * margin) previous = top.speaker
+    return { ...w, speaker: previous }
+  })
+}
+
+/**
+ * How confidently the tracks separate the speakers.
+ *
+ * Two lapels give a wide ratio; two omnidirectional mics on one table give
+ * nearly none, and the attribution is then close to a coin toss. Better to say
+ * so than to print a transcript that looks authoritative and is half wrong.
+ */
+export function separationOf(
+  words: readonly Word[],
+  tracks: readonly SpeakerTrack[],
+  { hz = 100 }: { hz?: number } = {},
+): number {
+  if (tracks.length < 2 || words.length === 0) return 0
+  const energyOf = (env: readonly number[], from: number, to: number): number => {
+    const a = Math.max(0, Math.floor(from * hz))
+    const b = Math.min(env.length, Math.ceil(to * hz))
+    if (b <= a) return 0
+    let acc = 0
+    for (let i = a; i < b; i++) acc += env[i] * env[i]
+    return Math.sqrt(acc / (b - a))
+  }
+  let sum = 0, n = 0
+  for (const w of words) {
+    const e = tracks.map(t => energyOf(t.envelope, w.start, w.end)).sort((a, b) => b - a)
+    if (e[0] <= 0 || e[1] <= 0) continue
+    sum += e[0] / e[1]
+    n++
+  }
+  return n ? sum / n : 0
+}
+
+/** Below this, two microphones are not telling the speakers apart. */
+export const SEPARATION_MIN = 1.5
+
 // ── 3 · removing what nobody wants to hear ───────────────────────────────
 
 export interface TightenOptions {

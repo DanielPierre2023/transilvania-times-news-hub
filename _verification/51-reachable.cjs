@@ -224,6 +224,38 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
     /Reia campania/.test(prod))
 }
 
+// ── the last four capabilities ───────────────────────────────────────────
+{
+  ok('EACH ROW GETS ITS TIMELINE STORED — the poller renders a document that ' +
+     'already exists rather than building one, so its films are identical to ' +
+     'the tab\'s by construction', /base\.timeline = rowTimeline\(project/.test(prod))
+  ok('...and it is written back after a per-row generation too',
+    /\.update\(\{ timeline \}\)/.test(prod))
+
+  ok('FULLY GENERATED CAMPAIGNS ACTUALLY GENERATE', /generateRow\(draft, sheet\.rows/.test(prod))
+  ok('...through the real image function', /generate-cover-image/.test(prod))
+  ok('...metering every unit into the ledger', /from\('studio_usage'\)\.insert/.test(prod))
+  ok('...and checking the budget against what has really been spent',
+    /select\('spent_usd, ceiling_usd'\)/.test(prod))
+  ok('THE ESTIMATE COUNTS WHAT THE LOOP WILL GENERATE, not the template\'s beats',
+    /costPerRow\(one\)/.test(prod))
+
+  ok('SPEAKERS ARE ATTRIBUTED FROM THE MICROPHONES — Whisper does not diarise, ' +
+     'and with a lapel each the recording already contains the answer',
+    /assignSpeakers\(all, envelopes/.test(prod))
+  ok('...with the measured alignment applied to the envelopes first, or words go ' +
+     'to whoever was loud half a second later', /m\.offset \?\? 0\) \* HZ/.test(prod))
+  ok('...and the separation is reported rather than assumed',
+    /separationOf\(all, envelopes/.test(prod) && /SEPARATION_MIN/.test(prod))
+  ok('...saying plainly when two mics cannot tell the speakers apart',
+    /nu separă vorbitorii/.test(prod))
+
+  ok('A RANKED CLIP CAN BE TURNED INTO A FINISHED VERTICAL — a list of timecodes ' +
+     'is not a deliverable', /buildClipProject\(\{/.test(prod))
+  ok('...using the cameras, with their offsets', /offsetSeconds: t\.offset/.test(prod))
+  ok('...and it reports what could not be done', /project\.warnings\.length/.test(prod))
+}
+
 // ── podcast ──────────────────────────────────────────────────────────────
 {
   ok('PODCAST tracks can be uploaded', /setTracks\(l => \[\.\.\.l/.test(prod))

@@ -83,8 +83,12 @@ const prod = stripComments(prodRaw)
   ok('...and polls with the built status body', /body: statusRenderBody\(jobId\)/.test(prod))
   ok('THE INVENTED PAYLOAD IS GONE', !/body: \{ draft, aspect/.test(prod))
   ok('the driver builds a real timeline first', /rowTimeline\(project/.test(prod))
+  // `rowDraft` rather than `draft`: a fully-generated row has its pictures made
+  // first, so the draft the project is built from is the generated one.
   ok('...from a project in the SAME shape a hand-made film has, so a campaign ' +
-     'film can be opened and fixed later', /draftToProject\(draft/.test(prod))
+     'film can be opened and fixed later', /draftToProject\(rowDraft, media/.test(prod))
+  ok('...and the generated draft is what gets built, not the template one',
+    /const gen = await generateRow\(draft/.test(prod) && /rowDraft = gen\.draft/.test(prod))
   ok('the poll stops on a terminal state', /isFinished\(state\)/.test(prod))
   ok('...and treats failure as failure', /isFailure\(state\)/.test(prod))
   ok('a render that never finishes times out INSIDE its own lease, so the row ' +

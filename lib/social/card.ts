@@ -1,9 +1,18 @@
 // lib/social/card.ts
 //
-// Shared Transilvania Times social-card renderer. Extracted VERBATIM from
-// app/admin/social/page.tsx so the manual Social Media Generator AND the
-// automatic on-publish Facebook share (lib/social/share.ts) draw the exact
-// same branded card — one source of truth. Client-only (uses canvas/Image).
+// Shared Transilvania Times social-card renderer — the "cream band" template.
+//
+// Layout (chosen Sep 2025, replacing the old red speech-bubble card):
+//   • full-bleed cover photo on top
+//   • a solid CREAM band below that hugs its content
+//   • a red rubric/category chip, then the headline in Lora serif (near-black)
+//   • a footer row: "Transilvania Times" wordmark + the domain, over a hairline
+//   • the logo on a small white chip in the photo's top-right corner
+//   • a slanted red "ULTIMA ORĂ" flag on the photo, breaking news only
+//
+// One source of truth: the manual Social Media Generator (app/admin/social) and
+// the automatic on-publish fan-out (lib/social/share.ts) both call renderCard,
+// so a manual card and an auto-posted card are byte-identical. Client-only.
 
 // ─── FORMATS ──────────────────────────────────────────────────────────────────
 
@@ -11,14 +20,15 @@ export interface Format {
   label: string
   width: number
   height: number
-  bubbleH: number  // bubble height as fraction of canvas height
-  ctaH: number     // CTA banner height as fraction of canvas height
 }
 
+// 4:5 is the default — it takes ~25% more vertical space in the IG/FB feed than
+// a square. 1:1 and 9:16 stay available; 1200×630 is a wide fallback.
 export const FORMATS: Record<string, Format> = {
-  square:    { label: 'Instagram / Facebook (1:1)',     width: 1080, height: 1080, bubbleH: 0.19, ctaH: 0.09 },
-  landscape: { label: 'Facebook / Twitter (1200×630)',  width: 1200, height: 630,  bubbleH: 0.32, ctaH: 0.13 },
-  story:     { label: 'Instagram Story (9:16)',         width: 1080, height: 1920, bubbleH: 0.14, ctaH: 0.07 },
+  portrait:  { label: 'Instagram / Facebook (4:5)',    width: 1080, height: 1350 },
+  square:    { label: 'Instagram / Facebook (1:1)',    width: 1080, height: 1080 },
+  story:     { label: 'Instagram Story (9:16)',        width: 1080, height: 1920 },
+  landscape: { label: 'Facebook / Twitter (1200×630)', width: 1200, height: 630  },
 }
 
 // ─── BRAND ────────────────────────────────────────────────────────────────────
@@ -28,14 +38,15 @@ const B = {
   navy: '#0D1B4B',
   amber: '#F0A500',
   cream: '#F5F4F0',
-  nearBlack: '#1A1A1A',
+  ink: '#1A1A1A',
   white: '#FFFFFF',
 }
 
 export type Lang = 'ro' | 'en'
+export type Band = 'cream' | 'navy'
 
 const SANS = '"Helvetica Neue", Helvetica, Arial, sans-serif'
-// Lora — masthead serif. Project font, falls back to Georgia where Lora is not loaded.
+// Lora — masthead serif. Falls back to Georgia where Lora is not loaded.
 const SERIF = 'Lora, Georgia, "Times New Roman", serif'
 
 // ─── CANVAS HELPERS ───────────────────────────────────────────────────────────
@@ -50,6 +61,17 @@ function loadImg(src: string): Promise<HTMLImageElement> {
   })
 }
 
+// Best-effort: make sure the Lora weights we use are ready before we measure /
+// draw, so the first render isn't a Georgia fallback. Never throws.
+async function ensureFonts(): Promise<void> {
+  try {
+    const fonts = (document as unknown as { fonts?: { load: (f: string) => Promise<unknown>; ready: Promise<unknown> } }).fonts
+    if (!fonts) return
+    await Promise.all([fonts.load('600 48px Lora'), fonts.load('700 32px Lora')])
+    await fonts.ready
+  } catch { /* fonts not available — Georgia fallback is fine */ }
+}
+
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, font: string): string[] {
   ctx.font = font
   const words = text.split(' ')
@@ -57,395 +79,227 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, font: s
   let cur = ''
   for (const w of words) {
     const test = cur ? `${cur} ${w}` : w
-    if (ctx.measureText(test).width > maxW && cur) {
-      lines.push(cur)
-      cur = w
-    } else {
-      cur = test
-    }
+    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w }
+    else cur = test
   }
   if (cur) lines.push(cur)
   return lines
 }
 
-function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: number, h: number) {
+function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
   const sa = img.width / img.height
   const da = w / h
   let sx = 0, sy = 0, sw = img.width, sh = img.height
   if (sa > da) { sw = img.height * da; sx = (img.width - sw) / 2 }
   else         { sh = img.width / da;  sy = (img.height - sh) / 2 }
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h)
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h)
 }
 
-// ─── BREAKING NEWS BADGE — two slanted red boxes, stacked, with white text ───
-// Mirrors the lower-third "TV news" graphic from the PNL reference. Splits the
-// label on whitespace: first word in top box, rest in bottom (offset right).
+// Manual letter-spacing (portable — avoids ctx.letterSpacing support gaps).
+function measureSpaced(ctx: CanvasRenderingContext2D, text: string, sp: number): number {
+  let w = 0
+  for (const ch of text) w += ctx.measureText(ch).width + sp
+  return Math.max(0, w - sp)
+}
+function fillSpaced(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, sp: number) {
+  let cx = x
+  for (const ch of text) { ctx.fillText(ch, cx, y); cx += ctx.measureText(ch).width + sp }
+}
 
-function drawBreakingBadge(
-  ctx: CanvasRenderingContext2D,
-  W: number,
-  label: string,
-  topY: number,
-  scale: number,
-) {
-  const trimmed = label.trim()
-  if (!trimmed) return
-
-  const parts = trimmed.split(/\s+/)
-  const lineA = parts[0] || ''
-  const lineB = parts.slice(1).join(' ')
-
-  const ref = W * scale
-  const h1 = Math.round(ref * 0.058)
-  const h2 = Math.round(ref * 0.048)
-  const slant = Math.round(ref * 0.034)  // sharper slant — bolder TV-graphic feel
-  const padIn = Math.round(ref * 0.018)
-  const pad = Math.round(W * 0.04)
-
-  // Measure
-  ctx.save()
-  ctx.font = `900 ${Math.round(h1 * 0.56)}px ${SANS}`
-  const wA = ctx.measureText(lineA).width
-  ctx.font = `900 ${Math.round(h2 * 0.56)}px ${SANS}`
-  const wB = lineB ? ctx.measureText(lineB).width : 0
-  ctx.restore()
-
-  const boxAw = wA + padIn * 2 + slant
-  const boxBw = wB + padIn * 2 + slant
-
-  const xA = pad
-  const yA = topY
-
-  // Box A (top, with shadow)
-  ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.45)'
-  ctx.shadowBlur = 18
-  ctx.shadowOffsetY = 4
-  ctx.fillStyle = B.red
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, h / 2, w / 2)
   ctx.beginPath()
-  ctx.moveTo(xA, yA)
-  ctx.lineTo(xA + boxAw - slant, yA)
-  ctx.lineTo(xA + boxAw, yA + h1)
-  ctx.lineTo(xA, yA + h1)
+  ctx.moveTo(x + rr, y)
+  ctx.arcTo(x + w, y, x + w, y + h, rr)
+  ctx.arcTo(x + w, y + h, x, y + h, rr)
+  ctx.arcTo(x, y + h, x, y, rr)
+  ctx.arcTo(x, y, x + w, y, rr)
   ctx.closePath()
-  ctx.fill()
-  ctx.restore()
-
-  // Box A text
-  ctx.font = `900 ${Math.round(h1 * 0.56)}px ${SANS}`
-  ctx.fillStyle = B.white
-  ctx.textBaseline = 'middle'
-  ctx.textAlign = 'left'
-  ctx.fillText(lineA, xA + padIn, yA + h1 / 2 + 1)
-
-  // Box B (offset right and below)
-  if (lineB) {
-    const xB = xA + Math.round(boxAw * 0.62)   // more dramatic offset right
-    const yB = yA + h1 + Math.round(h1 * 0.04)  // tighter vertical stack
-    ctx.save()
-    ctx.shadowColor = 'rgba(0,0,0,0.45)'
-    ctx.shadowBlur = 18
-    ctx.shadowOffsetY = 4
-    ctx.fillStyle = B.red
-    ctx.beginPath()
-    ctx.moveTo(xB, yB)
-    ctx.lineTo(xB + boxBw - slant, yB)
-    ctx.lineTo(xB + boxBw, yB + h2)
-    ctx.lineTo(xB, yB + h2)
-    ctx.closePath()
-    ctx.fill()
-    ctx.restore()
-    ctx.font = `900 ${Math.round(h2 * 0.56)}px ${SANS}`
-    ctx.fillStyle = B.white
-    ctx.fillText(lineB, xB + padIn, yB + h2 / 2 + 1)
-  }
-
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'alphabetic'
 }
 
-// ─── SPEECH BUBBLE — red rounded rect, white bold centered title ─────────────
+// ─── LOGO badge (top-right of the photo, on a white chip) ────────────────────
 
-function drawSpeechBubble(
-  ctx: CanvasRenderingContext2D,
-  W: number,
-  title: string,
-  top: number,
-  h: number,
-) {
-  // Tighter bubble — 88% of canvas width — gives editorial breathing room
-  const pad = Math.round(W * 0.06)
-  const x = pad
-  const w = W - pad * 2
-  const radius = Math.round(W * 0.032)
-
-  // Helper to trace the rounded-rect path — used twice for layered shadow
-  const tracePath = () => {
-    ctx.beginPath()
-    ctx.moveTo(x + radius, top)
-    ctx.lineTo(x + w - radius, top)
-    ctx.arcTo(x + w, top, x + w, top + radius, radius)
-    ctx.lineTo(x + w, top + h - radius)
-    ctx.arcTo(x + w, top + h, x + w - radius, top + h, radius)
-    ctx.lineTo(x + radius, top + h)
-    ctx.arcTo(x, top + h, x, top + h - radius, radius)
-    ctx.lineTo(x, top + radius)
-    ctx.arcTo(x, top, x + radius, top, radius)
-    ctx.closePath()
-  }
-
-  // PASS 1: wide ambient shadow (Material elevation 3 — low opacity, big blur)
-  ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.28)'
-  ctx.shadowBlur = 56
-  ctx.shadowOffsetY = 20
-  ctx.fillStyle = B.red
-  tracePath()
-  ctx.fill()
-  ctx.restore()
-
-  // PASS 2: close shadow (higher contrast, tight blur) — stacks for depth
-  ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.45)'
-  ctx.shadowBlur = 14
-  ctx.shadowOffsetY = 5
-  ctx.fillStyle = B.red
-  tracePath()
-  ctx.fill()
-  ctx.restore()
-
-  // Title: Lora serif, bold, white, centered, auto-shrink to fit.
-  // Serif reads slightly smaller than sans optically, so fs starts higher and
-  // line height is tighter (1.18 vs 1.22) — classic editorial setting.
-  const innerPad = Math.round(W * 0.045)
-  const titleMaxW = w - innerPad * 2
-
-  let fs = Math.round(W * 0.056)
-  let lines = wrap(ctx, title, titleMaxW, `700 ${fs}px ${SERIF}`)
-  const maxLines = Math.max(2, Math.floor((h - innerPad * 0.5) / (fs * 1.18)))
-  while (lines.length > maxLines && fs > 22) {
-    fs -= 2
-    lines = wrap(ctx, title, titleMaxW, `700 ${fs}px ${SERIF}`)
-  }
-  const lh = fs * 1.18
-  const blockH = lines.length * lh
-  const textTop = top + (h - blockH) / 2
-
-  ctx.font = `700 ${fs}px ${SERIF}`
-  ctx.fillStyle = B.white
-  ctx.textBaseline = 'top'
-  ctx.textAlign = 'center'
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], W / 2, textTop + i * lh)
-  }
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'alphabetic'
-}
-
-// ─── BUBBLE TAIL TRIANGLE (red, pointing down) ───────────────────────────────
-
-function drawTriangle(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  topY: number,
-  baseW: number,
-  triH: number,
-) {
-  ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.30)'
-  ctx.shadowBlur = 10
-  ctx.shadowOffsetY = 4
-  ctx.fillStyle = B.red
-  ctx.beginPath()
-  ctx.moveTo(cx - baseW / 2, topY)
-  ctx.lineTo(cx + baseW / 2, topY)
-  ctx.lineTo(cx, topY + triH)
-  ctx.closePath()
-  ctx.fill()
-  ctx.restore()
-}
-
-// ─── CTA BANNER (white background, red bold text) ────────────────────────────
-
-function drawCtaBanner(
-  ctx: CanvasRenderingContext2D,
-  W: number,
-  cta: string,
-  top: number,
-  h: number,
-) {
-  // White background
-  ctx.fillStyle = B.white
-  ctx.fillRect(0, top, W, h)
-
-  // Thin amber accent stripe at the very top of the banner — uses the brand
-  // amber (#F0A500) as a publication-grade seam between bubble and CTA.
-  // Same role as the colored bar on the masthead.
-  const stripeH = Math.max(4, Math.round(W * 0.005))
-  ctx.fillStyle = B.amber
-  ctx.fillRect(0, top, W, stripeH)
-
-  let fs = Math.round(h * 0.42)
-  ctx.font = `900 ${fs}px ${SANS}`
-  let textW = ctx.measureText(cta).width
-  while (textW > W * 0.86 && fs > 18) {
-    fs -= 2
-    ctx.font = `900 ${fs}px ${SANS}`
-    textW = ctx.measureText(cta).width
-  }
-
-  ctx.fillStyle = B.red
-  ctx.textBaseline = 'middle'
-  ctx.textAlign = 'center'
-  ctx.fillText(cta, W / 2, top + h / 2 + Math.round(fs * 0.05))
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'alphabetic'
-}
-
-// ─── LOGO (bottom-right corner, smaller, with shadow for legibility) ─────────
-
-async function drawLogo(
-  ctx: CanvasRenderingContext2D,
-  W: number,
-  logoUrl: string,
-  bottomY: number,
-  sizePct: number,
-) {
-  const pad = Math.round(W * 0.04)
+async function drawLogoBadge(ctx: CanvasRenderingContext2D, W: number, logoUrl: string, u: (n: number) => number) {
+  const pad = u(4.6)
+  const maxW = u(24), maxH = u(9.5)
   try {
     const logo = await loadImg(logoUrl)
-    const logoW = Math.round(W * sizePct)
-    const logoH = (logo.height / logo.width) * logoW
-    const logoX = W - pad - logoW
-    const logoY = bottomY - logoH
-
-    // White rounded-square backdrop with subtle drop shadow — separates
-    // the dark logo emblem from whatever photo content is behind it.
-    const bgPad = Math.round(logoW * 0.16)
-    const bgX = logoX - bgPad
-    const bgY = logoY - bgPad
-    const bgW = logoW + bgPad * 2
-    const bgH = logoH + bgPad * 2
-    const radius = Math.round(bgW * 0.14)
-
+    let lw = maxW, lh = (logo.height / logo.width) * lw
+    if (lh > maxH) { lh = maxH; lw = (logo.width / logo.height) * lh }
+    const inner = u(2.1)
+    const bw = lw + inner * 2, bh = lh + inner * 2
+    const bx = W - pad - bw, by = pad
     ctx.save()
-    ctx.shadowColor = 'rgba(0,0,0,0.40)'
-    ctx.shadowBlur = 22
-    ctx.shadowOffsetY = 6
+    ctx.shadowColor = 'rgba(0,0,0,0.34)'; ctx.shadowBlur = u(2.2); ctx.shadowOffsetY = u(0.5)
     ctx.fillStyle = B.white
-    ctx.beginPath()
-    ctx.moveTo(bgX + radius, bgY)
-    ctx.lineTo(bgX + bgW - radius, bgY)
-    ctx.arcTo(bgX + bgW, bgY, bgX + bgW, bgY + radius, radius)
-    ctx.lineTo(bgX + bgW, bgY + bgH - radius)
-    ctx.arcTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH, radius)
-    ctx.lineTo(bgX + radius, bgY + bgH)
-    ctx.arcTo(bgX, bgY + bgH, bgX, bgY + bgH - radius, radius)
-    ctx.lineTo(bgX, bgY + radius)
-    ctx.arcTo(bgX, bgY, bgX + radius, bgY, radius)
-    ctx.closePath()
+    roundRectPath(ctx, bx, by, bw, bh, u(2))
     ctx.fill()
     ctx.restore()
-
-    // Logo drawn on top of backdrop, no shadow (backdrop already has one)
-    ctx.drawImage(logo, logoX, logoY, logoW, logoH)
+    ctx.drawImage(logo, bx + inner, by + inner, lw, lh)
   } catch {
-    // Fallback: text on red rounded pill
+    // Fallback: compact red chip with a white "TT" — never the wide wordmark.
+    const s = u(11)
+    const bx = W - pad - s, by = pad
     ctx.save()
-    ctx.font = `900 ${Math.round(W * 0.022)}px ${SANS}`
-    const label = 'TRANSILVANIA TIMES'
-    const textW = ctx.measureText(label).width
-    const pillH = Math.round(W * 0.045)
-    const pillPad = Math.round(W * 0.022)
-    const pillW = textW + pillPad * 2
-    const pillX = W - pad - pillW
-    const pillY = bottomY - pillH
-    const pillR = pillH / 2
-
-    ctx.shadowColor = 'rgba(0,0,0,0.40)'
-    ctx.shadowBlur = 18
-    ctx.shadowOffsetY = 4
+    ctx.shadowColor = 'rgba(0,0,0,0.34)'; ctx.shadowBlur = u(2.2); ctx.shadowOffsetY = u(0.5)
     ctx.fillStyle = B.red
-    ctx.beginPath()
-    ctx.moveTo(pillX + pillR, pillY)
-    ctx.lineTo(pillX + pillW - pillR, pillY)
-    ctx.arcTo(pillX + pillW, pillY, pillX + pillW, pillY + pillR, pillR)
-    ctx.arcTo(pillX + pillW, pillY + pillH, pillX + pillW - pillR, pillY + pillH, pillR)
-    ctx.lineTo(pillX + pillR, pillY + pillH)
-    ctx.arcTo(pillX, pillY + pillH, pillX, pillY + pillH - pillR, pillR)
-    ctx.arcTo(pillX, pillY, pillX + pillR, pillY, pillR)
-    ctx.closePath()
+    roundRectPath(ctx, bx, by, s, s, u(2.4))
     ctx.fill()
     ctx.restore()
-
-    ctx.font = `900 ${Math.round(W * 0.022)}px ${SANS}`
     ctx.fillStyle = B.white
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(label, pillX + pillW / 2, pillY + pillH / 2 + 1)
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'alphabetic'
+    ctx.font = `700 ${u(5)}px ${SERIF}`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText('TT', bx + s / 2, by + s / 2 + u(0.3))
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
   }
+}
+
+// ─── BREAKING flag (slanted red, upright white label; photo bottom-left) ─────
+
+function drawBreakingFlag(ctx: CanvasRenderingContext2D, label: string, bottomY: number, u: (n: number) => number) {
+  const text = (label || '').trim().toUpperCase()
+  if (!text) return
+  const fs = u(4.0), sp = u(0.5)
+  const padL = u(4.6), padR = u(3.6), padV = u(1.9), skew = u(3.0)
+  ctx.font = `800 ${fs}px ${SANS}`
+  const tw = measureSpaced(ctx, text, sp)
+  const h = fs * 1.16 + padV * 2
+  const w = tw + padL + padR + skew
+  const top = bottomY - h
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.42)'; ctx.shadowBlur = u(2.4); ctx.shadowOffsetY = u(0.6)
+  ctx.fillStyle = B.red
+  ctx.beginPath()
+  ctx.moveTo(skew, top)
+  ctx.lineTo(w, top)
+  ctx.lineTo(w - skew, bottomY)
+  ctx.lineTo(0, bottomY)
+  ctx.closePath()
+  ctx.fill()
+  ctx.restore()
+  ctx.fillStyle = B.white
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left'
+  fillSpaced(ctx, text, padL, top + h / 2 + u(0.2), sp)
+  ctx.textBaseline = 'alphabetic'
 }
 
 // ─── MAIN RENDER ─────────────────────────────────────────────────────────────
 
-export async function renderCard(
-  coverUrl: string,
-  title: string,
-  logoUrl: string,
-  format: Format,
-  cta: string,
-  isBreaking: boolean,
-  breakingLabel: string,
-): Promise<string> {
-  const { width: W, height: H } = format
+export interface RenderCardOptions {
+  coverUrl: string
+  title: string
+  rubric: string          // category label, e.g. "LOCAL" — empty hides the chip
+  domain: string          // e.g. "transilvaniatimes.com"
+  logoUrl: string
+  format: Format
+  isBreaking: boolean
+  breakingLabel: string   // e.g. "ULTIMA ORĂ"
+  band?: Band             // 'cream' (default) | 'navy'
+}
+
+export async function renderCard(o: RenderCardOptions): Promise<string> {
+  const { width: W, height: H } = o.format
+  const u = (n: number) => (n / 100) * W          // n "cqw" → px
+  const band: Band = o.band === 'navy' ? 'navy' : 'cream'
+  const onCream = band === 'cream'
+
+  await ensureFonts()
+
   const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
+  canvas.width = W; canvas.height = H
   const ctx = canvas.getContext('2d')!
 
-  // 1. Full-bleed cover photo
+  // Band metrics --------------------------------------------------------------
+  const padSide = u(5.2), padTop = u(5.4), padBot = u(4.6)
+  const innerW = W - padSide * 2
+  const rubFs = u(3.15), rubPadV = u(1.5), rubPadH = u(2.6)
+  const hasRubric = !!(o.rubric && o.rubric.trim())
+  const rubChipH = hasRubric ? Math.round(rubFs * 1.15 + rubPadV * 2) : 0
+  const gapRH = hasRubric ? u(3.2) : 0
+  const gapHF = u(3.6)
+  const footRowH = Math.round(u(5.2))
+
+  const bandFixed = padTop + rubChipH + gapRH + gapHF + footRowH + padBot
+  const measureBand = (fs: number) => {
+    const lines = wrap(ctx, o.title, innerW, `600 ${fs}px ${SERIF}`)
+    const lineH = fs * 1.15
+    return { bandH: bandFixed + lines.length * lineH, lines, lineH }
+  }
+
+  let headFs = u(6.3)
+  let m = measureBand(headFs)
+  const minPhoto = 0.46 * H
+  while (H - m.bandH < minPhoto && headFs > u(4.5)) { headFs -= u(0.22); m = measureBand(headFs) }
+  const bandH = Math.round(Math.min(m.bandH, H - Math.round(0.4 * H)))
+  const photoH = H - bandH
+
+  // 1. Cover photo (or navy fallback) -----------------------------------------
   try {
-    const img = await loadImg(coverUrl)
-    drawCover(ctx, img, W, H)
+    const img = await loadImg(o.coverUrl)
+    drawCover(ctx, img, 0, 0, W, photoH)
   } catch {
-    ctx.fillStyle = B.navy
-    ctx.fillRect(0, 0, W, H)
+    ctx.fillStyle = B.navy; ctx.fillRect(0, 0, W, photoH)
+  }
+  // Top scrim so the logo chip stays legible over bright photos.
+  const scrimH = photoH * 0.34
+  const g = ctx.createLinearGradient(0, 0, 0, scrimH)
+  g.addColorStop(0, 'rgba(0,0,0,0.30)'); g.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, scrimH)
+
+  // 2. Band background --------------------------------------------------------
+  ctx.fillStyle = onCream ? B.cream : B.navy
+  ctx.fillRect(0, photoH, W, bandH)
+
+  // 3. Rubric chip ------------------------------------------------------------
+  let y = photoH + padTop
+  if (hasRubric) {
+    const label = o.rubric.trim().toUpperCase()
+    const sp = u(0.42)
+    ctx.font = `800 ${rubFs}px ${SANS}`
+    const tw = measureSpaced(ctx, label, sp)
+    const chipW = tw + rubPadH * 2
+    ctx.fillStyle = B.red
+    roundRectPath(ctx, padSide, y, chipW, rubChipH, u(1.2))
+    ctx.fill()
+    ctx.fillStyle = B.white
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left'
+    fillSpaced(ctx, label, padSide + rubPadH, y + rubChipH / 2 + u(0.2), sp)
+    ctx.textBaseline = 'alphabetic'
+    y += rubChipH + gapRH
   }
 
-  // Layout zones (bottom-up)
-  const ctaH = Math.round(H * format.ctaH)
-  const triW = Math.round(W * 0.060)
-  const triH = Math.round(W * 0.030)
-  const bubbleH = Math.round(H * format.bubbleH)
+  // 4. Headline ---------------------------------------------------------------
+  ctx.fillStyle = onCream ? B.ink : B.white
+  ctx.font = `600 ${headFs}px ${SERIF}`
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+  for (let i = 0; i < m.lines.length; i++) ctx.fillText(m.lines[i], padSide, y + i * m.lineH)
+  ctx.textBaseline = 'alphabetic'
 
-  const ctaTop = H - ctaH
-  const triTop = ctaTop - 2                           // triangle slightly overlaps CTA top edge
-  const bubbleTop = ctaTop - bubbleH                  // bubble sits directly above CTA
+  // 5. Footer (hairline + wordmark + domain) ----------------------------------
+  const footTop = photoH + bandH - padBot - footRowH
+  ctx.strokeStyle = onCream ? 'rgba(26,26,26,0.15)' : 'rgba(255,255,255,0.22)'
+  ctx.lineWidth = Math.max(1, u(0.09))
+  ctx.beginPath(); ctx.moveTo(padSide, footTop); ctx.lineTo(W - padSide, footTop); ctx.stroke()
 
-  // Breaking + Logo zone (above bubble)
-  const aboveBubbleGap = Math.round(H * 0.012)
-  const badgeScale = H < 800 ? 0.78 : 1.0             // shrink badge for landscape
-  const badgeTopY = bubbleTop - aboveBubbleGap - Math.round(W * 0.16 * badgeScale)
-  const logoBottomY = bubbleTop - aboveBubbleGap
+  const rowMid = footTop + (footRowH + u(3.2)) / 2 + u(0.6)
+  ctx.fillStyle = onCream ? B.ink : B.white
+  ctx.font = `700 ${u(3.5)}px ${SERIF}`
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+  ctx.fillText('Transilvania Times', padSide, rowMid)
 
-  // 2. Breaking badge (left) — only if checked
-  if (isBreaking) {
-    drawBreakingBadge(ctx, W, breakingLabel, badgeTopY, badgeScale)
+  const domain = (o.domain || '').trim()
+  if (domain) {
+    const dsp = u(0.24)
+    ctx.font = `800 ${u(3.05)}px ${SANS}`
+    ctx.fillStyle = onCream ? B.red : B.amber
+    const dw = measureSpaced(ctx, domain, dsp)
+    fillSpaced(ctx, domain, W - padSide - dw, rowMid, dsp)
   }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
 
-  // 3. Logo (right) — smaller than previous version
-  await drawLogo(ctx, W, logoUrl, logoBottomY, 0.105)
-
-  // 4. CTA banner (drawn before bubble/triangle so they overlay it)
-  drawCtaBanner(ctx, W, cta, ctaTop, ctaH)
-
-  // 5. Speech bubble
-  drawSpeechBubble(ctx, W, title, bubbleTop, bubbleH)
-
-  // 6. Triangle tail — pokes from bubble into CTA banner
-  drawTriangle(ctx, W / 2, triTop, triW, triH)
+  // 6. Logo badge + breaking flag (on the photo) ------------------------------
+  await drawLogoBadge(ctx, W, o.logoUrl, u)
+  if (o.isBreaking) drawBreakingFlag(ctx, o.breakingLabel, photoH - u(3.4), u)
 
   return canvas.toDataURL('image/png')
 }
