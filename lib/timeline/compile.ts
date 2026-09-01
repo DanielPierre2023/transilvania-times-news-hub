@@ -12,6 +12,7 @@ import { evalNumber, evalPoint } from './animate'
 import { clipEnd } from './document'
 import { framesToSeconds } from './time'
 import type { Clip, Fit, Source, Timeline, Track } from './types'
+import { sourceOffset } from './speed'
 
 export interface PixelRect {
   readonly x: number
@@ -53,6 +54,14 @@ export interface DrawOp {
   readonly crop?: PixelRect
   readonly opacity: number
   readonly rotation: number
+  /**
+   * An evaluated mask, for wipes.
+   *
+   * The keyframed curve is resolved to a single number HERE, exactly like
+   * opacity, so the painter never evaluates an animation and the two engines
+   * cannot disagree about where the edge of a wipe is on frame 37.
+   */
+  readonly mask?: { readonly kind: import('./types').MaskKind; readonly reveal: number; readonly softness: number }
 }
 
 export interface AudioOp {
@@ -196,11 +205,25 @@ function compileClip(
     localFrame: local,
     ...(clip.grade ? { grade: clip.grade } : {}),
     source: clip.source,
-    sourceTime: clip.source.kind === 'video' ? fpsSeconds(clip.sourceIn + local) : 0,
+    // A speed ramp warps how fast clip-local frames walk into the media. It is
+    // applied HERE, before the division, so no renderer learns a new mode — see
+    // lib/timeline/speed.ts for why this is the integral and not local × rate.
+    sourceTime: clip.source.kind === 'video'
+      ? fpsSeconds(clip.sourceIn + sourceOffset(clip.speed, local))
+      : 0,
     dest,
     ...(crop ? { crop } : {}),
     opacity,
     rotation,
+    ...(clip.mask
+      ? {
+          mask: {
+            kind: clip.mask.kind,
+            reveal: Math.max(0, Math.min(1, evalNumber(clip.mask.reveal, local))),
+            softness: Math.max(0, Math.min(0.5, clip.mask.softness ?? 0.06)),
+          },
+        }
+      : {}),
   }
 }
 

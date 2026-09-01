@@ -17,13 +17,15 @@
 
 const fs = require('fs')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const ROOT = path.join(__dirname, '..')
 const T = require(path.join(ROOT, 'render-worker', 'dist', 'timeline', 'index.js'))
 const R = require(path.join(ROOT, 'render-worker', 'src', 'raster.js'))
 const { createCanvas, loadImage } = require(path.join(ROOT, 'render-worker', 'node_modules', 'canvas'))
 const raw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+const src = stripComments(raw)
 const workerRender = fs.readFileSync(path.join(ROOT, 'render-worker', 'src', 'render.js'), 'utf8')
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }

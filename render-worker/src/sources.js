@@ -76,6 +76,10 @@ class VideoTap {
     this.waiting = null
     this.ended = false
     this.error = null
+    /** Source frames decoded so far. Speed ramps walk this at a variable pace. */
+    this.consumed = 0
+    this.hasFrame = false
+    this.exhausted = false
     this.canvas = createCanvas(width, height)
     this.ctx = this.canvas.getContext('2d')
     this.imageData = this.ctx.createImageData(width, height)
@@ -130,9 +134,50 @@ class VideoTap {
       raw = await new Promise(resolve => { this.waiting = resolve })
     }
     if (!raw) return null
+    this.consumed += 1
+    this.exhausted = false
     raw.copy(Buffer.from(this.imageData.data.buffer, this.imageData.data.byteOffset))
     this.ctx.putImageData(this.imageData, 0, 0)
+    this.hasFrame = true
     return this.canvas
+  }
+
+  /**
+   * Advance to a specific SOURCE frame index, for speed ramps.
+   *
+   * THE TAP WAS STRUCTURALLY UNABLE TO PLAY A RAMP, AND WOULD HAVE FAILED
+   * QUIETLY. It reads one source frame per output frame, which is exactly right
+   * at rate 1 and wrong at every other rate. The preview computes a warped
+   * source time and would have shown the ramp; the render would have played the
+   * clip at normal speed and nobody would have seen a stack trace. That is the
+   * preview-versus-renderer divergence this codebase has spent its life closing,
+   * so the tap learns to walk at a variable pace instead.
+   *
+   * Because `sourceOffset` is monotonic the walk is always FORWARD, so this
+   * stays a sequential read and never seeks:
+   *
+   *   faster than real time  → read and discard the frames being skipped
+   *   slower than real time  → do not read at all; hold the frame already shown
+   *
+   * Holding rather than re-decoding is also what makes slow motion cheap: a
+   * 0.25× ramp decodes a quarter of the frames, not four times as many.
+   */
+  async advanceTo(sourceFrameIndex) {
+    if (this.error) throw this.error
+    const want = Math.max(0, Math.round(sourceFrameIndex))
+    // Nothing shown yet: always decode at least one frame.
+    if (!this.hasFrame) {
+      const first = await this.next()
+      if (!first) return null
+    }
+    while (this.consumed <= want) {
+      const got = await this.next()
+      if (!got) { this.exhausted = true; break }
+    }
+    // Past the end of the media the last frame holds. A ramp that runs off the
+    // end is a real mistake, but a frozen tail is far better than black, and
+    // the linter warns about it before the render starts.
+    return this.hasFrame ? this.canvas : null
   }
 
   close() {

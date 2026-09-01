@@ -17,15 +17,17 @@
 
 const fs = require('fs')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const ROOT = path.join(__dirname, '..')
 const T = require(path.join(ROOT, 'render-worker', 'dist', 'timeline', 'index.js'))
 const { createCanvas } = require(path.join(ROOT, 'render-worker', 'node_modules', 'canvas'))
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }
 
 const raw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+const src = stripComments(raw)
 
 // ── the preview no longer has a subtitle painter of its own ──────────────
 {

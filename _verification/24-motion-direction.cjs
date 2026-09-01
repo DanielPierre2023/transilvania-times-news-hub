@@ -28,10 +28,12 @@
 
 const fs = require('fs')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const ROOT = path.join(__dirname, '..')
 const raw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+const src = stripComments(raw)
 const libSrc = fs.readFileSync(path.join(ROOT, 'lib', 'prompts', 'library.ts'), 'utf8')
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }

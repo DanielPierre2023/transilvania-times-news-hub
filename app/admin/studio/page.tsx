@@ -43,6 +43,10 @@ import { buildStoryboard, toMarkdown as storyboardMarkdown } from '@/lib/timelin
 import { AUDIO_PRESETS, describeChain } from '@/lib/timeline/audio'
 import { TRANSITIONS, applyTransitions, framesLostTo, type TransitionKind, type TransitionSpec } from '@/lib/timeline/transitions'
 import { analyseBeats, cutsFromDurations, durationsFromCuts, snapToBeats, type BeatAnalysis } from '@/lib/timeline/beats'
+import { buildProjectTimeline, type SavedProject } from '@/lib/timeline/project'
+import { overlayClipsFor } from '@/lib/brand/overlays'
+import { MASTERS, TIER_LABEL, TIER_ORDER, describeDelivery, type MasterTier } from '@/lib/timeline/masters'
+import { SPEED_PRESETS } from '@/lib/timeline/speed'
 import { meanLinearFromRGBA, planShotGains, svgGradeFilter, type ShotGrade } from '@/lib/timeline/grade'
 import {
   DEFAULT_PROMPTS, mergePrompts, motionPrompt as buildMotionPrompt,
@@ -73,6 +77,7 @@ interface Scene {
   in?: number               // seconds into the SOURCE this clip starts at
   grade?: ShotGrade         // this shot's own colour, when the automatic one is wrong
   trans?: TransitionKind    // how we ARRIVE at this shot
+  speed?: keyof typeof SPEED_PRESETS   // slow motion, a ramp, a whip
   transFrames?: number
   motionPrompt?: string     // what this shot DOES. Empty falls back to the default.
   look?: SceneLook          // which way its grade must be held
@@ -204,12 +209,12 @@ interface ElVoice { voice_id: string; name: string; category: string; provider?:
 // spec a client will hand you — "1080p social cutdowns" was literally
 // unservable. The old sizes are kept as the 720p tier so existing projects
 // render exactly as before if you choose it.
-type Master = '720' | '1080'
-
-const MASTERS: Record<Master, Record<Aspect, [number, number]>> = {
-  '720': { '9:16': [720, 1280], '1:1': [1000, 1000], '4:5': [864, 1080], '16:9': [1280, 720] },
-  '1080': { '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350], '16:9': [1920, 1080] },
-}
+// THE LADDER MOVED TO lib/timeline/masters.ts, with 1440 and 2160 added and one
+// thing the old table could not do: say whether the 4K being asked for is real.
+// Most motion clips here come back at 1080, and rendering those at 2160 gives a
+// genuinely-4K file containing no extra information at all. That is a fine thing
+// to want and not a fine thing to be told nothing about.
+type Master = MasterTier
 
 const ASPECTS: Record<Aspect, [number, number]> = MASTERS['1080']
 
@@ -913,148 +918,45 @@ export default function StudioPage() {
   }
 
   /** Expands the overlay list into real clips at a given fps. */
-  const overlayClips = useCallback((fps: { n: number; d: number }, filmFrames = 0): Clip[] => {
-    const out: Clip[] = []
-    if (kit.wordmark !== 'none' && filmFrames > 0) {
-      out.push(...wordmark({ kit, fps, start: 0, frames: filmFrames }))
-    }
-    for (const o of overlays) {
-      const start = Math.round((o.at * fps.n) / fps.d)
-      const duration = Math.max(2, Math.round((o.dur * fps.n) / fps.d))
-      const ctx = { kit, fps, start, duration }
-      if (o.kind === 'title') out.push(...titleCard(ctx, { kicker: o.b || undefined, title: o.a, sub: o.c || undefined }))
-      else if (o.kind === 'lower') out.push(...lowerThird(ctx, { name: o.a, role: o.b || undefined }))
-      else if (o.kind === 'html') {
-        if (!o.url && !(o.frames || []).length) continue   // never rasterised
-        out.push({
-          id: o.id, name: 'Compoziție HTML',
-          source: { kind: 'html', html: o.html || '', url: o.url, stamp: o.stamp,
-            frames: o.frames, frameFps: o.frameFps,
-            naturalWidth: o.w, naturalHeight: o.h },
-          start, duration, sourceIn: 0,
-          transform: { position: { x: 0.5, y: 0.5 }, scale: 1, rotation: 0, opacity: 1 },
-          fit: 'contain', fadeIn: 0, fadeOut: 0, enabled: true,
-        })
-      }
-      else out.push(...endCard(ctx, { title: o.a, line: o.b || undefined, url: o.c || undefined }))
-    }
-    return out
-  }, [overlays, kit])
+  // THE EXPANSION MOVED TO lib/brand/overlays.ts, for the same reason the
+  // timeline builder did: a campaign renders hundreds of films with nobody
+  // watching, and two implementations of "what a lower third looks like" is how
+  // a brand stops being one brand.
+  const overlayClips = useCallback(
+    (fps: { n: number; d: number }, filmFrames = 0): Clip[] =>
+      overlayClipsFor(overlays, kit, fps, filmFrames),
+    [overlays, kit])
 
 
+  /**
+   * The project as a real timeline, at the chosen master size and frame rate.
+   *
+   * THE BUILDER ITSELF MOVED TO lib/timeline/project.ts. It used to live here,
+   * closing over a dozen pieces of component state, which was fine while a film
+   * was only ever built by the person looking at it. A campaign renders hundreds
+   * with nobody watching, and a server cannot mount a React component — so a
+   * second builder would have had to exist, and two builders means two answers
+   * to "how long is this film" within a week.
+   *
+   * What is left here is the wiring: the brand helpers this page owns, handed
+   * to the shared builder. Everything else it needs was already in the saved
+   * project, because the project is what gets stored and reloaded; the state it
+   * read was only ever a copy of it.
+   */
   function buildTimeline(forceCaptions = false): Timeline {
-    const base = projectData() as Parameters<typeof migrateLegacyProject>[0]
-    const fps = fpsOut === 25 ? FPS.pal : FPS.web
-    let tl = migrateLegacyProject(
-      forceCaptions ? { ...base, subsOn: true } : base,
-      { fps },
+    return buildProjectTimeline(
+      projectData() as unknown as SavedProject,
+      {
+        captionStyle: (k, scale) => captionStyle(k as BrandKit, scale),
+        captionY: (k, base) => captionY(k as BrandKit, base),
+        overlayClips,
+        sfxLabel: SFX_LABEL,
+        sfxSeconds: SFX_SECONDS,
+        subPos: SUB_POS,
+        uid,
+      },
+      { forceCaptions, master },
     )
-    tl = { ...tl, timebase: { ...tl.timebase, width: W, height: H } }
-
-    // THE KIT IS AUTHORITATIVE. Captions take their face, size and colour from
-    // it, and their vertical position is clamped into the safe area — which is
-    // what stops a caption rendering underneath TikTok's own caption block,
-    // where it is technically present and practically invisible.
-    const capStyle: TextStyle = captionStyle(kit, subScale)
-    const capY = captionY(kit, SUB_POS[subPos])
-    tl = {
-      ...tl,
-      tracks: tl.tracks.map(track => track.z !== 10 || track.kind !== 'video' ? track : {
-        ...track,
-        clips: track.clips.map(c => c.source.kind !== 'text' ? c : {
-          ...c,
-          source: { ...c.source, style: { ...capStyle, ...(c.source.words ? { maxLines: 1 } : {}) } },
-          transform: { ...c.transform, position: { x: 0.5, y: capY } },
-        }),
-      }),
-      delivery: { ...tl.delivery, grade: kit.grade, loudness: kit.loudness },
-    }
-
-    // TRANSITIONS, AS A TIMELINE TRANSFORM.
-    //
-    // Nothing in the renderer changes: a dissolve is two clips overlapping while
-    // one fades down and the other fades up, and both of those already existed.
-    // A dip is a colour clip over the join. See lib/timeline/transitions.ts.
-    const specs: (TransitionSpec | undefined)[] = scenes.map(sc =>
-      sc.trans && sc.trans !== 'cut'
-        ? { kind: sc.trans, frames: Math.max(2, Math.round(sc.transFrames ?? 12)) }
-        : undefined)
-    if (specs.some(Boolean)) {
-      tl = applyTransitions(tl, specs, { brandColour: kit.colour.accent }).timeline
-    }
-
-    // THE PROCESSING CHAINS, ONTO THE AUDIO CLIPS.
-    //
-    // Normalisation and a duck were the whole audio stage: a voice recorded in
-    // a room still sounded like a room, and the bed fought the voice in the
-    // same frequencies rather than making space for it. The chains are chosen
-    // per project and compiled by lib/timeline/audio.ts, so what the panel names
-    // is exactly what ffmpeg runs.
-    const voiceChain = AUDIO_PRESETS[voiceFx]?.chain
-    const musicChain = AUDIO_PRESETS[musicFx]?.chain
-    tl = {
-      ...tl,
-      tracks: tl.tracks.map(track => track.kind !== 'audio' ? track : {
-        ...track,
-        clips: track.clips.map(c => {
-          const chain = track.z === 0 ? voiceChain : musicChain
-          if (!chain || chain.length === 0) return c
-          return { ...c, audio: { ...(c.audio || { gain: 1 }), effects: chain } }
-        }),
-      }),
-    }
-
-    // A synthesised bed, only when no real track was uploaded — an uploaded
-    // track always wins, because someone chose it.
-    if (musicBed && !musicUrl) {
-      const mTrack = tl.tracks.find(t => t.kind === 'audio' && t.z === 1)
-        || emptyTrack('audio', 'Muzică', 1)
-      if (!tl.tracks.includes(mTrack)) tl = { ...tl, tracks: [...tl.tracks, mTrack] }
-      const secs = Math.max(2, framesToSeconds(tl.duration, fps))
-      tl = addClip(tl, mTrack.id, {
-        id: uid(), name: 'Pat muzical',
-        source: { kind: 'audio', url: `builtin:bed@${secs.toFixed(1)}` },
-        start: 0, duration: tl.duration, sourceIn: 0,
-        transform: { position: { x: 0.5, y: 0.5 }, scale: 1, rotation: 0, opacity: 1 },
-        fit: 'contain',
-        // Ducks under the voice like any music would.
-        audio: { gain: 0.5, duckTarget: true },
-        fadeIn: 0, fadeOut: 0, enabled: true,
-      })
-    }
-
-    // Sound design on its own track, under the voice and beside the music.
-    if (sfx.length) {
-      const sTrack = emptyTrack('audio', 'Sunete', 2)
-      tl = { ...tl, tracks: [...tl.tracks, sTrack] }
-      for (const s2 of sfx) {
-        tl = addClip(tl, sTrack.id, {
-          id: uid(), name: SFX_LABEL[s2.name],
-          source: { kind: 'audio', url: `builtin:${s2.name}` },
-          start: Math.round((s2.at * fps.n) / fps.d),
-          duration: Math.max(1, Math.round((SFX_SECONDS[s2.name] * fps.n) / fps.d)),
-          sourceIn: 0,
-          transform: { position: { x: 0.5, y: 0.5 }, scale: 1, rotation: 0, opacity: 1 },
-          fit: 'contain',
-          // Not a duck target: an accent that ducks under the voice is not an
-          // accent. Not a duck source either — it must never pull the music down.
-          audio: { gain: s2.gain },
-          fadeIn: 0, fadeOut: 0, enabled: true,
-        })
-      }
-    }
-
-    // Titles ride ABOVE the captions: a title card's scrim is meant to cover
-    // everything under it, including a caption that happens to be on screen.
-    const extra = overlayClips(fps, tl.duration)
-    if (extra.length) {
-      const track = emptyTrack('video', 'Titluri', 20)
-      tl = { ...tl, tracks: [...tl.tracks, track] }
-      for (const c of extra) tl = addClip(tl, track.id, c)
-      const end = Math.max(...extra.map(c => c.start + c.duration))
-      if (end > tl.duration) tl = { ...tl, duration: end }
-    }
-    return tl
   }
 
   // A sidecar is independent of whether captions are burned into the picture,
@@ -1267,7 +1169,7 @@ export default function StudioPage() {
       const d = (data.data || {}) as Record<string, unknown>
       setProjId(String(data.id)); setProjName(String(data.name || ''))
       if (d.aspect) setAspect(d.aspect as Aspect)
-      if (d.master === '720' || d.master === '1080') setMaster(d.master)
+      if ((TIER_ORDER as readonly string[]).includes(String(d.master))) setMaster(d.master as MasterTier)
       if (d.fpsOut === 25 || d.fpsOut === 30) setFpsOut(d.fpsOut)
       if (d.provider === 'worker' || d.provider === 'shotstack' || d.provider === 'creatomate') setProvider(d.provider)
       if (Array.isArray(d.scenes)) setScenes(d.scenes as Scene[])
@@ -2320,10 +2222,10 @@ export default function StudioPage() {
         ))}
         <span className="w-px h-5 bg-white/10 mx-1" />
         <span className="font-sans text-[11px] uppercase tracking-widest text-white/40">Master</span>
-        {(['1080', '720'] as Master[]).map(m => (
-          <button key={m} onClick={() => setMaster(m)}
+        {TIER_ORDER.map(m => (
+          <button key={m} onClick={() => setMaster(m)} title={TIER_LABEL[m]}
             className={'px-2.5 py-1.5 text-[12px] border ' + (master === m ? 'bg-brand-red text-white border-brand-red' : 'bg-[#111] text-white/60 border-white/[0.07]')}>
-            {m}p
+            {m === '2160' ? '4K' : m + 'p'}
           </button>
         ))}
         <span className="font-sans text-[11px] uppercase tracking-widest text-white/40 ml-2">Cadre</span>
@@ -2336,6 +2238,33 @@ export default function StudioPage() {
         <span className="font-mono text-[11px] text-white/30">{W}×{H}</span>
         <span className="ml-auto font-sans text-[12px] text-white/50">Durată: <b className="text-white">{fmt(totalDur)}</b> / 3:00 · {scenes.length} scene</span>
       </div>
+
+      {/* WHETHER THE MASTER YOU CHOSE IS REAL.
+          Most motion clips come back at 1080. Rendering those at 4K produces a
+          genuinely-4K file with no extra information in it — a legitimate thing
+          to want, and not a legitimate thing to be told nothing about. The
+          weakest shot is what is measured, not the average: a film with one 4K
+          hero and nine 1080 shots looks like 1080 to the person watching. */}
+      {(() => {
+        const weakest = scenes.reduce<number | undefined>((acc, sc) => {
+          const w = sc.kind === 'video' ? 1920 : 3840
+          return acc === undefined ? w : Math.min(acc, w)
+        }, undefined)
+        const d = describeDelivery({ tier: master }, aspect, totalDur, weakest, fpsOut)
+        if (master === '1080' || master === '720') return null
+        return (
+          <div className={`px-4 py-2 border-b text-[12px] leading-relaxed ${
+            d.realDetail ? 'border-white/[0.07] bg-[#111] text-white/50'
+                         : 'border-amber-500/25 bg-amber-500/[0.06] text-amber-200/85'}`}>
+            <b className="font-sans">{d.label}.</b> {d.honest}
+            {d.warning && <span className="block mt-1 text-amber-300/90">{d.warning}</span>}
+            <span className="block mt-1 text-white/35">
+              Randare estimată: {d.renderSeconds < 90 ? `${d.renderSeconds}s` : `${Math.round(d.renderSeconds / 60)} min`}
+              {' · '}bitrate {Math.round(d.bitrateKbps / 1000)} Mbit/s
+            </span>
+          </div>
+        )
+      })()}
 
       {/* Project persistence */}
       <div className="flex flex-wrap items-center gap-2 mb-6 bg-[#1a1a1a] border border-white/[0.07] px-3 py-2.5">
@@ -2941,6 +2870,20 @@ export default function StudioPage() {
                           title="Cum se AJUNGE la acest plan. Un fondu mănâncă durată — două planuri de 5s cu un fondu de 12 cadre ocupă 9.5s. O trecere prin culoare nu costă timp."
                           className={`bg-black border text-[11px] px-1.5 py-1 ${(sc.trans && sc.trans !== 'cut') ? 'border-amber-500/40 text-amber-300/90' : 'border-white/10 text-white/40'}`}>
                           {Object.entries(TRANSITIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                      )}
+                      {sc.kind === 'video' && (
+                        <select value={sc.speed ?? ''}
+                          onChange={e => { mark('viteză'); const v = e.target.value
+                            setScenes(l => l.map(x => x.id === sc.id ? { ...x, speed: v ? v as keyof typeof SPEED_PRESETS : undefined } : x)) }}
+                          title={sc.speed
+                            ? SPEED_PRESETS[sc.speed].note
+                            : 'Viteza planului. Doar pentru clipuri — o fotografie nu are cadre prin care să treacă mai repede. O rampă își pierde sunetul: o înălțime care alunecă sună stricat, nu stilat.'}
+                          className={`bg-black border text-[11px] px-1.5 py-1 ${sc.speed ? 'border-amber-500/40 text-amber-300/90' : 'border-white/10 text-white/40'}`}>
+                          <option value="">viteză: normală</option>
+                          {Object.entries(SPEED_PRESETS).map(([k, v]) => (
+                            <option key={k} value={k}>{v.label}</option>
+                          ))}
                         </select>
                       )}
                       <select value={sc.grade?.look ?? 'auto'}

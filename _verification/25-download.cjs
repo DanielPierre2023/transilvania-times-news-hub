@@ -18,10 +18,12 @@
 
 const fs = require('fs')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const ROOT = path.join(__dirname, '..')
 const worker = fs.readFileSync(path.join(ROOT, 'render-worker', 'src', 'index.js'), 'utf8')
 const rawUi = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-const ui = rawUi.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+const ui = stripComments(rawUi)
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }

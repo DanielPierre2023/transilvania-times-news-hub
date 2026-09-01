@@ -22,8 +22,10 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const { execFileSync } = require('child_process')
 const { createCanvas, loadImage } = require(path.join(__dirname, '..', 'render-worker', 'node_modules', 'canvas'))
+
 
 let pass = 0, fail = 0
 const ok = (name, cond, extra = '') => { if (cond) pass++; else { fail++; console.log('  FAIL:', name, extra) } }
@@ -112,8 +114,8 @@ function lanczos(target) {
   ok('the worker delegates to the shared implementation instead of holding its own',
     /require\('\.\/timeline'\)/.test(workerDraw) && !/function drawBitmap/.test(workerDraw))
   ok('and nothing re-added a downsampler to the image cache',
-    !/downsample/.test(fs.readFileSync(path.join(__dirname, '..', 'render-worker', 'src', 'sources.js'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')))
+    !/downsample/.test(stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'render-worker', 'src', 'sources.js'), 'utf8'))))
 
   console.log('\n  rms difference from ffmpeg lanczos, grey levels out of 255:')
   console.log(`    3840x2160 -> 1920x1080   default ${dDefault.toFixed(2)}   best ${dBest.toFixed(2)}   stepped ${dHalved.toFixed(2)}`)

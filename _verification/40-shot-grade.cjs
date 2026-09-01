@@ -8,10 +8,12 @@
 
 const fs = require('fs')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const ROOT = path.join(__dirname, '..')
 const T = require(path.join(ROOT, 'render-worker', 'dist', 'timeline', 'index.js'))
 const worker = require(path.join(ROOT, 'render-worker', 'src', 'grade.js'))
 const workerRender = fs.readFileSync(path.join(ROOT, 'render-worker', 'src', 'render.js'), 'utf8')
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }
@@ -115,7 +117,7 @@ const DELIVERY = { look: 'warm', strength: 0.85 }
 // did not exist. So: the sliders, and that they write where the reader reads.
 {
   const raw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-  const ui = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+  const ui = stripComments(raw)
   ok('there is a control for temperature and tint', /\['temperature', 'tint'\]/.test(ui))
   ok('...it is a slider over the range the library clamps to',
     /min=\{-1\}\s+max=\{1\}/.test(ui))

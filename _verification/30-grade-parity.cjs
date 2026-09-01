@@ -14,13 +14,15 @@
 
 const fs = require('fs')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const ROOT = path.join(__dirname, '..')
 process.env.TIMELINE_DIST = path.join(ROOT, 'render-worker', 'dist', 'timeline', 'index.js')
 const T = require(process.env.TIMELINE_DIST)
 const worker = require(path.join(ROOT, 'render-worker', 'src', 'grade.js'))
 const raw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+const src = stripComments(raw)
 const gradeJs = fs.readFileSync(path.join(ROOT, 'render-worker', 'src', 'grade.js'), 'utf8')
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }

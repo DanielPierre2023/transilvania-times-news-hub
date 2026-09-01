@@ -16,8 +16,10 @@
 
 const fs = require('fs')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const ROOT = path.join(__dirname, '..')
 const T = require(path.join(ROOT, 'render-worker', 'dist', 'timeline', 'index.js'))
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }
@@ -83,7 +85,7 @@ const clipOf = tl => tl.tracks.find(t => t.kind === 'video' && t.z === 0).clips[
 // ── the preview no longer has a camera of its own ────────────────────────
 {
   const raw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-  const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+  const src = stripComments(raw)
   ok('the hand-rolled cover painter is gone', !/function drawCover/.test(src))
   ok('no hard-coded 1.02 baseline survives', !/scale = 1\.02/.test(src))
   ok('no hard-coded 0.12 pan survives', !/W \* 0\.12/.test(src))

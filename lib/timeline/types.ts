@@ -159,6 +159,71 @@ export interface ClipAudio {
   readonly duckSource?: boolean
 }
 
+/**
+ * A speed ramp, expressed as a curve over the clip's own timeline.
+ *
+ * THIS IS NOT A NEW DRAWING MODE, AND THAT IS THE WHOLE DESIGN.
+ *
+ * The compiler already turns a clip-local frame into a source time:
+ * `sourceTime = (sourceIn + local) / fps`. A speed ramp changes nothing except
+ * how fast `local` walks into the source. So a ramp is a time-warp function
+ * applied before that division, and every renderer that could already seek a
+ * video can play a ramp without learning anything new.
+ *
+ * `points` are (localFrame, rate) pairs. Rate 1 is real time, 2 is double
+ * speed, 0.5 is half. Between two points the rate moves linearly, which is what
+ * makes it a *ramp* rather than a step — and the source offset is therefore the
+ * INTEGRAL of the rate curve, not the rate itself. Getting that wrong gives a
+ * clip that plays at the right speed and starts from the wrong frame, which
+ * looks like a sync bug and is very hard to see in a still.
+ */
+export interface SpeedPoint {
+  /** Frames from the start of the clip. */
+  readonly frame: number
+  /** Playback rate at this instant. Clamped to 0.1..8 when applied. */
+  readonly rate: number
+}
+
+export interface SpeedRamp {
+  readonly points: readonly SpeedPoint[]
+  /**
+   * Audio follows the ramp only when the rate is CONSTANT.
+   *
+   * ffmpeg can retime audio (`atempo`) but not smoothly automate it, and a
+   * pitch that slides during a ramp sounds broken rather than stylish. A ramped
+   * clip therefore mutes its own audio and the linter says so, instead of
+   * shipping a warble nobody asked for.
+   */
+  readonly audio?: 'follow' | 'mute'
+}
+
+/**
+ * A mask over the clip, for wipes.
+ *
+ * A cross-dissolve needed no mask — it is two opacities. A wipe is genuinely a
+ * new drawing mode: part of the clip is drawn and part is not, with a soft edge
+ * between. Both engines implement it the same way — draw the clip to an
+ * offscreen surface, then composite a linear or radial alpha gradient with
+ * `destination-in` — so the preview and the render cannot drift.
+ */
+export type MaskKind =
+  | 'wipeLeft' | 'wipeRight' | 'wipeUp' | 'wipeDown'
+  | 'wipeDiagonal' | 'circle' | 'barnDoors'
+
+export interface ClipMask {
+  readonly kind: MaskKind
+  /** 0 hides the clip entirely, 1 reveals all of it. Keyframe it to wipe. */
+  readonly reveal: Animatable<number>
+  /**
+   * Width of the soft edge as a fraction of the frame. 0 is a hard edge.
+   *
+   * A hard-edged wipe reads as a graphic device; a soft one reads as a
+   * transition. Default 0.06 — about 65 px on a 1080 frame, which is soft
+   * enough not to alias and tight enough to still read as a wipe.
+   */
+  readonly softness?: number
+}
+
 export interface Clip {
   readonly id: string
   readonly name: string
@@ -171,6 +236,10 @@ export interface Clip {
   readonly sourceIn: number
   /** This shot's own colour, when the automatic grade is not what it needs. */
   readonly grade?: import('./grade').ShotGrade
+  /** Plays the source faster or slower. Picture only; see SpeedRamp. */
+  readonly speed?: SpeedRamp
+  /** Reveals the clip through a shape. Wipes are built on this. */
+  readonly mask?: ClipMask
 
   readonly transform: Transform
   readonly fit: Fit

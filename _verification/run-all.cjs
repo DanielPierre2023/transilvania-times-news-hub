@@ -27,13 +27,22 @@ const only = (process.argv.find(a => a.startsWith('--only=')) || '').slice(7)
 // What each suite needs beyond plain node. Derived by reading the suites, and
 // asserted below so this list cannot drift away from what they actually require.
 const NEEDS = {
-  canvas: ['13-resample', '14-brand', '15-colour', '16-layers', '19-wordmark', '22-captions-parity', '30-grade-parity', '32-html-composition', '33-golden', '37-animated-compositions', '38-transitions', '40-shot-grade'],
-  ffmpeg: ['12-inspect', '13-resample', '15-colour', '16-layers', '17-sound', '19-wordmark', '30-grade-parity', '35-audio-chain', '39-beats'],
+  canvas: ['13-resample', '14-brand', '15-colour', '16-layers', '19-wordmark', '22-captions-parity', '30-grade-parity', '32-html-composition', '33-golden', '37-animated-compositions', '38-transitions', '40-shot-grade', '42-wipes', '43-ramp-render', '49-screen'],
+  postgres: ['50-migration', '52-queue'],
+  ffmpeg: ['12-inspect', '13-resample', '15-colour', '16-layers', '17-sound', '19-wordmark', '30-grade-parity', '35-audio-chain', '39-beats', '43-ramp-render', '47-podcast', '56-audio-chunking'],
 }
 
 function have(what) {
   if (what === 'ffmpeg') {
     return spawnSync(process.env.FFMPEG || 'ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0
+  }
+  // Postgres, for actually RUNNING the migrations rather than eyeballing them.
+  // A migration is pasted by hand into a SQL editor: a syntax error there is
+  // discovered by the person pasting it, in production, which is the worst
+  // possible place to find one.
+  if (what === 'postgres') {
+    return spawnSync('pg_ctl', ['--version'], { stdio: 'ignore' }).status === 0 ||
+           spawnSync('/usr/lib/postgresql/16/bin/pg_ctl', ['--version'], { stdio: 'ignore' }).status === 0
   }
   try { require(path.join(ROOT, 'render-worker', 'node_modules', 'canvas')); return true }
   catch { return false }
@@ -51,7 +60,7 @@ const suites = fs.readdirSync(DIR)
   .filter(f => !only || f.includes(only))
   .sort()
 
-const has = { canvas: have('canvas'), ffmpeg: have('ffmpeg') }
+const has = { canvas: have('canvas'), ffmpeg: have('ffmpeg'), postgres: have('postgres') }
 const missing = Object.entries(has).filter(([, v]) => !v).map(([k]) => k)
 if (missing.length) {
   console.log(`! not installed: ${missing.join(', ')} — suites needing them will be ${strict ? 'FAILED' : 'skipped'}\n`)

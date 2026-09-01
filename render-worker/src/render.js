@@ -207,7 +207,16 @@ async function renderTimeline(tl, opts = {}) {
         const clip = clipsById.get(op.clipId)
         if (!clip) continue
         const tap = openTap(clip, op.source.url)
-        bitmaps.set(op.clipId, await tap.next())
+        // A ramped clip walks its source at a variable pace; an unramped one
+        // advances exactly one frame per output frame, as before. Both go
+        // through the same tap so there is one notion of "which frame is on
+        // screen" and the preview cannot disagree with the render.
+        if (clip.speed) {
+          const local = f - clip.start
+          bitmaps.set(op.clipId, await tap.advanceTo(timeline.sourceOffset(clip.speed, local)))
+        } else {
+          bitmaps.set(op.clipId, await tap.next())
+        }
       }
 
       const resolve = op => {

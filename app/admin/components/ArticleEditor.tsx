@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { Save, Globe, ArrowLeft, Wand2, Upload, X, Loader2, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
+import { autoShareToFacebook } from '@/lib/social/share'
 
 const CATEGORIES = [
   'news', 'politics', 'technology', 'business',
@@ -16,6 +17,9 @@ type ArticleType = 'news' | 'editorial' | 'opinie' | 'analiza' | 'pamflet' | 'bl
 
 interface ArticleEditorProps {
   articleId?: string
+  // When true, pressing Publică auto-posts the article to Facebook (unless the
+  // article is flagged skip_facebook). Set only on the Articole editor/new pages.
+  autoShareOnPublish?: boolean
 }
 
 interface ArticleData {
@@ -28,6 +32,7 @@ interface ArticleData {
   cover_image: string; cover_image_credit: string; author_name: string
   status: string; is_breaking: boolean; source_url: string
   ai_editor: string
+  skip_facebook: boolean
 }
 
 interface AdsenseQualityReport {
@@ -85,6 +90,7 @@ const EMPTY: ArticleData = {
   excerpt_ro: '', excerpt_en: '', summary_ro: '', summary_en: '',
   category: 'news', subcategory: '', cover_image: '', cover_image_credit: '',
   author_name: '', status: 'draft', is_breaking: false, source_url: '', ai_editor: '',
+  skip_facebook: false,
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -101,7 +107,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inp = "w-full bg-[#111] border border-white/10 text-white font-sans text-sm px-3 py-2.5 outline-none focus:border-white/30 transition-colors placeholder:text-white/20"
 const ta = inp + " resize-none leading-relaxed"
 
-export default function ArticleEditor({ articleId }: ArticleEditorProps) {
+export default function ArticleEditor({ articleId, autoShareOnPublish }: ArticleEditorProps) {
   const router = useRouter()
   const [data, setData] = useState<ArticleData>(EMPTY)
   const [loading, setLoading] = useState(!!articleId)
@@ -143,6 +149,7 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
           is_breaking: d.is_breaking ?? false,
           source_url: d.source_url ?? '',
           ai_editor: d.ai_editor ?? '',
+          skip_facebook: d.skip_facebook ?? false,
         })
         setLoading(false)
       })
@@ -210,19 +217,42 @@ export default function ArticleEditor({ articleId }: ArticleEditorProps) {
       published_at: (newStatus === 'published' || data.status === 'published')
         ? new Date().toISOString() : null,
     }
+    const isPublish = newStatus === 'published' || data.status === 'published'
+    let savedId = articleId || ''
+    let createdId = ''
     if (articleId) {
       const { error } = await supabase.from('blog_posts').update(payload).eq('id', articleId)
       if (error) { flash(`Eroare: ${error.message}`); setSaving(false); return }
     } else {
       const { data: created, error } = await supabase.from('blog_posts').insert(payload).select('id').single()
       if (error) { flash(`Eroare: ${error.message}`); setSaving(false); return }
-      if (created) router.replace(`/admin/articles/${created.id}/edit`)
+      if (created) { savedId = created.id; createdId = created.id }
     }
-    if (newStatus === 'published' || data.status === 'published') {
+    if (isPublish) {
       await fetch(`/api/revalidate?slug=${finalSlug}`, { method: 'POST' })
     }
+
+    // ── Auto-post to Facebook on publish (fully hands-off) ────────────────────
+    // Non-blocking: the article is already published; a Facebook failure only
+    // changes the flash, never the publish. Skipped when the article is flagged
+    // "nu posta pe Facebook", already posted (dedupe lives inside
+    // autoShareToFacebook), or auto-share isn't enabled for this editor context.
+    let fbNote = ''
+    if (isPublish && autoShareOnPublish && !payload.skip_facebook && savedId) {
+      flash('✓ Publicat. Postez pe Facebook…')
+      try {
+        const res = await autoShareToFacebook(supabase, savedId)
+        if (res.ok && !res.skipped) fbNote = ' · postat pe Facebook'
+        else if (res.skipped) fbNote = ` · Facebook: ${res.reason || 'sărit'}`
+        else fbNote = ` · ⚠ Facebook: ${res.error || 'a eșuat'}`
+      } catch (e) {
+        fbNote = ` · ⚠ Facebook: ${(e as Error).message}`
+      }
+    }
+
+    if (createdId) router.replace(`/admin/articles/${createdId}/edit`)
     setSaving(false)
-    flash(newStatus === 'published' ? '✓ Publicat și live' : '✓ Salvat')
+    flash((newStatus === 'published' ? '✓ Publicat și live' : '✓ Salvat') + fbNote)
   }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -614,6 +644,12 @@ if (!result?.ok) {
               <input type="checkbox" checked={data.is_breaking} onChange={e => set('is_breaking', e.target.checked)} className="accent-brand-red w-4 h-4" />
               <span className="font-sans text-[12px] text-white/60">⚡ Ultima oră</span>
             </label>
+            {autoShareOnPublish && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={data.skip_facebook} onChange={e => set('skip_facebook', e.target.checked)} className="accent-brand-red w-4 h-4" />
+                <span className="font-sans text-[12px] text-white/60">🚫 Nu posta pe Facebook</span>
+              </label>
+            )}
           </div>
 
           <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-4">

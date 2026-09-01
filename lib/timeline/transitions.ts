@@ -23,10 +23,26 @@
 // shorter, and if the voice was cut to the old length it will now run past the
 // picture. `applyTransitions` returns the new duration so a caller can say so.
 
-import type { Clip, Timeline } from './types'
+import type { Clip, ClipMask, MaskKind, Timeline } from './types'
 import { addClip, emptyTrack } from './document'
 
-export type TransitionKind = 'cut' | 'dissolve' | 'dipToBlack' | 'dipToWhite' | 'dipToBrand'
+export type TransitionKind =
+  | 'cut' | 'dissolve' | 'dipToBlack' | 'dipToWhite' | 'dipToBrand'
+  | 'wipeLeft' | 'wipeRight' | 'wipeUp' | 'wipeDown' | 'wipeDiagonal'
+  | 'circle' | 'barnDoors'
+
+/**
+ * A wipe costs time exactly like a dissolve, and for the same reason: the two
+ * shots have to be on screen together for the edge to travel across one of
+ * them. It is not a dip. Getting this wrong makes a film that is silently
+ * longer than the voice-over it was cut to.
+ */
+export const WIPE_KINDS = [
+  'wipeLeft', 'wipeRight', 'wipeUp', 'wipeDown', 'wipeDiagonal', 'circle', 'barnDoors',
+] as const
+
+export const isWipe = (k: TransitionKind): boolean =>
+  (WIPE_KINDS as readonly string[]).includes(k)
 
 export interface TransitionSpec {
   readonly kind: TransitionKind
@@ -34,6 +50,8 @@ export interface TransitionSpec {
   readonly frames: number
   /** For dipToBrand. */
   readonly colour?: string
+  /** Wipes only: width of the soft edge, as a fraction of the frame. */
+  readonly softness?: number
 }
 
 export const TRANSITIONS: Readonly<Record<TransitionKind, { label: string; note: string }>> = {
@@ -46,6 +64,13 @@ export const TRANSITIONS: Readonly<Record<TransitionKind, { label: string; note:
   dipToBlack: { label: 'Trecere prin negru', note: 'Separă capitole. Mai tare decât un fondu.' },
   dipToWhite: { label: 'Trecere prin alb', note: 'Mai luminos, mai publicitar. Folosit rar și scurt.' },
   dipToBrand: { label: 'Trecere prin culoarea brandului', note: 'Semnătura, când filmul o suportă.' },
+  wipeLeft: { label: 'Ștergere → dreapta', note: 'Marginea traversează cadrul. Publicitar, energic. Mănâncă durată ca un fondu.' },
+  wipeRight: { label: 'Ștergere → stânga', note: 'Aceeași mișcare, în sens invers. Folosește-o ca să întorci privirea.' },
+  wipeDown: { label: 'Ștergere în jos', note: 'De sus în jos. Bună pentru un titlu care intră odată cu planul.' },
+  wipeUp: { label: 'Ștergere în sus', note: 'De jos în sus. Se simte ca o pagină întoarsă.' },
+  wipeDiagonal: { label: 'Ștergere diagonală', note: 'Din colț în colț. Cea mai grafică dintre ele — folosește-o rar.' },
+  circle: { label: 'Iris (cerc)', note: 'Se deschide din centru. Nostalgic, sau pentru un produs unic în mijloc.' },
+  barnDoors: { label: 'Uși (din centru)', note: 'Două margini se deschid din mijloc. Dramatic, potrivit unei dezvăluiri.' },
 }
 
 const DIP_COLOUR: Partial<Record<TransitionKind, string>> = {
@@ -87,6 +112,7 @@ export function applyTransitions(
     const spec = specs[i]
     let fadeIn = c.fadeIn
     const fadeOut = c.fadeOut
+    let mask: ClipMask | undefined
 
     if (i > 0 && spec && spec.kind !== 'cut') {
       // Never eat more than a third of either shot: a dissolve longer than the
@@ -102,6 +128,25 @@ export function applyTransitions(
         // The outgoing shot fades under it. `out` already holds it.
         const last = out[out.length - 1]
         out[out.length - 1] = { ...last, fadeOut: Math.max(last.fadeOut, frames) }
+      } else if (isWipe(spec.kind)) {
+        // A WIPE IS NOT A DISSOLVE AND NOT A DIP.
+        //
+        // The shots overlap, as in a dissolve, so it costs the same duration.
+        // But the incoming shot arrives at FULL OPACITY behind a travelling
+        // mask edge — not faded up. Fading it as well would show the outgoing
+        // shot through the revealed part and read as a muddy dissolve with a
+        // moving edge, which is the commonest way a wipe is got wrong.
+        shift += frames
+        lost += frames
+        mask = {
+          kind: spec.kind as MaskKind,
+          softness: spec.softness ?? 0.06,
+          reveal: { keys: [
+            { frame: 0, value: 0, ease: 'easeInOut' as const },
+            { frame: frames, value: 1, ease: 'hold' as const },
+          ] },
+        }
+        // The outgoing shot is NOT faded: the mask is what hides it.
       } else {
         // A DIP IS NOT A DISSOLVE. The shots do not overlap; a colour comes up
         // over the join and goes down again, so the cut still happens where it
@@ -113,7 +158,7 @@ export function applyTransitions(
       }
     }
 
-    out.push({ ...c, start: c.start - shift, fadeIn, fadeOut })
+    out.push({ ...c, start: c.start - shift, fadeIn, fadeOut, ...(mask ? { mask } : {}) })
   }
 
   let next: Timeline = {
@@ -160,7 +205,10 @@ export function framesLostTo(
   let lost = 0
   for (let i = 1; i < clips.length; i++) {
     const s = specs[i]
-    if (!s || s.kind !== 'dissolve') continue
+    // Wipes overlap their shots exactly as a dissolve does, so they cost the
+    // same time. Counting only dissolves here reports a running time shorter
+    // than the film actually is, which is a quiet way to break a cut to voice.
+    if (!s || (s.kind !== 'dissolve' && !isWipe(s.kind))) continue
     const room = Math.floor(Math.min(clips[i - 1].duration, clips[i].duration) / 3)
     lost += Math.max(MIN_DISSOLVE, Math.min(s.frames, room))
   }

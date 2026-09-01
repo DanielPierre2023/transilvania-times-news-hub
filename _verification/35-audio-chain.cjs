@@ -15,9 +15,11 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const { execSync, spawnSync } = require('child_process')
 const ROOT = path.join(__dirname, '..')
 const T = require(path.join(ROOT, 'render-worker', 'dist', 'timeline', 'index.js'))
+
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }
@@ -236,16 +238,61 @@ ok('...at a level a preset is actually calibrated for', base.peak > -6, String(b
 // does not exist for the person using the tool.
 {
   const raw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-  const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+  const src = stripComments(raw)
   ok('the voice has a processing control', /setVoiceFx\(e\.target\.value\)/.test(src))
   ok('the music has one too', /setMusicFx\(e\.target\.value\)/.test(src))
   ok('every preset is offered, not a hard-coded few',
     /Object\.entries\(AUDIO_PRESETS\)\.map/.test(src))
   ok('the panel says what the chain is, in order', /describeChain\(AUDIO_PRESETS\[/.test(src))
   ok('...and explains why the preset exists', /AUDIO_PRESETS\[musicFx\]\?\.note/.test(src))
-  ok('the chain reaches the audio clips', /effects: chain/.test(src))
-  ok('the voice track and the music track get different chains',
-    /track\.z === 0 \? voiceChain : musicChain/.test(src))
+  // ASSERTED BY RUNNING THE BUILDER, NOT BY MATCHING THE PAGE.
+  //
+  // These two used to pattern-match `effects: chain` inside the Studio
+  // component. The builder has since moved to lib/timeline/project.ts so a
+  // server can render a campaign without mounting React, and the assertions
+  // went red for a refactor that changed no behaviour at all. Matching source
+  // is the weakest form of this test; running the thing is the strongest, and
+  // it survives the builder moving again.
+  {
+    const P = require(path.join(ROOT, 'render-worker', 'dist', 'timeline', 'project.js'))
+    const hooks = {
+      captionStyle: () => ({ family: 'x', size: 0.04, weight: 600, color: '#fff', align: 'center', lineHeight: 1.2 }),
+      captionY: () => 0.88,
+      overlayClips: () => [],
+      sfxLabel: {}, sfxSeconds: {}, subPos: { jos: 0.88 },
+      uid: () => 'u' + Math.random(),
+    }
+    const project = {
+      aspect: '9:16', master: '1080', fpsOut: 25,
+      scenes: [{ id: 's1', kind: 'image', url: 'a.png', name: 'a', duration: 4, kb: 'none' }],
+      cues: [], subsOn: false,
+      voUrl: 'v.mp3', voDur: 4, musicUrl: 'm.mp3', musicVol: 0.2,
+      voiceFx: 'voice', musicFx: 'music',
+      brandKit: { colour: { accent: '#CA2222' }, grade: { look: 'warm', strength: 0.85 }, loudness: 'social' },
+    }
+    const tl = P.buildProjectTimeline(project, hooks, {})
+    const audio = tl.tracks.filter(t => t.kind === 'audio')
+    const chainOf = z => {
+      const t = audio.find(x => x.z === z)
+      return ((t && t.clips[0] && t.clips[0].audio && t.clips[0].audio.effects) || []).map(e => e.kind)
+    }
+    ok('THE CHAIN REACHES THE AUDIO CLIPS — proved by building a real project',
+      chainOf(0).length > 0, chainOf(0).join('>'))
+    ok('the voice track and the music track get DIFFERENT chains',
+      chainOf(0).join('>') !== chainOf(1).join('>'),
+      `voice ${chainOf(0).join('>')} · music ${chainOf(1).join('>')}`)
+    ok('...and the voice chain is in the order that matters — gate before ' +
+       'compressor, limiter last', (() => {
+        const c = chainOf(0)
+        const g = c.indexOf('gate'), comp = c.indexOf('compressor'), lim = c.lastIndexOf('limiter')
+        return g >= 0 && comp > g && (lim === -1 || lim === c.length - 1)
+      })(), chainOf(0).join('>'))
+    ok('a project that chose no processing gets none', (() => {
+      const plain = P.buildProjectTimeline({ ...project, voiceFx: 'none', musicFx: 'none' }, hooks, {})
+      return plain.tracks.filter(t => t.kind === 'audio')
+        .every(t => t.clips.every(c => !c.audio || !c.audio.effects || c.audio.effects.length === 0))
+    })())
+  }
   ok('the choice is saved with the project', /voiceFx, musicFx \}/.test(src))
   ok('...and read back when it opens', /d\.voiceFx/.test(src) && /d\.musicFx/.test(src))
 }

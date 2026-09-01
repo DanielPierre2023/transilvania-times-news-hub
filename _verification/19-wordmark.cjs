@@ -15,6 +15,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { stripComments } = require(path.join(__dirname, 'lib', 'source.cjs'))
 const { execFileSync } = require('child_process')
 const ROOT = path.join(__dirname, '..')
 const ts = require(require.resolve('typescript', { paths: [ROOT] }))
@@ -35,6 +36,7 @@ function load(file, extra = {}) {
 const kitMod = load('kit.ts')
 const tpl = load('templates.ts', { './kit': kitMod })
 
+
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }
 
@@ -44,7 +46,7 @@ const W = 540, H = 960
 // ── it is gone from the painter ───────────────────────────────────────────
 {
   const page = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
-  const body = page.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  const body = stripComments(page)
   ok('the preview no longer paints a wordmark of its own',
     !/fillText\(\s*kit\.name/.test(body) && !/fillText\(\s*['"]Transilvania Times/.test(body))
   ok('...and nothing else writes the publication name straight onto the canvas',
