@@ -1,114 +1,82 @@
-# De ce nu mergea clonarea vocii
+# Vocea „pe viteză" — a fost greșeala mea, din zip-ul de acum o oră
 
-## Răspunsul exact
+## Ce s-a întâmplat
 
-Am prins răspunsul real al funcției din browserul tău. Era acesta:
-
-```
-fal minimax voice-clone 422: Unsupported audio format.
-Supported formats are .wav, .mp3.
-```
-
-**Mostra ta audio nu era .wav sau .mp3.** Aproape sigur .m4a (de pe telefon) sau
-.webm (înregistrare făcută în browser). fal o refuză înainte să se uite la
-conținut — se uită la extensia din URL.
-
-Nu era vina cheilor, a creditelor, a consimțământului sau a lungimii mostrei. Am
-verificat pe viu: `voice-lab` răspunde 200, `elevenlabs: true`, `minimax: true`,
-și ai deja trei voci clonate (Adriana, Daniel TT, Daniel TT2).
-
-## De ce ai văzut „Edge Function returned a non-2xx status code"
-
-Ăsta e al doilea bug, și e cel mai grav dintre cele două.
-
-`supabase.functions.invoke` pune mereu **aceeași** propoziție în `error.message`,
-indiferent de motiv. Răspunsul adevărat al funcției stă în `error.context`, iar
-pagina Studio îl arunca:
+Ți-am trimis conversia automată în .wav. Am scris-o așa:
 
 ```ts
-if (e) throw new Error(e.message)     // ← mereu "non-2xx"
+encodeWav(monoSlice(buf, 0, buf.duration), buf.sampleRate)
 ```
 
-Deci **fiecare** eșec din Studio — clonare, generare de mișcare, randare, voce —
-raporta o propoziție identică, fără să spună nici măcar care pas a picat. Iar
-funcțiile edge răspundeau atent: 400 cu „FAL_KEY not set", 403 cu explicația
-consimțământului, 502 cu textul providerului. Nimic din toate astea nu ajungea
-pe ecran.
+Se citește corect. E greșit.
 
-Pagina Newsroom citea corect. Studio, Producție și Podcast — nu. Patru locuri,
-unul singur corect: asta se întâmplă cu o reparație care trăiește într-o pagină.
+`monoSlice` **reeșantionează întotdeauna la 16 kHz** — a fost scrisă pentru
+Whisper, unde 16 kHz e gratis ca acuratețe și o treime din octeți. Numele nu
+spune asta. Apoi am scris în antetul WAV rata sursei, 48 kHz.
 
----
+48000 / 16000 = **3**. Fișierul se redă de trei ori mai repede. MiniMax a clonat
+fidel o veveriță.
 
-## Ce s-a schimbat
+Trei lucruri obișnuite au conspirat: funcția nu spune în nume că
+reeșantionează, un `Float32Array` nu poate spune la ce rată e, iar `encodeWav`
+primea rata ca argument **separat**. Ușor de greșit, imposibil de văzut la
+citire.
 
-### 1. Motivul real ajunge pe ecran, peste tot
+## Reparația
 
-`lib/supabase/edgeError.ts` — un singur cititor, folosit de toate cele patru
-pagini. De acum eroarea arată așa:
+Nu „am grijă data viitoare". Perechea nu se mai poate desface:
 
-> `voice-lab: fal minimax voice-clone 422: Unsupported audio format. Supported formats are .wav, .mp3.`
+```ts
+export interface MonoAudio { samples: Float32Array; rate: number }
+export function monoAudio(buffer, from?, to?, outRate = buffer.sampleRate): MonoAudio
+export const encodeWavFrom = (audio: MonoAudio) => encodeWav(audio.samples, audio.rate)
+```
 
-Numele funcției în față, pentru că o pagină care face unsprezece apeluri
-trebuie să spună și **care** a picat.
+`monoAudio` are **rata sursei** ca implicit — opusul lui `monoSlice` — pentru că
+o mostră de clonare e singurul fișier care nu trebuie coborât la 16 kHz: mostra
+**e** lucrul care se copiază.
 
-Traduc doar patru mesaje în limbaj omenesc (credite fal terminate, cheie fal
-lipsă, cheie ElevenLabs lipsă, consimțământ). Restul trec **cuvânt cu cuvânt** —
-o traducere greșită e mai rea decât niciuna, fiindcă trimite omul să repare
-ceva ce nu e stricat.
+`monoSlice` primește acum un parametru de rată explicit și un comentariu de
+douăzeci de rânduri care spune exact ce a pățit.
 
-### 2. Formatul se convertește singur
+## Dovada
 
-Browserul poate deschide .m4a, .webm, .ogg, .aac — o face oricum, ca să măsoare
-durata. Deci acum le **convertește în .wav** pe drum, la rata de eșantionare a
-sursei (o referință de clonare e exact fișierul care nu trebuie redus la 16 kHz),
-și îți spune într-o linie albastră că a făcut-o.
+`_verification/67-sample-rate.cjs` — 22 de aserțiuni care **măsoară înălțimea
+sunetului**, nu parametrii. A verifica dacă o variabilă conține 48000 ar fi
+trecut și pe codul stricat: variabila chiar conținea 48000.
 
-Dacă browserul chiar nu poate deschide formatul, îți spune asta — nu te lasă să
-încarci ceva ce fal va refuza.
+Deci: sintetizez un ton de 440 Hz, îl trec prin conversia reală și întreb
+ffmpeg ce frecvență iese.
 
-### 3. Durata se măsoară aici, nu se ghicește pe server
+- prin calea corectă: **440 Hz, 3.0 secunde** ✓
+- prin linia care ți-a ajuns pe site: **1320 Hz, 1.0 secundă** — bug-ul,
+  reprodus intenționat, ca aserțiunea să nu poată trece dacă revine
 
-Funcția respingea o mostră sub 60 KB ca „prea scurtă", pentru că mărimea era
-singurul indiciu pe care îl avea. Indiciul e greșit în ambele direcții: 20 de
-secunde într-un codec de mesaj vocal au 40 KB și erau refuzate, cu mesajul că
-sunt prea scurte.
+## Ce faci
 
-Acum browserul măsoară durata reală și scrie numărul lângă fiecare mostră
-(„mostra 1: 24.3s"). Sub 10 secunde e refuz, cu numărul în mesaj. Sub 20 merge,
-dar îți spune că 20–30 dau o voce mult mai fidelă.
+1. Comiți zip-ul ăsta.
+2. **Șterge vocea clonată din mostra convertită** — e clonată dintr-un fișier
+   3× accelerat, nu are cum să fie salvată.
+3. Clonează din nou cu aceeași mostră. Acum iese la rata corectă.
 
----
+Vocile tale mai vechi (Adriana, Daniel TT, Daniel TT2) sunt dinainte de
+schimbarea mea și nu sunt afectate.
 
-## Ce comiți
+## Fișiere
 
 | Cale | Ce e |
 |---|---|
-| `lib/supabase/edgeError.ts` | **nou** — cititorul, într-un singur loc |
-| `app/admin/studio/page.tsx` | cititorul + conversia formatului + durata măsurată |
-| `app/admin/productie/page.tsx` | cititorul, 6 apeluri |
-| `app/admin/podcast/page.tsx` | cititorul, 4 apeluri |
-| `app/admin/newsroom/page.tsx` | pus pe modulul comun (avea copia lui corectă) |
-| `render-worker/package.json` | build-ul compilează și noul modul, pentru teste |
-| `_verification/66-edge-errors.cjs` | **nou** — 42 de aserțiuni |
-| `_verification/55-campaign-render.cjs` | aserțiuni mutate pe noua formă a apelului |
+| `lib/media/wav.ts` | `monoAudio` + `encodeWavFrom`; `monoSlice` cu rată explicită |
+| `app/admin/studio/page.tsx` | folosește perechea |
+| `_verification/67-sample-rate.cjs` | **nou** — 22 aserțiuni, măsoară Hz cu ffmpeg |
+| restul | cititorul de erori din zip-ul anterior, neschimbat |
 
-**Supabase: nimic. Railway: nimic** (pentru reparația asta — deploy-ul de
-`render-worker/src/` din zip-ul anterior rămâne de făcut, dacă nu l-ai făcut).
+Supabase: nimic. Railway: nimic pentru asta.
 
-Verificat: `tsc --noEmit` curat, `next build` curat, **57 de suite, 2123 de
-aserțiuni, 0 căzute**. Am și stricat înadins cititorul ca să confirm că
-aserțiunile chiar cad.
+Verificat: `tsc` curat, `next build` curat, **58 de suite, 2145 de aserțiuni,
+0 căzute**.
 
 ---
 
-## Ce faci acum
-
-1. Comiți.
-2. Reîncerci clonarea cu aceeași mostră — se convertește automat.
-3. Dacă mai pică, mesajul îți spune de data asta **exact** de ce.
-
-Un singur lucru de știut despre vocile clonate cu MiniMax: fal le șterge dacă nu
-sunt folosite cel puțin o dată în 7 zile. Funcția rostește deja o frază scurtă
-imediat după clonare, ca să le rețină permanent — deci vocile tale existente sunt
-în siguranță.
+Îmi pare rău — asta a fost o regresie pe care ți-am trimis-o eu, iar tu ai
+găsit-o ascultând. Suita de acum o prinde măsurând frecvența, nu citind cod.

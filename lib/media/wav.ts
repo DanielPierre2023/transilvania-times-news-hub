@@ -41,13 +41,32 @@ interface Decoded {
 }
 
 /**
- * Mono, at the target rate, for one slice of a decoded buffer.
+ * Mono, at a chosen rate, for one slice of a decoded buffer.
  *
  * Averaging the channels rather than taking the left one matters for a podcast:
  * two lapel microphones are often hard-panned, and taking one channel would
  * transcribe one speaker and drop the other entirely.
+ *
+ * THIS FUNCTION RESAMPLES. IT DEFAULTS TO 16 kHz. READ THAT AGAIN.
+ *
+ * It was written for Whisper, where 16 kHz is free accuracy-wise and a third of
+ * the bytes. The name does not say so, the return value is a bare Float32Array
+ * that does not carry its rate, and `encodeWav` takes the rate as a SEPARATE
+ * argument — three things that together make one specific mistake very easy:
+ *
+ *   encodeWav(monoSlice(buf, 0, buf.duration), buf.sampleRate)
+ *
+ * That reads correctly and is wrong. The samples are at 16 kHz; the header says
+ * 48 kHz; the file plays at three times speed. It shipped, it was used to clone
+ * a voice, and the clone came back sounding like a chipmunk — which is what a
+ * 3× speed error sounds like when a human voice goes through it.
+ *
+ * Use `monoAudio` and `encodeWavFrom` below, which keep the samples and their
+ * rate in one object so the two cannot be paired wrongly.
  */
-export function monoSlice(buffer: Decoded, fromSeconds: number, toSeconds: number): Float32Array {
+export function monoSlice(
+  buffer: Decoded, fromSeconds: number, toSeconds: number, outRate = TARGET_RATE,
+): Float32Array {
   const rate = buffer.sampleRate
   const from = Math.max(0, Math.floor(fromSeconds * rate))
   const to = Math.min(buffer.length, Math.ceil(toSeconds * rate))
@@ -57,7 +76,7 @@ export function monoSlice(buffer: Decoded, fromSeconds: number, toSeconds: numbe
   const channels: Float32Array[] = []
   for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c))
 
-  const ratio = rate / TARGET_RATE
+  const ratio = rate / outRate
   const outLength = Math.max(1, Math.floor(span / ratio))
   const out = new Float32Array(outLength)
 
@@ -69,6 +88,39 @@ export function monoSlice(buffer: Decoded, fromSeconds: number, toSeconds: numbe
   }
   return out
 }
+
+/**
+ * Samples that carry their own rate.
+ *
+ * The whole point: a `Float32Array` cannot say what rate it is at, so any code
+ * that passes one around has to remember, and remembering is what failed. This
+ * pairs them, and `encodeWavFrom` takes the pair — so the header can no longer
+ * disagree with the samples it describes.
+ */
+export interface MonoAudio {
+  readonly samples: Float32Array
+  readonly rate: number
+}
+
+/**
+ * Mono at the buffer's OWN rate by default — the opposite default to `monoSlice`.
+ *
+ * For a transcription chunk, 16 kHz is right and free. For a voice-cloning
+ * reference it is the one thing you must not do: the sample IS the thing being
+ * copied, and handing the model a 16 kHz version of a voice throws away the
+ * upper half of what makes it that person's voice.
+ */
+export function monoAudio(
+  buffer: Decoded,
+  fromSeconds = 0,
+  toSeconds = buffer.duration,
+  outRate = buffer.sampleRate,
+): MonoAudio {
+  return { samples: monoSlice(buffer, fromSeconds, toSeconds, outRate), rate: outRate }
+}
+
+/** A WAV whose header cannot disagree with its samples. */
+export const encodeWavFrom = (audio: MonoAudio): Blob => encodeWav(audio.samples, audio.rate)
 
 /** 16-bit PCM WAV. The one format every transcriber accepts without negotiation. */
 export function encodeWav(samples: Float32Array, rate = TARGET_RATE): Blob {

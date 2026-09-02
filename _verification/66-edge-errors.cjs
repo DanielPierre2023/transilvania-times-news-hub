@@ -160,10 +160,14 @@ const httpError = (status, body, type = 'application/json') => ({
     ok('THE ACCEPTED FORMATS ARE NAMED IN THE CODE, not assumed',
       /CLONE_FORMATS = \['wav', 'mp3'\]/.test(studio))
     ok('...and anything else is converted rather than refused',
-      /encodeWav\(samples, decoded\.sampleRate\)/.test(studio),
+      /encodeWavFrom\(audio\)/.test(studio),
       'a file the browser can decode should not be handed back to the person')
+    // WAS `encodeWav(samples, decoded.sampleRate)`, WHICH SHIPPED AND WAS WRONG.
+    // `monoSlice` resamples to 16 kHz; the header then claimed 48 kHz and the
+    // file played at 3x. `67-sample-rate.cjs` measures the pitch; this only
+    // checks that the call site uses the pair that cannot be mismatched.
     ok('...at the SOURCE sample rate, because a clone reference is the one file ' +
-       'that must not be downsampled', /decoded\.sampleRate/.test(studio))
+       'that must not be downsampled', /monoAudio\(decoded\)/.test(studio))
     ok('...uploaded with the .wav extension, which is what fal reads',
       /uploadBlob\('voice-samples', prepared\.blob, prepared\.ext/.test(studio))
     ok('a format the browser cannot decode either is explained, not swallowed',

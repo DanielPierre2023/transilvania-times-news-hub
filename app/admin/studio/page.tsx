@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { invokeEdge } from '@/lib/supabase/edgeError'
-import { encodeWav, monoSlice } from '@/lib/media/wav'
+import { encodeWavFrom, monoAudio } from '@/lib/media/wav'
 import type { SupabaseClient } from '@supabase/supabase-js'
 // tt-timeline — real loudness measurement and caption sidecars.
 import { checkCaptions, conformCues, extractCues, toSRT, toVTT } from '@/lib/timeline/captions'
@@ -1341,9 +1341,16 @@ export default function StudioPage() {
         'iar browserul nu a putut să-l deschidă ca să-l convertească. ' +
         'Exportă mostra ca .wav sau .mp3 și încarc-o din nou.')
     }
-    const samples = monoSlice(decoded, 0, decoded.duration)
+    // `monoAudio`, NOT `monoSlice`. The latter resamples to 16 kHz whatever you
+    // ask it — it was written for Whisper — and pairing its output with the
+    // source sample rate in the WAV header produced a file that played at three
+    // times speed. Cloning from that gives a voice that sounds like a chipmunk,
+    // which is precisely what it did. `monoAudio` carries its own rate and
+    // defaults to the buffer's, and `encodeWavFrom` takes the pair, so the
+    // header cannot disagree with the samples again.
+    const audio = monoAudio(decoded)
     return {
-      blob: encodeWav(samples, decoded.sampleRate),
+      blob: encodeWavFrom(audio),
       ext: 'wav',
       seconds: decoded.duration,
       converted: true,
