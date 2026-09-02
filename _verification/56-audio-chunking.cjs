@@ -45,8 +45,12 @@ const haveFF = spawnSync(FF, ['-version'], { stdio: 'ignore' }).status === 0
 
 // ── the client now speaks the function's language ────────────────────────
 {
+  // The transcription client moved to its own page when Podcast was split out of
+  // Producție. These assertions are about the CLIENT, wherever it lives; they
+  // went red on the move, which is the suite noticing rather than the suite
+  // being wrong.
   const prod = stripComments(
-    fs.readFileSync(path.join(ROOT, 'app', 'admin', 'productie', 'page.tsx'), 'utf8'))
+    fs.readFileSync(path.join(ROOT, 'app', 'admin', 'podcast', 'page.tsx'), 'utf8'))
   const fn = stripComments(
     fs.readFileSync(path.join(ROOT, 'supabase', 'functions', 'align-subtitles', 'index.ts'), 'utf8'))
 

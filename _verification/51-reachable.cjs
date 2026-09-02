@@ -20,6 +20,10 @@ const ROOT = path.join(__dirname, '..')
 
 const studioRaw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'studio', 'page.tsx'), 'utf8')
 const prodRaw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'productie', 'page.tsx'), 'utf8')
+// Podcast became its own page. The assertions below did not move with it by
+// accident — they were pointed at `prod` and went red the moment the split
+// happened, which is the suite doing its job rather than the suite being wrong.
+const podRaw = fs.readFileSync(path.join(ROOT, 'app', 'admin', 'podcast', 'page.tsx'), 'utf8')
 // Comments are stripped so a commented-out line cannot satisfy an assertion.
 //
 // A REGEX CANNOT DO THIS, AND THE PROOF IS IN THIS FILE'S HISTORY.
@@ -68,6 +72,7 @@ function strip(src) {
 }
 const studio = strip(studioRaw)
 const prod = strip(prodRaw)
+const pod = strip(podRaw)
 
 let pass = 0, fail = 0
 const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL:', n, e) } }
@@ -242,39 +247,69 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
 
   ok('SPEAKERS ARE ATTRIBUTED FROM THE MICROPHONES — Whisper does not diarise, ' +
      'and with a lapel each the recording already contains the answer',
-    /assignSpeakers\(all, envelopes/.test(prod))
+    /assignSpeakers\(all, envelopes/.test(pod))
   ok('...with the measured alignment applied to the envelopes first, or words go ' +
-     'to whoever was loud half a second later', /m\.offset \?\? 0\) \* HZ/.test(prod))
+     'to whoever was loud half a second later', /m\.offset \?\? 0\) \* HZ/.test(pod))
   ok('...and the separation is reported rather than assumed',
-    /separationOf\(all, envelopes/.test(prod) && /SEPARATION_MIN/.test(prod))
+    /separationOf\(all, envelopes/.test(pod) && /SEPARATION_MIN/.test(pod))
   ok('...saying plainly when two mics cannot tell the speakers apart',
-    /nu separă vorbitorii/.test(prod))
+    /nu separă vorbitorii/.test(pod))
 
   ok('A RANKED CLIP CAN BE TURNED INTO A FINISHED VERTICAL — a list of timecodes ' +
-     'is not a deliverable', /buildClipProject\(\{/.test(prod))
-  ok('...using the cameras, with their offsets', /offsetSeconds: t\.offset/.test(prod))
-  ok('...and it reports what could not be done', /project\.warnings\.length/.test(prod))
+     'is not a deliverable', /buildClipProject\(\{/.test(pod))
+  ok('...using the cameras, with their offsets', /offsetSeconds: t\.offset/.test(pod))
+  ok('...and it reports what could not be done', /p\.warnings\.length/.test(pod))
+
+  // ── the two ends that used to stop at a number or a JSON file ──────────
+  //
+  // Splitting the tab out exposed that neither end of the podcast workflow
+  // produced a file. The cleanup panel printed how many seconds it WOULD remove
+  // and stopped; the clips panel produced a project you then opened in the
+  // Studio by hand, per clip. Both are assertions now because both were
+  // "finished" features that a person could not get an MP4 out of.
+  ok('THE EPISODE ITSELF CAN BE RENDERED — a cut list that produces no film is ' +
+     'a measurement, not an edit', /buildEpisodeProject\(\{/.test(pod))
+  ok('...with a button that starts it', /Randează episodul/.test(pod))
+  ok('...at 4K as well as 1080', /'2160'/.test(pod))
+  ok('...and it can still be opened in the Studio instead', /episod\.json/.test(pod))
+  ok('...showing what the builder could not do', /episodeProject\(false\)\.warnings\.map/.test(pod))
+  ok('...and how much of the recording survives the cut', /keptSeconds\(kept\)/.test(pod))
+
+  ok('A CLIP RENDERS WITHOUT A DETOUR THROUGH THE STUDIO', /randează vertical/.test(pod))
+  ok('...through the same builder campaigns use, not a second renderer',
+    /rowTimeline\(\{ \.\.\.project, brandKit: TT_KIT \}/.test(pod))
+
+  // THE FIELD NAMES ARE THE DEPLOYED FUNCTION'S. Both of these were guessed
+  // wrong on the first pass — `job_id` on the response (it is `id`) and `url`
+  // on the status (it is `downloadUrl`). Neither throws: the render runs, costs
+  // money, finishes, and the page shows nothing at all.
+  ok('the create response is read by its REAL field name',
+    /\{ id\?: string \}\)\?\.id/.test(pod), 'reading job_id instead of id renders and shows nothing')
+  ok('the status response is read by its REAL field name',
+    /downloadUrl/.test(pod) && !/s\?\.url\b/.test(pod))
+  ok('a render that never answers gives up rather than polling forever',
+    /deadline/.test(pod))
 }
 
 // ── podcast ──────────────────────────────────────────────────────────────
 {
-  ok('PODCAST tracks can be uploaded', /setTracks\(l => \[\.\.\.l/.test(prod))
+  ok('PODCAST tracks can be uploaded', /setTracks\(l => \[\.\.\.l/.test(pod))
   ok('...and labelled by speaker, which is what two-camera cutting needs',
-    /speaker: e\.target\.value/.test(prod))
-  ok('ALIGNMENT IS OFFERED', /onClick=\{align\}/.test(prod))
-  ok('...and uses the measured shift, not a guess', /r\.shiftBBySeconds/.test(prod))
+    /speaker: e\.target\.value/.test(pod))
+  ok('ALIGNMENT IS OFFERED', /onClick=\{align\}/.test(pod))
+  ok('...and uses the measured shift, not a guess', /r\.shiftBBySeconds/.test(pod))
   ok('LOW CONFIDENCE IS SHOWN RATHER THAN SILENTLY TRUSTED — an automatic sync ' +
      'that is wrong is worse than none, because nobody re-checks it',
-    /SYNC_CONFIDENCE_MIN/.test(prod))
-  ok('TRANSCRIPTION IS CHUNKED', /planChunks/.test(prod))
-  ok('...and stitched back into one timeline', /stitch\(parts\)/.test(prod))
-  ok('TIGHTENING is shown with what it removes', /secondsRemoved\(cuts\)/.test(prod))
+    /SYNC_CONFIDENCE_MIN/.test(pod))
+  ok('TRANSCRIPTION IS CHUNKED', /planChunks/.test(pod))
+  ok('...and stitched back into one timeline', /stitch\(parts\)/.test(pod))
+  ok('TIGHTENING is shown with what it removes', /secondsRemoved\(cuts\)/.test(pod))
   ok('...and the retimed transcript is what everything downstream uses',
-    /retime\(words, cuts\)/.test(prod))
-  ok('CLIPS are listed', /clips\.map/.test(prod))
-  ok('...with the reason each was chosen', /\{c\.why\}/.test(prod))
-  ok('CHAPTERS are listed', /chapterList\.map/.test(prod))
-  ok('SPEAKER SWITCHES are reported', /switches\.length/.test(prod))
+    /retime\(words, cuts\)/.test(pod))
+  ok('CLIPS are listed', /clips\.map/.test(pod))
+  ok('...with the reason each was chosen', /\{c\.why\}/.test(pod))
+  ok('CHAPTERS are listed', /chapterList\.map/.test(pod))
+  ok('SPEAKER SWITCHES are reported', /switches\.length/.test(pod))
 }
 
 // ── screen ───────────────────────────────────────────────────────────────

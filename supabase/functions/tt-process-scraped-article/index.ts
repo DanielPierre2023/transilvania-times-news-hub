@@ -671,6 +671,85 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// ── Grounded visual brief (inlined; self-contained for dashboard deploy) ──────
+// Turns an article into a location-grounded Unsplash query + AI photo prompt so a
+// subject like "the parliament" resolves to the ROMANIAN one (Bucharest), never a
+// foreign parliament. Gemini is timeout-guarded with a deterministic fallback.
+interface VisualBrief { unsplash_query: string; photo_prompt: string; alt_text: string; prefer_real: boolean; place: string }
+const _VB_COUNTY: Record<string, string> = {
+  cluj: 'Cluj', bihor: 'Bihor', alba: 'Alba', 'bistrita-nasaud': 'Bistrița-Năsăud',
+  salaj: 'Sălaj', mures: 'Mureș', sibiu: 'Sibiu', maramures: 'Maramureș',
+  'satu-mare': 'Satu Mare', hunedoara: 'Hunedoara', brasov: 'Brașov',
+  covasna: 'Covasna', harghita: 'Harghita',
+};
+const _VB_SCENE: Record<string, { q: string; scene: string }> = {
+  politics: { q: 'Romanian government building', scene: 'a Romanian government or council building, official setting' },
+  economy: { q: 'Romania business economy', scene: 'a Romanian commercial street or office district' },
+  business: { q: 'Romania business office', scene: 'a modern Romanian office or business district' },
+  local: { q: 'Romania town square street', scene: 'a Transylvanian town square and historic street' },
+  education: { q: 'Romania school classroom', scene: 'a Romanian school building, classroom, desks and books' },
+  health: { q: 'Romania hospital healthcare', scene: 'a Romanian hospital corridor or clinic, medical staff' },
+  sports: { q: 'Romania stadium sport', scene: 'a Romanian stadium or sports hall during competition' },
+  culture: { q: 'Transylvania heritage architecture', scene: 'a Transylvanian heritage building, museum or theatre' },
+  travel: { q: 'Transylvania landscape Romania', scene: 'a scenic Transylvanian landscape or old town' },
+  events: { q: 'Romania festival crowd', scene: 'a Romanian public event or festival' },
+  justice: { q: 'Romania courthouse justice', scene: 'a Romanian courthouse, formal institutional setting' },
+  weather: { q: 'Transylvania weather sky landscape', scene: 'a dramatic Transylvanian sky over the countryside' },
+  news: { q: 'Transylvania Romania city street', scene: 'a Transylvanian city street, everyday public life' },
+};
+function _vbPlace(county?: string | null): string {
+  const c = (county || '').toLowerCase();
+  if (c && c !== 'national' && _VB_COUNTY[c]) return `${_VB_COUNTY[c]} county, Transylvania, Romania`;
+  return 'Romania';
+}
+function _vbClean(q: string): string {
+  return (q || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 7).join(' ');
+}
+function _vbFallback(input: { title: string; category?: string; county?: string | null }, place: string): VisualBrief {
+  const base = _VB_SCENE[(input.category || 'news').toLowerCase()] || _VB_SCENE.news;
+  const q = _vbClean(place === 'Romania' ? base.q : `${_VB_COUNTY[(input.county || '').toLowerCase()] || ''} ${base.q}`);
+  return {
+    unsplash_query: q || 'Transylvania Romania',
+    photo_prompt: `Photorealistic editorial news photograph of ${base.scene}, in ${place}. Natural light, documentary style, sharp focus, realistic. No text, no logos, no watermark, no distorted faces.`,
+    alt_text: `Imagine ilustrativă — ${input.title}`.slice(0, 160),
+    prefer_real: true, place,
+  };
+}
+async function buildVisualBrief(input: { title: string; summary?: string; category?: string; county?: string | null }): Promise<VisualBrief> {
+  const place = _vbPlace(input.county);
+  const fallback = _vbFallback(input, place);
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!apiKey) return fallback;
+  const sys = `You are the photo editor of Transilvania Times, a Romanian regional newspaper covering Transylvania. For the given article output a STRICT JSON object used to pick or generate an accurate COVER IMAGE.
+
+Ground EVERYTHING in the real place: ${place}. Hard rule: never depict another country's version of a subject. For "the parliament" it is the ROMANIAN Parliament in Bucharest — never a foreign parliament. For a named town, county, institution, road or landmark, keep it Romanian/Transylvanian.
+
+Output ONLY this JSON object (no prose):
+{"unsplash_query":"3-6 ENGLISH words for a stock-photo search that returns a RELEVANT REAL photo; include the country/city/landmark when the subject is a named place, building, institution, road or event (e.g. \\"Romanian Parliament Bucharest\\", \\"Cluj-Napoca old town\\"); concrete photographable nouns, no punctuation","photo_prompt":"40-70 word ENGLISH prompt for a PHOTOREALISTIC editorial news photo of the scene, grounded in ${place}; describe setting, light, composition; must NOT contain text, logos, watermarks or recognizable real individuals' faces; avoid dense text, dozens of faces, hands in close focus","prefer_real":true if a REAL stock photo is more appropriate/credible (named places, institutions, events, factual news) — false only for abstract/illustrative/opinion pieces,"alt_text":"one concise ROMANIAN sentence describing the intended image"}`;
+  const user = `Category: ${input.category || 'news'}\nCounty: ${input.county || 'national'}\nTitle: ${input.title}\nSummary: ${(input.summary || '').substring(0, 500)}`;
+  try {
+    const call = fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: sys }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 500, responseMimeType: 'application/json' },
+      }),
+    }).then((r) => r.json()).catch(() => null);
+    const data = await Promise.race([call, new Promise<null>((res) => setTimeout(() => res(null), 7000))]);
+    const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    if (!text) return fallback;
+    const p = JSON.parse(text);
+    const query = _vbClean(String(p.unsplash_query || ''));
+    const prompt = String(p.photo_prompt || '').trim();
+    return {
+      unsplash_query: query || fallback.unsplash_query,
+      photo_prompt: prompt.length > 25 ? prompt : fallback.photo_prompt,
+      alt_text: String(p.alt_text || fallback.alt_text).trim().slice(0, 200),
+      prefer_real: p.prefer_real !== false, place,
+    };
+  } catch { return fallback; }
+}
 
 // deno-lint-ignore no-explicit-any
 type SupaClient = ReturnType<typeof createClient<any, any, any>>
@@ -3771,55 +3850,46 @@ async function regenerateTitleIfGeneric(
 
 // ─── Unsplash cover fetcher ────────────────────────────────────────────────
 
-async function fetchUnsplashImage(category: string, titleEn: string, _summaryEn: string): Promise<string | null> {
+async function fetchUnsplashImage(category: string, titleEn: string, summaryEn: string, county: string | null): Promise<string | null> {
   const accessKey = Deno.env.get('UNSPLASH_ACCESS_KEY')
   if (!accessKey) return null
 
-  const CAT_KEYWORDS: Record<string, string> = {
-    education: 'students classroom learning university',
-    politics: 'parliament government official meeting',
-    sports: 'sport athlete competition stadium',
-    business: 'business office professionals meeting',
-    technology: 'technology computer digital innovation',
-    health: 'hospital medical healthcare doctor',
-    culture: 'culture art theater museum exhibition',
-    travel: 'travel landscape tourism romania',
-    news: 'city street urban community',
-    opinion: 'editorial newspaper journalism writing',
+  // Grounded query via the shared visual brief — the fix for "Indian parliament
+  // for the Romanian one": the query now carries the real country/county, and we
+  // take the TOP (most-relevant) result, never a random one. buildVisualBrief is
+  // timeout-guarded and has a deterministic grounded fallback, so this can never
+  // hang the pipeline.
+  let query = ''
+  try {
+    const brief = await buildVisualBrief({ title: titleEn, summary: summaryEn, category, county })
+    query = brief.unsplash_query
+  } catch { /* fall through to the deterministic query below */ }
+  if (!query) {
+    const kw = titleEn.toLowerCase().match(/\b[a-z]{4,}\b/g)?.slice(0, 3).join(' ') || ''
+    query = `${kw} ${category} Romania`.trim()
   }
 
-  let query = CAT_KEYWORDS[category] || category
-  const titleKeywords = titleEn.toLowerCase().match(/\b[a-z]{4,}\b/g)?.slice(0, 3).join(' ') || ''
-  if (titleKeywords) query = `${titleKeywords} ${query}`
+  const grab = async (q: string, per: number, timeoutMs: number): Promise<string | null> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=${per}&orientation=landscape&content_filter=high`
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Client-ID ${accessKey}`, 'Accept-Version': 'v1' },
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (!res.ok) return null
+      const data = await res.json()
+      const results = Array.isArray(data.results) ? data.results : []
+      return (results[0]?.urls?.regular as string) || null   // top = most relevant
+    } catch { clearTimeout(timer); return null }
+  }
 
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
-    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=6&orientation=landscape&content_filter=high`
-    const res = await fetch(url, {
-      headers: { 'Authorization': `Client-ID ${accessKey}`, 'Accept-Version': 'v1' },
-      signal: controller.signal,
-    })
-    clearTimeout(timer)
-    if (!res.ok) return null
-    const data = await res.json()
-    if (!data.results || data.results.length === 0) {
-      const fallbackUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(CAT_KEYWORDS[category] || category)}&per_page=4&orientation=landscape`
-      const c2 = new AbortController()
-      const t2 = setTimeout(() => c2.abort(), 6000)
-      const fb = await fetch(fallbackUrl, {
-        headers: { 'Authorization': `Client-ID ${accessKey}`, 'Accept-Version': 'v1' },
-        signal: c2.signal,
-      })
-      clearTimeout(t2)
-      if (!fb.ok) return null
-      const fbData = await fb.json()
-      if (!fbData.results || fbData.results.length === 0) return null
-      const picked = fbData.results[Math.floor(Math.random() * fbData.results.length)]
-      return (picked?.urls?.regular as string) || null
-    }
-    const picked = data.results[Math.floor(Math.random() * Math.min(data.results.length, 4))]
-    return (picked?.urls?.regular as string) || null
+    const primary = await grab(query, 8, 8000)
+    if (primary) return primary
+    return await grab(`${category} Romania Transylvania`, 6, 6000)   // grounded fallback
   } catch (e) {
     console.warn(`[unsplash] ${(e as Error).message}`)
     return null
@@ -4353,7 +4423,7 @@ JSON only, fără preambul: {"title":"...","content":"...","excerpt":"...","summ
     const authorId = await getAuthorId(supabase, editor)
     let coverImageUrl: string | null = null
     if (Date.now() - t0 < TOTAL_SOFT_LIMIT_MS - 6000) {
-      coverImageUrl = await fetchUnsplashImage(category, titleEn, summaryEn)
+      coverImageUrl = await fetchUnsplashImage(category, titleEn, summaryEn, county)
     }
 
     // ─── Status decision (v14 pattern) ─────────────────────────────────────

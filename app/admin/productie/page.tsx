@@ -2,28 +2,35 @@
 
 // app/admin/productie/page.tsx
 //
-// Producție — the four things the Studio could not do.
+// Producție — what a film is made FROM.
 //
-// WHY THIS IS A SEPARATE PAGE AND NOT FOUR MORE TABS IN THE STUDIO.
+// WHY THIS IS A SEPARATE PAGE AND NOT MORE TABS IN THE STUDIO.
 //
 // The Studio page is three and a half thousand lines and edits ONE FILM. These
-// four surfaces are all upstream of that: they make the things a film is then
+// surfaces are all upstream of that: they make the things a film is then
 // assembled from. An avatar is used by many films; a campaign produces hundreds;
-// a podcast recording becomes an episode and a dozen clips; a screen capture is
-// footage. Folding them into the film editor would have meant a component that
-// is sometimes a library manager and sometimes an editor, with one state blob
-// covering both — which is how the Studio got to three and a half thousand lines
-// in the first place.
+// a screen capture is footage. Folding them into the film editor would have
+// meant a component that is sometimes a library manager and sometimes an editor,
+// with one state blob covering both — which is how the Studio got to three and a
+// half thousand lines in the first place.
 //
-// The four share a page because they share a bucket, a brand kit and an admin
-// gate, and because in practice they are used in one sitting: record the
-// podcast, cut the clips, pick the avatar, run the campaign.
+// The three share a page because they share a bucket, a brand kit and an admin
+// gate, and because in practice they are used in one sitting: pick the avatar,
+// pick the template, run the campaign.
+//
+// PODCAST USED TO BE THE FOURTH TAB AND IS NOW ITS OWN PAGE.
+//
+// The other three are library work — you make a thing, and later some film uses
+// it. A podcast is a SESSION: align, transcribe, cut, episode, then a dozen
+// verticals, each step depending on the one before. It had the most steps and
+// the least room, and its state sat inside a component that was also a campaign
+// runner. It lives at /admin/podcast.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  AlertCircle, Check, Clapperboard, Loader2, Mic, Monitor, Pause,
+  AlertCircle, Check, Loader2, Mic, Monitor, Pause,
   Play, Scissors, Trash2, Upload, UserRound, Zap,
 } from 'lucide-react'
 
@@ -40,38 +47,15 @@ import {
 } from '@/lib/campaign/build'
 import { TT_KIT } from '@/lib/brand/kit'
 import { costPerRow, generateRow, type GenerateHooks } from '@/lib/campaign/generate'
-import { buildClipProject } from '@/lib/podcast/clip'
 import { voiceSeconds } from '@/lib/media/duration'
-import {
-  CHUNK_SECONDS, MAX_UPLOAD_BYTES, OVERLAP_SECONDS, encodeWav, monoSlice,
-} from '@/lib/media/wav'
 import type { Progress } from '@/lib/campaign/queue'
-import {
-  DEVICE_FRAMES, SEPARATION_MIN, SYNC_CONFIDENCE_MIN, alignOffset, assignSpeakers,
-  chapters as findChapters, cropKeys, deadAir, findClips, planChunks, planTighten,
-  readability, retime, secondsRemoved, separationOf, skipPoints, speakerCuts, stitch,
-} from '@/lib/timeline'
+import { DEVICE_FRAMES, cropKeys, deadAir, readability, skipPoints } from '@/lib/timeline'
+// Panel, Note, fmt and uid are shared with the Podcast page so the two surfaces
+// cannot drift apart a shade at a time.
+import { Panel, Note, fmt, uid } from '../components/ProductionChrome'
 
-type Tab = 'avatare' | 'campanii' | 'podcast' | 'ecran'
 
-const uid = () => Math.random().toString(36).slice(2, 10)
-const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
-
-// ── shared chrome ──────────────────────────────────────────────────────────
-const Panel = ({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) => (
-  <div className="bg-[#1a1a1a] border border-white/[0.07] p-5">
-    <h2 className="font-sans text-[13px] uppercase tracking-widest text-white/70">{title}</h2>
-    {note && <p className="mt-1 text-[12px] text-white/40 leading-relaxed max-w-[70ch]">{note}</p>}
-    <div className="mt-4">{children}</div>
-  </div>
-)
-
-const Note = ({ level, children }: { level: 'info' | 'warn' | 'error'; children: React.ReactNode }) => (
-  <p className={`text-[12px] leading-relaxed px-3 py-2 border ${
-    level === 'error' ? 'border-red-500/30 bg-red-500/[0.06] text-red-200/90'
-      : level === 'warn' ? 'border-amber-500/30 bg-amber-500/[0.06] text-amber-200/90'
-        : 'border-white/[0.07] bg-black/30 text-white/50'}`}>{children}</p>
-)
+type Tab = 'avatare' | 'campanii' | 'ecran'
 
 export default function ProductiePage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
@@ -415,140 +399,6 @@ export default function ProductiePage() {
     return () => { window.removeEventListener('beforeunload', give); give() }
   }, [])
 
-  // ══ PODCAST ══════════════════════════════════════════════════════════════
-  interface Track { id: string; url: string; name: string; kind: 'camera' | 'mic'; speaker: string; offset?: number; confidence?: number }
-  const [tracks, setTracks] = useState<Track[]>([])
-  const [words, setWords] = useState<{ word: string; start: number; end: number; speaker?: string }[]>([])
-  const [podDur, setPodDur] = useState(0)
-  const [separation, setSeparation] = useState(0)
-  const cuts = useMemo(() => words.length ? planTighten(words) : [], [words])
-  const tightened = useMemo(() => words.length ? retime(words, cuts) : [], [words, cuts])
-  const clips = useMemo(() => tightened.length ? findClips(tightened, { want: 10 }) : [], [tightened])
-  const chapterList = useMemo(() => tightened.length ? findChapters(tightened) : [], [tightened])
-  const switches = useMemo(() => tightened.length ? speakerCuts(tightened) : [], [tightened])
-
-  /**
-   * Transcribe the whole recording.
-   *
-   * TWO DEFECTS FIXED HERE, BOTH OF WHICH WOULD HAVE FAILED ON THE FIRST CLICK.
-   *
-   *   The edge function reads `audio_url`. This sent `audioUrl`, so every call
-   *   came back "audio_url is required". A JSON boundary types nothing.
-   *
-   *   It also sent chunk offsets the function does not implement, so an hour of
-   *   podcast went to Whisper whole and was refused for being over 25 MB. The
-   *   split happens here instead, exactly, because the browser has the decoded
-   *   audio and a Deno function has no ffmpeg to cut with.
-   */
-  const transcribe = useCallback(async () => {
-    const mic = tracks.find(t => t.kind === 'mic') || tracks[0]
-    if (!mic) { setError('Încarcă întâi cel puțin o pistă.'); return }
-    setBusy('transcriere')
-    try {
-      const AC = window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      const ctx = new AC()
-      const decoded = await ctx.decodeAudioData(await (await fetch(mic.url)).arrayBuffer())
-      const duration = decoded.duration
-      setPodDur(duration)
-
-      const plan = planChunks(duration, { chunkSeconds: CHUNK_SECONDS, overlapSeconds: OVERLAP_SECONDS })
-      const parts: { chunk: typeof plan[number]; words: typeof words }[] = []
-
-      for (const chunk of plan) {
-        log?.(`transcriu bucata ${chunk.index + 1}/${plan.length}`)
-        const samples = monoSlice(decoded, chunk.start, chunk.start + chunk.seconds)
-        const blob = encodeWav(samples)
-        if (blob.size > MAX_UPLOAD_BYTES) {
-          throw new Error(`bucata ${chunk.index + 1} are ${Math.round(blob.size / 1e6)} MB, ` +
-            'peste limita serviciului de transcriere')
-        }
-        const url = await upload(blob, `chunk-${chunk.index}.wav`)
-        const { data, error: e } = await db.functions.invoke('align-subtitles', {
-          // snake_case: the deployed function reads `audio_url`.
-          body: { audio_url: url, language: 'ro' },
-        })
-        if (e) throw new Error(e.message)
-        const ws = ((data as { words?: { word: string; start: number; end: number }[] })?.words) || []
-        parts.push({ chunk, words: ws.map(w => ({ ...w, speaker: mic.speaker })) })
-      }
-
-      // Each chunk's timestamps start again at zero; stitch shifts them into the
-      // whole recording and drops the repeated head.
-      let all = stitch(parts)
-
-      // WHO IS SPEAKING, WITHOUT A DIARISER.
-      //
-      // Whisper does not diarise, and the usual answers are a second paid
-      // service or a clustering model. Neither is needed with a lapel on each
-      // speaker: the person talking is the one whose OWN microphone is loud,
-      // and every other track hears them across the room, quieter. That is a
-      // measurement the recording already contains — more reliable on this
-      // material than a diariser, which works from one mixed track and has to
-      // infer what two tracks state outright.
-      const mics = tracks.filter(t => t.kind === 'mic' && t.speaker)
-      if (mics.length > 1) {
-        const HZ = 100
-        const envelopes = []
-        for (const m of mics) {
-          const buf = await ctx.decodeAudioData(await (await fetch(m.url)).arrayBuffer())
-          const ch = buf.getChannelData(0)
-          const per = Math.max(1, Math.round(buf.sampleRate / HZ))
-          // The offset measured by the aligner is applied HERE. Attributing
-          // words with unaligned envelopes picks whoever was loudest half a
-          // second later, which is the other speaker about as often as not.
-          const shift = Math.round((m.offset ?? 0) * HZ)
-          const env: number[] = []
-          for (let i = 0; i + per <= ch.length; i += per) {
-            let acc = 0
-            for (let j = 0; j < per; j++) acc += ch[i + j] * ch[i + j]
-            env.push(Math.sqrt(acc / per))
-          }
-          const aligned = shift === 0 ? env
-            : shift > 0 ? [...Array(shift).fill(0), ...env]
-              : env.slice(-shift)
-          envelopes.push({ speaker: m.speaker, envelope: aligned })
-        }
-        all = assignSpeakers(all, envelopes, { hz: HZ })
-        setSeparation(separationOf(all, envelopes, { hz: HZ }))
-      }
-
-      await ctx.close()
-      setWords(all)
-    } catch (err) { setError((err as Error).message) } finally { setBusy('') }
-  }, [tracks, db, upload, log])
-
-  const align = useCallback(async () => {
-    if (tracks.length < 2) { setError('Alinierea are nevoie de cel puțin două piste.'); return }
-    setBusy('aliniere')
-    try {
-      const envelopeOf = async (url: string) => {
-        const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-        const buf = await ctx.decodeAudioData(await (await fetch(url)).arrayBuffer())
-        const ch = buf.getChannelData(0)
-        const per = Math.max(1, Math.round(buf.sampleRate / 100))     // 100 Hz
-        const out: number[] = []
-        for (let i = 0; i + per <= ch.length; i += per) {
-          let acc = 0
-          for (let j = 0; j < per; j++) acc += ch[i + j] * ch[i + j]
-          out.push(Math.sqrt(acc / per))
-        }
-        await ctx.close()
-        return { env: out, seconds: buf.duration }
-      }
-      const first = await envelopeOf(tracks[0].url)
-      setPodDur(first.seconds)
-      const next = [...tracks]
-      next[0] = { ...next[0], offset: 0, confidence: 1 }
-      for (let i = 1; i < tracks.length; i++) {
-        const other = await envelopeOf(tracks[i].url)
-        const r = alignOffset(first.env, other.env, { hz: 100 })
-        next[i] = { ...next[i], offset: r.shiftBBySeconds, confidence: r.confidence }
-      }
-      setTracks(next)
-    } catch (err) { setError((err as Error).message) } finally { setBusy('') }
-  }, [tracks])
-
   // ══ SCREEN ═══════════════════════════════════════════════════════════════
   const [screenUrl, setScreenUrl] = useState('')
   const [screenSize, setScreenSize] = useState({ width: 2560, height: 1440 })
@@ -653,7 +503,6 @@ export default function ProductiePage() {
   const TABS: [Tab, string, string][] = [
     ['avatare', 'Avatare', 'Aceeași persoană, de fiecare dată.'],
     ['campanii', 'Șabloane și campanii', 'Un film pornit dintr-un șablon. Sau o mie.'],
-    ['podcast', 'Podcast', 'Un episod montat și clipurile pentru social.'],
     ['ecran', 'Ecran', 'Capturi de ecran care se pot urmări.'],
   ]
 
@@ -1168,174 +1017,6 @@ export default function ProductiePage() {
                 </div>
               </div>
             </Panel>
-          )}
-        </div>
-
-        {/* ══ PODCAST ═════════════════════════════════════════════════════ */}
-        <div hidden={tab !== 'podcast'} className="grid gap-5">
-          <Panel title="Pistele"
-            note="Două camere și două microfoane sunt patru fișiere care nu sunt de acord ce oră e — fiecare a pornit când a apăsat omul lui. Alinierea se măsoară, nu se presupune.">
-            <div className="grid gap-2">
-              {tracks.map(t => (
-                <div key={t.id} className="flex gap-2 items-center flex-wrap text-[12px] border border-white/[0.07] p-2">
-                  {t.kind === 'mic' ? <Mic className="w-4 h-4 text-white/40" /> : <Clapperboard className="w-4 h-4 text-white/40" />}
-                  <span className="text-white/70">{t.name}</span>
-                  <select value={t.kind}
-                    onChange={e => setTracks(l => l.map(x => x.id === t.id ? { ...x, kind: e.target.value as 'camera' | 'mic' } : x))}
-                    className="bg-black border border-white/10 px-1.5 py-1 text-[11px]">
-                    <option value="mic">microfon</option><option value="camera">cameră</option>
-                  </select>
-                  <input value={t.speaker} placeholder="vorbitor"
-                    onChange={e => setTracks(l => l.map(x => x.id === t.id ? { ...x, speaker: e.target.value } : x))}
-                    className="w-24 bg-black border border-white/10 px-1.5 py-1 text-[11px]" />
-                  {t.offset !== undefined && (
-                    <span className={`font-mono text-[11px] ${
-                      (t.confidence ?? 0) < SYNC_CONFIDENCE_MIN ? 'text-amber-300/90' : 'text-white/40'}`}>
-                      {t.offset >= 0 ? '+' : ''}{t.offset.toFixed(3)}s
-                      {(t.confidence ?? 0) < SYNC_CONFIDENCE_MIN
-                        ? ' · nesigur, verifică manual'
-                        : ` · sigur ${Math.round((t.confidence ?? 0) * 100)}%`}
-                    </span>
-                  )}
-                  <button onClick={() => setTracks(l => l.filter(x => x.id !== t.id))}
-                    className="ml-auto text-white/30 hover:text-white"><Trash2 className="w-4 h-4" /></button>
-                </div>
-              ))}
-
-              <div className="flex gap-2 flex-wrap">
-                <label className="px-3 py-2 text-[12px] border border-white/[0.07] text-white/60 cursor-pointer hover:text-white">
-                  + pistă
-                  <input type="file" accept="audio/*,video/*" multiple className="hidden"
-                    onChange={async e => {
-                      const fs = Array.from(e.target.files ?? []); if (!fs.length) return
-                      setBusy('încarc')
-                      try {
-                        for (const f of fs) {
-                          const url = await upload(f, f.name)
-                          setTracks(l => [...l, {
-                            id: uid(), url, name: f.name,
-                            kind: f.type.startsWith('video') ? 'camera' : 'mic',
-                            speaker: String.fromCharCode(65 + l.length),
-                          }])
-                        }
-                      } catch (err) { setError((err as Error).message) } finally { setBusy('') }
-                    }} />
-                </label>
-                <button onClick={align} disabled={tracks.length < 2 || busy === 'aliniere'}
-                  className="flex items-center gap-2 px-3 py-2 text-[12px] border border-white/[0.07] text-white/70 disabled:opacity-40">
-                  {busy === 'aliniere' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                  Aliniază pistele
-                </button>
-                <button onClick={transcribe} disabled={!tracks.length || busy === 'transcriere'}
-                  className="flex items-center gap-2 px-3 py-2 text-[12px] border border-white/[0.07] text-white/70 disabled:opacity-40">
-                  {busy === 'transcriere' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
-                  Transcrie
-                </button>
-              </div>
-              {podDur > 0 && (
-                <Note level="info">
-                  {fmt(podDur)} de înregistrare · se transcrie în {planChunks(podDur).length} bucăți,
-                  fiecare cu marcajele de timp mutate în întreg.
-                </Note>
-              )}
-            </div>
-          </Panel>
-
-          {words.length > 0 && (
-            <>
-              <Panel title="Curățare"
-                note="Tăcerile lungi se scurtează, nu se închid: o conversație fără aer sună ca doi oameni care se întrerup. Un „deci” în mijlocul frazei rămâne — e un cuvânt care ține fraza.">
-                <div className="grid gap-2 text-[12px]">
-                  <span className="text-white/50">
-                    {cuts.length} tăieturi · {secondsRemoved(cuts).toFixed(1)}s scoase din {fmt(podDur)}
-                    {' · '}rămân {fmt(Math.max(0, podDur - secondsRemoved(cuts)))}
-                  </span>
-                  <span className="text-white/30">
-                    {cuts.filter(c => c.reason === 'filler').length} umpluturi ·
-                    {' '}{cuts.filter(c => c.reason === 'silence').length} tăceri
-                  </span>
-                  <Note level="info">
-                    Transcrierea se recalculează odată cu sunetul — altfel fiecare subtitrare
-                    din episod ar rămâne în urmă cu exact cât s-a scos înaintea ei.
-                  </Note>
-                </div>
-              </Panel>
-
-              <Panel title="Capitole și schimbări de cameră" note="Un punct de plecare pe care îl redenumești, ceea ce e mult mai util decât niciun capitol.">
-                <div className="grid gap-1 text-[12px]">
-                  {chapterList.map((c, i) => (
-                    <div key={i} className="flex gap-3 border-l-2 border-white/10 pl-3 py-1">
-                      <span className="font-mono text-white/25 shrink-0">{fmt(c.start)}</span>
-                      <span className="text-white/55">{c.text}…</span>
-                    </div>
-                  ))}
-                  <span className="text-white/30 mt-2">
-                    {switches.length} schimbări de cameră — o intervenție de un cuvânt nu mută camera.
-                  </span>
-                </div>
-              </Panel>
-
-              <Panel title="Clipuri pentru social"
-                note="Un clip nu e un fragment. Un fragment începe unde a început vorbitorul; un clip începe unde ar începe să îi pese celui care se uită.">
-                <div className="grid gap-2">
-                  {separation > 0 && (
-                    <Note level={separation >= SEPARATION_MIN ? 'info' : 'warn'}>
-                      {separation >= SEPARATION_MIN
-                        ? `Microfoanele separă vorbitorii clar (raport ${separation.toFixed(1)}×). ` +
-                          'Atribuirea vine din măsurătoare, nu dintr-un model.'
-                        : `Microfoanele nu separă vorbitorii (raport doar ${separation.toFixed(1)}×) — ` +
-                          'probabil două microfoane omnidirecționale pe aceeași masă. Atribuirea e ' +
-                          'nesigură; verific-o înainte de a publica.'}
-                    </Note>
-                  )}
-                  {clips.map((c, i) => (
-                    <div key={i} className="border border-white/[0.07] p-3 grid gap-1">
-                      <span className="flex gap-3 items-baseline flex-wrap">
-                        <span className="font-mono text-[11px] text-white/30">
-                          {fmt(c.start)} – {fmt(c.end)} · {(c.end - c.start).toFixed(0)}s
-                        </span>
-                        <span className="font-mono text-[11px] text-amber-300/70">scor {c.score}</span>
-                        {/* A LIST OF TIMECODES IS NOT A DELIVERABLE. Turning one
-                            into a vertical with burned-in captions was still a
-                            manual job per clip — exactly the work this tab was
-                            meant to remove. */}
-                        <button
-                          onClick={() => {
-                            const cams = tracks.filter(t => t.kind === 'camera')
-                            const project = buildClipProject({
-                              start: c.start, end: c.end, words: tightened,
-                              sources: cams.length
-                                ? cams.map(t => ({ url: t.url, kind: 'video' as const,
-                                    speaker: t.speaker, offsetSeconds: t.offset ?? 0 }))
-                                : tracks.slice(0, 1).map(t => ({ url: t.url, kind: 'video' as const })),
-                              attribution: c.text.match(/^[^.!?]{0,40}/)?.[0] ? undefined : undefined,
-                              aspect: '9:16',
-                            })
-                            const blob = new Blob([JSON.stringify(project, null, 2)],
-                              { type: 'application/json' })
-                            const a = document.createElement('a')
-                            a.href = URL.createObjectURL(blob)
-                            a.download = `clip-${Math.round(c.start)}s.json`
-                            a.click()
-                            URL.revokeObjectURL(a.href)
-                            setError(project.warnings.length
-                              ? `Clip pregătit, cu observații: ${project.warnings.join(' ')}`
-                              : `Clip pregătit: ${project.scenes.length} ${project.scenes.length === 1 ? 'plan' : 'planuri'}, ` +
-                                `${project.cues.length} subtitrări, ${project.seconds.toFixed(1)}s. ` +
-                                'Deschide-l în Studio ca proiect.')
-                          }}
-                          className="ml-auto text-[11px] px-2 py-1 border border-sky-500/40 text-sky-300/90 hover:bg-sky-500/10">
-                          pregătește vertical
-                        </button>
-                      </span>
-                      <span className="text-[12px] text-white/60 leading-relaxed">{c.text.slice(0, 220)}…</span>
-                      <span className="text-[11px] text-white/30">{c.why}</span>
-                    </div>
-                  ))}
-                  {clips.length === 0 && <Note level="info">Nimic destul de lung pentru un clip încă.</Note>}
-                </div>
-              </Panel>
-            </>
           )}
         </div>
 

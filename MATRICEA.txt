@@ -1,0 +1,45 @@
+[fonts] not resolved here, rendering in the fallback face: Playfair Display 700
+
+MATRICEA DE FUNCȚII — generată din cod, 2026-09-02
+========================================================================================================
+FUNCȚIA                   COD  DOVADĂ                        CONTROL  UȘĂ   PAGINA
+--------------------------------------------------------------------------------------------------------
+Speed ramps               da   41-speed 42/42                da       da    studio
+Wipes (7 kinds)           da   42-wipes 33/33                da       da    studio
+Ramp playback             da   43-ramp-render 10/10          da       da    studio
+4K + master ladder        da   44-masters 38/38              da       da    studio
+Per-shot colour           da   40-shot-grade 31/31           da       da    studio
+Grade styles              da   57-grade-style-parity 36/36   da       da    studio
+Beat-matched cuts         da   39-beats 24/24                da       da    studio
+Animated graphics         da   37-animated-compositions 31/31da       da    studio
+Transitions               da   38-transitions 27/27          da       da    studio
+Cut to speech             da   58-sync 39/39                 da       da    studio
+Text on shots             da   58-sync 39/39                 da       da    studio
+Same-person avatars       da   48-avatars-campaign 52/52     da       da    productie
+Template library          da   46-templates 134/134          da       da    productie
+Bulk from a list          da   45-merge 41/41                da       da    productie
+Campaign queue            da   52-queue 76/76                da       da    productie
+Campaign runner           da   53-runner 36/36               da       da    productie
+Per-row generation        da   60-generate-and-meter 31/31   da       da    productie
+Usage metering            da   60-generate-and-meter 31/31   da       da    productie
+Screen recording          da   49-screen 50/50               da       da    productie
+Podcast alignment         da   47-podcast 55/55              da       da    podcast
+Chunked transcription     da   56-audio-chunking 29/29       da       da    podcast
+Speaker attribution       da   59-poller-diarise-clips 63/63 da       da    podcast
+Episode for publishing    da   61-episode 47/47              da       da    podcast
+Social verticals          da   61-episode 47/47              da       da    podcast
+Project → timeline        da   54-project-builder 40/40      da       da    studio
+Railway poller            da   59-poller-diarise-clips 63/63 —        —     fără UI (server)
+Tenancy / seats           da   50-migration 17/17            —        —     fără UI (server)
+
+CONTRACTELE CU FUNCȚIILE DEPLOYATE
+--------------------------------------------------------------------------------------------------------
+align-subtitles           există: da  · citește cheia: da  · e apelată: da 
+generate-image-edit       există: da  · citește cheia: da  · e apelată: da 
+generate-voiceover        există: da  · citește cheia: da  · e apelată: da 
+generate-cover-image      există: da  · citește cheia: da  · e apelată: da 
+render-worker             există: da  · citește cheia: da  · e apelată: da 
+
+========================================================================================================
+53 suite · 1912 aserțiuni trecute · 0 căzute
+Fiecare funcție are cod, dovadă, control și ușă.

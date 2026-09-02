@@ -39,6 +39,85 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// ── Grounded visual brief (inlined; self-contained for dashboard deploy) ──────
+// Turns an article into a location-grounded Unsplash query + AI photo prompt so a
+// subject like "the parliament" resolves to the ROMANIAN one (Bucharest), never a
+// foreign parliament. Gemini is timeout-guarded with a deterministic fallback.
+interface VisualBrief { unsplash_query: string; photo_prompt: string; alt_text: string; prefer_real: boolean; place: string }
+const _VB_COUNTY: Record<string, string> = {
+  cluj: 'Cluj', bihor: 'Bihor', alba: 'Alba', 'bistrita-nasaud': 'Bistrița-Năsăud',
+  salaj: 'Sălaj', mures: 'Mureș', sibiu: 'Sibiu', maramures: 'Maramureș',
+  'satu-mare': 'Satu Mare', hunedoara: 'Hunedoara', brasov: 'Brașov',
+  covasna: 'Covasna', harghita: 'Harghita',
+};
+const _VB_SCENE: Record<string, { q: string; scene: string }> = {
+  politics: { q: 'Romanian government building', scene: 'a Romanian government or council building, official setting' },
+  economy: { q: 'Romania business economy', scene: 'a Romanian commercial street or office district' },
+  business: { q: 'Romania business office', scene: 'a modern Romanian office or business district' },
+  local: { q: 'Romania town square street', scene: 'a Transylvanian town square and historic street' },
+  education: { q: 'Romania school classroom', scene: 'a Romanian school building, classroom, desks and books' },
+  health: { q: 'Romania hospital healthcare', scene: 'a Romanian hospital corridor or clinic, medical staff' },
+  sports: { q: 'Romania stadium sport', scene: 'a Romanian stadium or sports hall during competition' },
+  culture: { q: 'Transylvania heritage architecture', scene: 'a Transylvanian heritage building, museum or theatre' },
+  travel: { q: 'Transylvania landscape Romania', scene: 'a scenic Transylvanian landscape or old town' },
+  events: { q: 'Romania festival crowd', scene: 'a Romanian public event or festival' },
+  justice: { q: 'Romania courthouse justice', scene: 'a Romanian courthouse, formal institutional setting' },
+  weather: { q: 'Transylvania weather sky landscape', scene: 'a dramatic Transylvanian sky over the countryside' },
+  news: { q: 'Transylvania Romania city street', scene: 'a Transylvanian city street, everyday public life' },
+};
+function _vbPlace(county?: string | null): string {
+  const c = (county || '').toLowerCase();
+  if (c && c !== 'national' && _VB_COUNTY[c]) return `${_VB_COUNTY[c]} county, Transylvania, Romania`;
+  return 'Romania';
+}
+function _vbClean(q: string): string {
+  return (q || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 7).join(' ');
+}
+function _vbFallback(input: { title: string; category?: string; county?: string | null }, place: string): VisualBrief {
+  const base = _VB_SCENE[(input.category || 'news').toLowerCase()] || _VB_SCENE.news;
+  const q = _vbClean(place === 'Romania' ? base.q : `${_VB_COUNTY[(input.county || '').toLowerCase()] || ''} ${base.q}`);
+  return {
+    unsplash_query: q || 'Transylvania Romania',
+    photo_prompt: `Photorealistic editorial news photograph of ${base.scene}, in ${place}. Natural light, documentary style, sharp focus, realistic. No text, no logos, no watermark, no distorted faces.`,
+    alt_text: `Imagine ilustrativă — ${input.title}`.slice(0, 160),
+    prefer_real: true, place,
+  };
+}
+async function buildVisualBrief(input: { title: string; summary?: string; category?: string; county?: string | null }): Promise<VisualBrief> {
+  const place = _vbPlace(input.county);
+  const fallback = _vbFallback(input, place);
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!apiKey) return fallback;
+  const sys = `You are the photo editor of Transilvania Times, a Romanian regional newspaper covering Transylvania. For the given article output a STRICT JSON object used to pick or generate an accurate COVER IMAGE.
+
+Ground EVERYTHING in the real place: ${place}. Hard rule: never depict another country's version of a subject. For "the parliament" it is the ROMANIAN Parliament in Bucharest — never a foreign parliament. For a named town, county, institution, road or landmark, keep it Romanian/Transylvanian.
+
+Output ONLY this JSON object (no prose):
+{"unsplash_query":"3-6 ENGLISH words for a stock-photo search that returns a RELEVANT REAL photo; include the country/city/landmark when the subject is a named place, building, institution, road or event (e.g. \\"Romanian Parliament Bucharest\\", \\"Cluj-Napoca old town\\"); concrete photographable nouns, no punctuation","photo_prompt":"40-70 word ENGLISH prompt for a PHOTOREALISTIC editorial news photo of the scene, grounded in ${place}; describe setting, light, composition; must NOT contain text, logos, watermarks or recognizable real individuals' faces; avoid dense text, dozens of faces, hands in close focus","prefer_real":true if a REAL stock photo is more appropriate/credible (named places, institutions, events, factual news) — false only for abstract/illustrative/opinion pieces,"alt_text":"one concise ROMANIAN sentence describing the intended image"}`;
+  const user = `Category: ${input.category || 'news'}\nCounty: ${input.county || 'national'}\nTitle: ${input.title}\nSummary: ${(input.summary || '').substring(0, 500)}`;
+  try {
+    const call = fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: sys }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 500, responseMimeType: 'application/json' },
+      }),
+    }).then((r) => r.json()).catch(() => null);
+    const data = await Promise.race([call, new Promise<null>((res) => setTimeout(() => res(null), 7000))]);
+    const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    if (!text) return fallback;
+    const p = JSON.parse(text);
+    const query = _vbClean(String(p.unsplash_query || ''));
+    const prompt = String(p.photo_prompt || '').trim();
+    return {
+      unsplash_query: query || fallback.unsplash_query,
+      photo_prompt: prompt.length > 25 ? prompt : fallback.photo_prompt,
+      alt_text: String(p.alt_text || fallback.alt_text).trim().slice(0, 200),
+      prefer_real: p.prefer_real !== false, place,
+    };
+  } catch { return fallback; }
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -111,82 +190,10 @@ function b64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-// ─── Step 1: Gemini generates proper visual prompt (classic cover mode) ────────
-
-async function generateVisualPrompt(
-  title: string,
-  excerpt: string,
-  category: string,
-  summary: string,
-): Promise<string> {
-  const geminiKey = Deno.env.get('GEMINI_API_KEY');
-
-  if (geminiKey) {
-    const context = (summary || excerpt || '').substring(0, 400);
-
-    const systemInstruction = `You are an expert at writing image generation prompts for editorial news photography.
-
-Given a news article's category, title, and summary, write a concise photographic scene description that visually represents the story.
-
-RULES:
-- Describe the SCENE — not the specific named people or text
-- Use concrete visual elements: setting, mood, lighting, objects, composition
-- Write in English regardless of the article's language
-- Output ONLY the prompt text — no quotes, no newlines, no explanation
-- Length: 40-80 words
-
-CATEGORY VISUAL GUIDANCE:
-- education: students, classroom, books, desks, school building, certificates, blackboard
-- politics: government building, parliament, flags, official ceremony, formal meeting room
-- sports: athlete in action, stadium, field, competition, trophy, crowd
-- business: office, professionals, meeting room, financial district, urban commerce
-- technology: computer screens, server room, digital devices, code on screen, innovation lab
-- health: hospital corridor, medical professional, clinic, stethoscope, healthcare setting
-- culture: theater stage, museum gallery, art installation, performance, heritage building
-- travel: natural landscape, tourist destination, local architecture, scenic view
-- news: city street, public space, community gathering, urban life
-- opinion: editorial desk, books, contemplative scene, reading, writing`;
-
-    const userMessage = `Category: ${category || 'news'}
-Title: ${title}
-Summary: ${context}
-
-Write the image generation prompt:`;
-
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemInstruction }] },
-            contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-            generationConfig: { temperature: 0.4, maxOutputTokens: 200 },
-          }),
-        }
-      );
-      const raw = await res.text();
-      if (res.ok) {
-        const data = JSON.parse(raw);
-        const generated = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-        if (generated.length > 20) {
-          console.log(`[prompt] Gemini: "${generated.substring(0, 120)}"`);
-          return generated;
-        }
-      } else {
-        console.warn(`[prompt] Gemini failed ${res.status}: ${raw.substring(0, 100)}`);
-      }
-    } catch (e) {
-      console.warn(`[prompt] Gemini error: ${(e as Error).message}`);
-    }
-  }
-
-  const subject = `${title} ${excerpt}`.substring(0, 120).replace(/[^\w\s-]/g, '');
-  const fallback = `Professional news photography, high-detail, editorial style, regarding: ${subject}`;
-  console.log(`[prompt] Fallback: "${fallback.substring(0, 100)}"`);
-  return fallback;
-}
+// ─── Visual prompt ───────────────────────────────────────────────────────────
+// The old category-templated generateVisualPrompt (which deliberately stripped
+// specifics and never named the country) is gone — the grounded buildVisualBrief
+// inlined above replaces it, so a cover is contextually correct.
 
 // ─── Step 2a: fal Seedream 4.5 — the master-resolution provider ──────────────
 //
@@ -366,6 +373,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
+    let persistPostId = '';
     const body = await req.json();
 
     const rawPrompt = String(body.raw_prompt || body.rawPrompt || '').trim();
@@ -391,17 +399,39 @@ serve(async (req) => {
       prompt = rawPrompt;
       console.log(`[mode] raw/campaign · aspect=${aspect} · ${fluxW}x${fluxH}`);
     } else {
-      const title    = (body.title    || '') as string;
-      const excerpt  = (body.excerpt  || '') as string;
-      const summary  = (body.summary  || '') as string;
-      const category = (body.category || 'news') as string;
+      let title    = String(body.title || '');
+      let summary  = String(body.summary || body.excerpt || '');
+      let category = String(body.category || 'news');
+      let county   = (typeof body.county === 'string' ? body.county : null) as string | null;
+      const explicitPrompt = String(body.prompt || '').trim();
+
+      // Regenerate-from-id: load the article (this is what makes the Articole
+      // "regenerate cover" button work — it previously sent only post_id, which
+      // the function ignored → 400) and persist the result back at the end.
+      const postId = String(body.post_id || '').trim();
+      if (postId) {
+        const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+        const { data: row } = await sb.from('blog_posts')
+          .select('title_ro, title_en, summary_ro, excerpt_ro, category, county')
+          .eq('id', postId).single();
+        if (row) {
+          title    = row.title_ro || row.title_en || title;
+          summary  = row.summary_ro || row.excerpt_ro || summary;
+          category = row.category || category;
+          county   = row.county ?? county;
+          persistPostId = postId;
+        }
+      }
 
       if (!title) {
         return new Response(JSON.stringify({ error: 'Title is required' }), {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      prompt = await generateVisualPrompt(title, excerpt, category, summary);
+      // GROUNDED prompt — the shared visual brief names the real country and the
+      // Transylvanian county, so the image is contextually correct (the Romanian
+      // Parliament, not a foreign one). An explicit editor-refined prompt wins.
+      prompt = explicitPrompt || (await buildVisualBrief({ title, summary, category, county })).photo_prompt;
     }
 
     const useFluxW = isRaw ? fluxW : 1024;
@@ -455,8 +485,11 @@ serve(async (req) => {
       }
     }
 
-    // Step 2c: HuggingFace (free when available; draft resolution)
-    if (hfKey && !success) {
+    // Step 2c: HuggingFace — raw/campaign stills ONLY. Article covers never fall
+    // back to draft-tier FLUX: a garbled cover is worse than none (the editor
+    // offers a real Unsplash photo instead), so a cover is a clean gpt-image-1
+    // or a clean error.
+    if (hfKey && !success && isRaw) {
       try {
         imageBytes = await generateWithHuggingFace(prompt, hfKey, useFluxW, useFluxH);
         renderedAt = `${useFluxW}x${useFluxH}`;
@@ -495,6 +528,15 @@ serve(async (req) => {
     const { data: urlData } = supabaseAdmin.storage
       .from('blog-images')
       .getPublicUrl(fileName);
+
+    // Regenerate-from-id: write the new cover straight back onto the article.
+    if (persistPostId) {
+      try {
+        await supabaseAdmin.from('blog_posts')
+          .update({ cover_image: urlData.publicUrl, cover_image_credit: 'Imagine generată cu inteligență artificială' })
+          .eq('id', persistPostId);
+      } catch (e) { console.warn(`[persist] ${(e as Error).message}`); }
+    }
 
     console.log(`[done] Image stored: ${urlData.publicUrl}`);
 

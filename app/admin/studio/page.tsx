@@ -2275,6 +2275,20 @@ export default function StudioPage() {
         <p className="font-sans text-[13px] text-white/40 mt-1">
           Compune un clip (până la 180s): imagini AI + fotografiile/clipurile tale · voce · subtitrări · muzică → MP4
         </p>
+        {/* THE STUDIO IS ONE OF THREE SURFACES, AND THE OTHER TWO HAD NO DOOR.
+            Producție shipped without a way in from anywhere — the only route was
+            typing the URL. This is that door, next to the sidebar entry, because
+            the person who needs Producție is usually already standing here. */}
+        <nav className="mt-3 flex gap-2 text-[11px]">
+          <a href="/admin/productie"
+            className="px-2 py-1 border border-white/[0.07] text-white/50 hover:text-white">
+            Producție · avatare, șabloane, campanii, ecran
+          </a>
+          <a href="/admin/podcast"
+            className="px-2 py-1 border border-white/[0.07] text-white/50 hover:text-white">
+            Podcast · episod și clipuri
+          </a>
+        </nav>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">

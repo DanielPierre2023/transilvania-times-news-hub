@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Save, Globe, ArrowLeft, Wand2, Upload, X, Loader2, ShieldCheck } from 'lucide-react'
+import { Save, Globe, ArrowLeft, Wand2, Loader2, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { autoShareOnPublish as runAutoShare, shareFlash } from '@/lib/social/share'
+import CoverImagePicker from './CoverImagePicker'
 
 const CATEGORIES = [
   'news', 'politics', 'technology', 'business',
@@ -28,7 +29,7 @@ interface ArticleData {
   content_ro: string; content_en: string
   excerpt_ro: string; excerpt_en: string
   summary_ro: string; summary_en: string
-  category: string; subcategory: string
+  category: string; subcategory: string; county: string
   cover_image: string; cover_image_credit: string; author_name: string
   status: string; is_breaking: boolean; source_url: string
   ai_editor: string
@@ -88,7 +89,7 @@ interface AdsenseQualityReport {
 const EMPTY: ArticleData = {
   slug: '', title_ro: '', title_en: '', content_ro: '', content_en: '',
   excerpt_ro: '', excerpt_en: '', summary_ro: '', summary_en: '',
-  category: 'news', subcategory: '', cover_image: '', cover_image_credit: '',
+  category: 'news', subcategory: '', county: '', cover_image: '', cover_image_credit: '',
   author_name: '', status: 'draft', is_breaking: false, source_url: '', ai_editor: '',
   skip_facebook: false,
 }
@@ -114,12 +115,10 @@ export default function ArticleEditor({ articleId, autoShareOnPublish }: Article
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState<'ro' | 'en'>('ro')
   const [generating, setGen] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [checkingAdsense, setCheckingAdsense] = useState(false)
   const [improvingAdsense, setImprovingAdsense] = useState(false)
   const [adsenseReport, setAdsenseReport] = useState<AdsenseQualityReport | null>(null)
   const [msg, setMsg] = useState('')
-  const uploadRef = useRef<HTMLInputElement>(null)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -142,6 +141,7 @@ export default function ArticleEditor({ articleId, autoShareOnPublish }: Article
           summary_en: d.summary_en ?? '',
           category: d.category ?? 'news',
           subcategory: d.subcategory ?? '',
+          county: d.county ?? '',
           cover_image: d.cover_image ?? '',
           cover_image_credit: d.cover_image_credit ?? '',
           author_name: d.author_name ?? '',
@@ -253,61 +253,8 @@ export default function ArticleEditor({ articleId, autoShareOnPublish }: Article
     flash((newStatus === 'published' ? '✓ Publicat și live' : '✓ Salvat') + socialNote)
   }
 
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) { flash('Selectați un fișier imagine'); return }
-    if (file.size > 10 * 1024 * 1024) { flash('Imaginea trebuie să fie sub 10MB'); return }
-
-    setUploading(true)
-    flash('Se încarcă imaginea...')
-    try {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-      const fileName = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { error } = await supabase.storage.from('blog-images').upload(fileName, file, {
-        contentType: file.type, upsert: false,
-      })
-      if (error) throw error
-      const { data: urlData } = supabase.storage.from('blog-images').getPublicUrl(fileName)
-      set('cover_image', urlData.publicUrl)
-      flash('✓ Imagine încărcată')
-    } catch (err) {
-      flash(`Eroare upload: ${(err as Error).message}`)
-    }
-    setUploading(false)
-    if (uploadRef.current) uploadRef.current.value = ''
-  }
-
-  async function generateCover() {
-    const imgTitle = data.title_ro || data.title_en
-    const imgSummary = data.summary_ro || data.excerpt_ro
-    if (!imgTitle) { flash('Completați titlul mai întâi.'); return }
-    setGen(true)
-    flash('Generez imaginea...')
-    try {
-      // Cover images come from `generate-cover-image` (classic mode:
-      // { title, summary, category } -> { publicUrl }). The old slug
-      // `tt-generate-cover` no longer holds cover code — the scraped-article
-      // processor was deployed over it, so calling it ran a rewrite batch
-      // instead of making an image, and returned no publicUrl.
-      const { data: res, error } = await supabase.functions.invoke('generate-cover-image', {
-        body: { title: imgTitle, summary: imgSummary, category: data.category }
-      })
-      if (error) throw new Error(error.message)
-      if (res?.publicUrl) {
-        set('cover_image', res.publicUrl)
-        if (res.isAiGenerated !== false) {
-          set('cover_image_credit', 'Imagine generată cu inteligență artificială')
-        }
-        flash('✓ Imagine generată')
-      } else {
-        throw new Error(res?.error || 'Eroare generare')
-      }
-    } catch (err) {
-      flash(`Eroare: ${(err as Error).message}`)
-    }
-    setGen(false)
-  }
+  // Cover-image logic (upload / AI generate / grounded Unsplash search) now lives
+  // in the shared <CoverImagePicker/> (app/admin/components/CoverImagePicker.tsx).
 
   async function aiRewrite() {
     if (!articleId) { flash('Salvați mai întâi articolul.'); return }
@@ -660,29 +607,17 @@ if (!result?.ok) {
             </div>
           </div>
 
-          <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-3">
-            <p className="font-sans text-[11px] uppercase tracking-widest text-white/40 border-b border-white/[0.07] pb-3">Imagine copertă</p>
-            {data.cover_image && (
-              <div className="relative">
-                <img src={data.cover_image} alt="Cover" className="w-full aspect-video object-cover" />
-                <button onClick={() => set('cover_image', '')} className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white p-1.5 transition-colors"><X className="w-3.5 h-3.5" /></button>
-              </div>
-            )}
-            <input className={inp} value={data.cover_image} onChange={e => set('cover_image', e.target.value)} placeholder="https://... sau încarcă mai jos" />
-            <input ref={uploadRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" id="edit-img-upload" />
-            <label htmlFor="edit-img-upload" className={`flex items-center justify-center gap-2 w-full py-2.5 border font-sans text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors ${uploading ? 'border-white/10 text-white/30 cursor-not-allowed' : 'border-white/20 text-white/60 hover:text-white hover:border-white/40'}`}>
-              {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Upload...</> : <><Upload className="w-3.5 h-3.5" /> De pe calculator</>}
-            </label>
-            <button onClick={generateCover} disabled={generating || (!data.title_ro && !data.title_en)} className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600/20 border border-blue-500/30 text-blue-300 font-sans text-[11px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-colors disabled:opacity-50">
-              {generating ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generează...</> : <><Wand2 className="w-3.5 h-3.5" /> Generează AI</>}
-            </button>
-            <div>
-              <label className="block font-sans text-[11px] uppercase tracking-widest text-white/40 mb-1.5">Sursă / creditare fotografie</label>
-              <input className={inp} value={data.cover_image_credit} onChange={e => set('cover_image_credit', e.target.value)} placeholder="Imagine generată cu AI / © Reuters / Arhivă" />
-            </div>
-            {data.cover_image_credit ? <p className="font-sans text-[10px] text-blue-400/60">{data.cover_image_credit.toLowerCase().includes('generat') ? '🤖' : '📷'} Afișat sub fotografie: &bdquo;{data.cover_image_credit}&rdquo;</p> : null}
-            <p className="font-sans text-[10px] text-white/20">Upload: JPG/PNG/WebP max 10MB. AI: HuggingFace FLUX / Pollinations / Unsplash.</p>
-          </div>
+          <CoverImagePicker
+            supabase={supabase}
+            title={data.title_ro || data.title_en}
+            summary={data.summary_ro || data.excerpt_ro}
+            category={data.category}
+            county={data.county}
+            value={data.cover_image}
+            credit={data.cover_image_credit}
+            onChange={(u) => set('cover_image', u)}
+            onCreditChange={(c) => set('cover_image_credit', c)}
+          />
 
           <div className="bg-[#1a1a1a] border border-white/[0.07] p-5 space-y-3">
             <p className="font-sans text-[11px] uppercase tracking-widest text-white/40 border-b border-white/[0.07] pb-3">Sursă / referință articol</p>
