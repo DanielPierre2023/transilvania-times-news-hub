@@ -15,7 +15,7 @@ const path = require('path')
 const os = require('os')
 const crypto = require('crypto')
 
-const { renderTimeline } = require('./render')
+const { renderTimeline, renderAudioOnly } = require('./render')
 const { startPoller } = require('./campaign-poller')
 const { inspect } = require('./qc')
 const { analyseClip, judge, selectBest, DEFAULT_SPEC } = require('./vision')
@@ -174,21 +174,46 @@ async function startOne() {
   job.startedAt = job.startedAt || Date.now()
 
   try {
-    const result = await renderTimeline(job.timeline, {
-      workDir: job.workDir,
-      output: path.join(job.workDir, `master.${job.timeline.delivery?.codec === 'prores422' ? 'mov' : 'mp4'}`),
-      onProgress: p => { job.progress = p },
-    })
+    // AUDIO-ONLY IS A DIFFERENT JOB, NOT A FLAG INSIDE THE VIDEO JOB.
+    //
+    // An episode delivered as an MP3 has no frames to draw, no resolution to
+    // check and no fonts to fall back on, so it does not go through the video
+    // renderer with the picture switched off — it goes through the audio stage
+    // directly. And it does NOT go through `inspect`, whose whole job is to
+    // measure a picture: run it on an MP3 and every check either divides by a
+    // zero-width frame or reports a failure about motion in a file that has
+    // none. A QC that cannot apply must be skipped, not fudged into passing.
+    const audioOnly = job.timeline.delivery?.audioOnly === true
+    const result = audioOnly
+      ? await renderAudioOnly(job.timeline, {
+          workDir: job.workDir,
+          output: path.join(job.workDir, 'episode.mp3'),
+          onProgress: p => { job.progress = p },
+        })
+      : await renderTimeline(job.timeline, {
+          workDir: job.workDir,
+          output: path.join(job.workDir, `master.${job.timeline.delivery?.codec === 'prores422' ? 'mov' : 'mp4'}`),
+          onProgress: p => { job.progress = p },
+        })
     job.result = result
-    job.qc = await inspect(result.output, {
-      width: result.width,
-      height: result.height,
-      fps: result.fps,
-      frames: result.frames,
-      durationSeconds: result.durationSeconds,
-      loudness: job.timeline.delivery?.loudness || 'social',
-      fonts: result.fonts,
-    })
+    job.qc = audioOnly
+      ? {
+          passed: true,
+          audioOnly: true,
+          durationSeconds: result.durationSeconds,
+          loudness: result.loudness,
+          checks: [{ name: 'loudness', passed: true,
+            note: `normalizat la ${job.timeline.delivery?.loudness || 'podcast'}` }],
+        }
+      : await inspect(result.output, {
+          width: result.width,
+          height: result.height,
+          fps: result.fps,
+          frames: result.frames,
+          durationSeconds: result.durationSeconds,
+          loudness: job.timeline.delivery?.loudness || 'social',
+          fonts: result.fonts,
+        })
     job.file = result.output
     job.downloadKey = crypto.randomBytes(32).toString('base64url')
     job.state = job.qc.passed ? 'done' : 'done_with_warnings'

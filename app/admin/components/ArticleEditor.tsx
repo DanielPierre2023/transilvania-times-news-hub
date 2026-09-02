@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Save, Globe, ArrowLeft, Wand2, Loader2, ShieldCheck } from 'lucide-react'
+import { Save, Globe, ArrowLeft, Wand2, Loader2, ShieldCheck, ScanText } from 'lucide-react'
 import Link from 'next/link'
 import { autoShareOnPublish as runAutoShare, shareFlash } from '@/lib/social/share'
 import CoverImagePicker from './CoverImagePicker'
@@ -35,6 +35,10 @@ interface ArticleData {
   ai_editor: string
   skip_facebook: boolean
 }
+
+interface AiTell { key: string; label: string; severity: 'high' | 'medium' | 'low'; count: number; sample: string }
+interface AiTellLang { score: number; level: 'clean' | 'low' | 'medium' | 'high'; tells: AiTell[] }
+interface AiTellReport { ok?: boolean; overall: { score: number; level: string }; en?: AiTellLang; ro?: AiTellLang }
 
 interface AdsenseQualityReport {
   ok: boolean
@@ -118,6 +122,8 @@ export default function ArticleEditor({ articleId, autoShareOnPublish }: Article
   const [checkingAdsense, setCheckingAdsense] = useState(false)
   const [improvingAdsense, setImprovingAdsense] = useState(false)
   const [adsenseReport, setAdsenseReport] = useState<AdsenseQualityReport | null>(null)
+  const [checkingAiTells, setCheckingAiTells] = useState(false)
+  const [aiTellReport, setAiTellReport] = useState<AiTellReport | null>(null)
   const [msg, setMsg] = useState('')
 
   const supabase = createBrowserClient(
@@ -381,6 +387,26 @@ if (!result?.ok) {
     }
   }
  
+  async function checkAiTells() {
+    if (!articleId) { flash('Salvați mai întâi articolul.'); return }
+    setCheckingAiTells(true)
+    setAiTellReport(null)
+    flash('Verific stilul AI...')
+    try {
+      const { data: result, error } = await supabase.functions.invoke('tt-ai-tell-score', {
+        body: { blog_post_id: articleId },
+      })
+      if (error) throw error
+      if (!result?.ok) throw new Error(result?.error || 'Verificare eșuată')
+      setAiTellReport(result as AiTellReport)
+      flash(`✓ Stil AI: ${result.overall?.level} (scor ${result.overall?.score}/100)`)
+    } catch (err) {
+      flash('Eroare verificare AI: ' + (err as Error).message)
+    } finally {
+      setCheckingAiTells(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -421,6 +447,13 @@ if (!result?.ok) {
             </button>
           )}
           {articleId && (
+            <button onClick={checkAiTells} disabled={checkingAiTells || improvingAdsense}
+              className="flex items-center gap-2 font-sans text-[12px] px-3 py-2 bg-sky-600/20 border border-sky-500/30 text-sky-300 hover:bg-sky-600/30 transition-colors disabled:opacity-50">
+              {checkingAiTells ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ScanText className="w-3.5 h-3.5" />}
+              Verifică AI
+            </button>
+          )}
+          {articleId && (
             <button onClick={improveAdsenseQuality} disabled={improvingAdsense || checkingAdsense || generating}
               className="flex items-center gap-2 font-sans text-[12px] px-3 py-2 bg-orange-600/20 border border-orange-500/30 text-orange-300 hover:bg-orange-600/30 transition-colors disabled:opacity-50">
               {improvingAdsense ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
@@ -437,6 +470,52 @@ if (!result?.ok) {
           </button>
         </div>
       </div>
+
+      {aiTellReport && (
+        <div className="mb-6 bg-[#1a1a1a] border border-sky-500/20 p-5">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4">
+            <div>
+              <p className="font-sans text-[11px] uppercase tracking-widest text-sky-300 mb-2">Verificare stil AI · AI-tell score</p>
+              <h2 className="font-serif text-xl font-bold text-white">{aiTellReport.overall.level.toUpperCase()} · {aiTellReport.overall.score}/100</h2>
+              <p className="font-sans text-sm text-white/50 mt-1">0 = curat · sub 16 = redus · 16–40 = mediu · peste 40 = ridicat. Titlu cu MAJUSCULE, linii de pauză (—) și lexic AI cresc scorul.</p>
+            </div>
+            <span className={`font-sans text-[11px] uppercase tracking-widest px-3 py-1.5 border ${
+              aiTellReport.overall.level === 'clean' || aiTellReport.overall.level === 'low'
+                ? 'text-green-300 border-green-400/30 bg-green-400/10'
+                : aiTellReport.overall.level === 'high'
+                  ? 'text-red-300 border-red-400/30 bg-red-400/10'
+                  : 'text-yellow-300 border-yellow-400/30 bg-yellow-400/10'
+            }`}>{aiTellReport.overall.level}</span>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {(['ro', 'en'] as const).map((lg) => {
+              const rep = aiTellReport[lg]
+              if (!rep) return null
+              return (
+                <div key={lg} className="bg-black/30 border border-white/[0.06] p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-sans text-[10px] text-white/40 uppercase tracking-widest">{lg === 'ro' ? 'Română' : 'Engleză'}</p>
+                    <p className="font-sans text-[12px] text-white/70">{rep.score}/100 · {rep.level}</p>
+                  </div>
+                  {rep.tells.length === 0 ? (
+                    <p className="font-sans text-[12px] text-green-300/80">Niciun semn AI detectat.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {rep.tells.map((t, i) => (
+                        <li key={i} className="font-sans text-[12px] text-white/70">
+                          <span className={t.severity === 'high' ? 'text-red-300' : t.severity === 'medium' ? 'text-yellow-300' : 'text-white/40'}>●</span>{' '}
+                          {t.label} <span className="text-white/30">×{t.count}</span>
+                          {t.sample && <span className="block text-white/30 text-[11px] pl-3 mt-0.5">{t.sample}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {adsenseReport && (
         <div className="mb-6 bg-[#1a1a1a] border border-emerald-500/20 p-5">

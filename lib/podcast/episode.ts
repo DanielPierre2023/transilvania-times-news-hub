@@ -62,6 +62,14 @@ export interface EpisodeRequest {
   readonly captions?: boolean
   /** Minimum seconds a camera holds before it may switch. */
   readonly minHold?: number
+  /**
+   * Per-speaker trim in dB, keyed by speaker label.
+   *
+   * Balancing two lapels is the difference between a podcast that sounds made
+   * and one that sounds recorded, and it cannot be done with one number for the
+   * whole episode: each shot is one speaker.
+   */
+  readonly gainDbBySpeaker?: Readonly<Record<string, number>>
 }
 
 export interface Range { readonly start: number; readonly end: number }
@@ -153,9 +161,14 @@ export function buildEpisodeProject(req: EpisodeRequest): ClipProject {
       if (!seg.source) continue
       const segSeconds = seg.to - seg.from
       if (segSeconds <= 0) continue
+      const trimDb = req.gainDbBySpeaker?.[seg.source.speaker ?? ''] ?? 0
       scenes.push({
         id: `ep${(seq++).toString(36)}`,
         kind: seg.source.kind,
+        // dB is what a person adjusts; linear gain is what ffmpeg takes. The
+        // conversion belongs here rather than in the page, so the page cannot
+        // pass 3 where 1.41 was meant.
+        ...(trimDb ? { audioGain: Number(Math.pow(10, trimDb / 20).toFixed(4)) } : {}),
         url: seg.source.url,
         name: `${seg.source.speaker ? seg.source.speaker + ' · ' : ''}${seq}`,
         duration: Number(segSeconds.toFixed(3)),
@@ -186,6 +199,11 @@ export function buildEpisodeProject(req: EpisodeRequest): ClipProject {
 
   return {
     aspect: req.aspect ?? '16:9',
+    // THE CAMERAS CARRY THE CONVERSATION. Without this the render mutes every
+    // video clip — the default that is correct for b-roll under a voiceover and
+    // silent for a podcast. Proven by building the timeline and reading the
+    // clip's gain, after this shipped muted.
+    sceneAudio: 1,
     scenes,
     overlays,
     cues: req.captions ? cuesFromWords(edited) : [],

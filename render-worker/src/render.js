@@ -370,4 +370,81 @@ async function renderTimeline(tl, opts = {}) {
   }
 }
 
-module.exports = { renderTimeline, CODECS }
+/**
+ * The episode as audio only.
+ *
+ * A PODCAST'S PRIMARY DELIVERABLE IS AN MP3, AND THIS PIPELINE COULD NOT MAKE
+ * ONE. Everything needed already existed — the mixer, the sidechain ducking,
+ * the two-pass loudnorm — behind a function that also draws every frame of a
+ * video first. An hour-long conversation was therefore an hour of Chromium
+ * rasterising a still picture in order to arrive at the audio that was ready
+ * ten minutes in, and then the person had to strip the video off themselves.
+ *
+ * So this is the same audio stage, reached without the picture: collect, mix,
+ * normalise, encode. It shares the mixer and the normaliser rather than
+ * reimplementing them, which is what keeps the MP3 and the video's soundtrack
+ * identical instead of merely similar.
+ *
+ * MP3 rather than AAC because an RSS feed is the one place in modern media
+ * where MP3 is still the interoperable answer — some podcast clients in daily
+ * use will not play an .m4a from a feed at all.
+ */
+async function renderAudioOnly(tl, { workDir, output, onProgress = () => {} }) {
+  // The SAME two lines renderTimeline uses. `timeline.rationalOf` and
+  // `timeline.totalFrames` do not exist — they were plausible names, and a
+  // plausible name is exactly the kind of mistake that throws at the top of a
+  // job the person has already paid to queue.
+  const rational = tl.timebase.fps
+  const totalFrames = tl.duration
+  const durationSeconds = timeline.framesToSeconds(totalFrames, rational)
+
+  onProgress({ phase: 'audio', percent: 0.1 })
+
+  const audioItems = await resolveBuiltins(
+    collectAudio(tl, frames => timeline.framesToSeconds(frames, rational)),
+    workDir,
+  )
+  if (!audioItems.length) throw new Error('Nothing to render: the timeline has no audio.')
+
+  const mixed = await mixAudio(audioItems, {
+    out: path.join(workDir, 'mix.wav'),
+    sampleRate: 48000,
+    duration: durationSeconds,
+  })
+
+  onProgress({ phase: 'loudness', percent: 0.6 })
+
+  const target = tl.delivery?.loudness === 'none' ? null : (tl.delivery?.loudness || 'podcast')
+  let loudness = null
+  let source = mixed
+  if (target) {
+    const normalised = path.join(workDir, 'mix-normalised.wav')
+    loudness = await normalise(mixed, normalised, target)
+    source = normalised
+  }
+
+  onProgress({ phase: 'encode', percent: 0.85 })
+
+  // -q:a 2 is VBR at roughly 190 kbps, which is past the point where speech
+  // gains anything from more bits. A constant 320 would triple the feed's
+  // bandwidth bill for a difference nobody can hear on a conversation.
+  await run([
+    '-hide_banner', '-loglevel', 'error', '-y', '-i', source,
+    '-c:a', 'libmp3lame', '-q:a', '2', '-ar', '44100', '-ac', '2',
+    ...(tl.delivery?.tags?.title ? ['-metadata', `title=${tl.delivery.tags.title}`] : []),
+    ...(tl.delivery?.tags?.artist ? ['-metadata', `artist=${tl.delivery.tags.artist}`] : []),
+    output,
+  ])
+
+  onProgress({ phase: 'done', percent: 1 })
+
+  return {
+    output, workDir, durationSeconds, loudness,
+    audioOnly: true,
+    width: 0, height: 0, fps: timeline.rate(rational), frames: totalFrames,
+    codec: 'mp3',
+    grade: null,
+  }
+}
+
+module.exports = { renderTimeline, renderAudioOnly, CODECS }

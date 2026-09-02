@@ -50,6 +50,8 @@ export interface ClipRequest {
 
 export interface ClipScene {
   id: string
+  /** Linear gain for this shot's own sound, when one speaker needs trimming. */
+  audioGain?: number
   kind: 'video' | 'image'
   url: string
   name: string
@@ -68,6 +70,8 @@ export interface ClipProject {
   cues: ClipCue[]
   words: { word: string; start: number; end: number }[]
   subsOn: boolean
+  /** Linear gain for the cameras' own sound. 1 — a conversation IS its audio. */
+  sceneAudio: number
   seconds: number
   /** What could not be done, in words, rather than silently. */
   warnings: string[]
@@ -204,6 +208,11 @@ export function buildClipProject(req: ClipRequest): ClipProject {
 
   return {
     aspect: req.aspect ?? '9:16',
+    // THE CAMERAS CARRY THE CONVERSATION. Without this the render mutes every
+    // video clip — the default that is correct for b-roll under a voiceover and
+    // silent for a podcast. Proven by building the timeline and reading the
+    // clip's gain, after this shipped muted.
+    sceneAudio: 1,
     scenes,
     overlays,
     cues: cuesFromWords(words),

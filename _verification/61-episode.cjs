@@ -205,6 +205,62 @@ const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol
     near(ep.scenes[1].in, 4, 0.01), 'got ' + ep.scenes[1].in)
 }
 
+// ── THE EPISODE HAS SOUND ────────────────────────────────────────────────
+//
+// This shipped SILENT. `migrateLegacyProject` sets every video clip to
+// `audio: { gain: 0 }`, which is right for b-roll under a voiceover and is the
+// whole programme for a conversation. The "Randează episodul" button therefore
+// produced a film with no audio, and the audio-only path would have refused the
+// same timeline for containing none. Nothing caught it because every assertion
+// stopped at the project and none built the timeline the renderer actually gets.
+{
+  // The library imports its siblings by the `@/lib/...` alias that Next.js
+  // resolves. Point that at the compiled output so the real builder runs here.
+  const Module = require('module')
+  const original = Module._resolveFilename
+  Module._resolveFilename = function (request, ...rest) {
+    if (request.startsWith('@/lib/')) {
+      request = path.join(ROOT, 'render-worker', 'dist', request.slice('@/lib/'.length))
+    }
+    return original.call(this, request, ...rest)
+  }
+
+  let built = null, why = null
+  try {
+    const B = require(path.join(ROOT, 'render-worker', 'dist', 'campaign', 'build.js'))
+    const K = require(path.join(ROOT, 'render-worker', 'dist', 'brand', 'kit.js'))
+    const ep = E.buildEpisodeProject({
+      words: [{ word: 'a', start: 0, end: 1, speaker: 'A' }],
+      cuts: [], duration: 8,
+      sources: [{ url: 'https://x/a.mp4', kind: 'video', speaker: 'A' }],
+    })
+    built = B.rowTimeline({ ...ep, brandKit: K.TT_KIT }, '1080')
+  } catch (e) { why = e.message }
+  Module._resolveFilename = original
+
+  ok('the episode timeline can be built at all', Boolean(built), why)
+  if (built) {
+    const videoClips = built.tracks
+      .filter(t => t.kind === 'video')
+      .flatMap(t => t.clips)
+      .filter(c => c.source.kind === 'video')
+    ok('there is a picture clip to check', videoClips.length > 0)
+    ok('THE CAMERAS ARE NOT MUTED — a silent episode is the bug this caught',
+      videoClips.every(c => (c.audio?.gain ?? 0) > 0),
+      JSON.stringify(videoClips.map(c => c.audio)))
+    ok('...and they are what music ducks under, rather than sitting beneath it',
+      videoClips.every(c => c.audio?.duckSource === true),
+      JSON.stringify(videoClips.map(c => c.audio)))
+  }
+
+  // The same for a social clip, which had the identical bug for the same reason.
+  const clip = C.buildClipProject({
+    start: 0, end: 5, words: [{ word: 'a', start: 0, end: 1 }],
+    sources: [{ url: 'https://x/a.mp4', kind: 'video' }],
+  })
+  ok('a social vertical also carries its own sound', clip.sceneAudio === 1)
+}
+
 // ── the shape the renderer needs ─────────────────────────────────────────
 {
   // An episode that cannot be rendered by the SAME path a campaign uses is a

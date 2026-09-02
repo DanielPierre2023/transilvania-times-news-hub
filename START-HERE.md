@@ -1,187 +1,135 @@
-# tt-forge — the six remaining items
+# tt-podcast-studio — stația de montaj podcast
 
-**Rebased onto `25124d9`.** Your `newsroom/page.tsx` is deliberately not in this
-zip — your commit carries a render-clock fix my tree does not have.
+Citește **GHID.md** pentru cum se folosește. Acest fișier e ce se comite și ce se
+deployează.
 
-**1795 assertions, 51 suites, 0 failures**, 115s. `npx next build` compiled
-successfully in 36.6s. `tsc` and eslint clean, golden frames byte-identical,
-all four migrations run against a real PostgreSQL twice.
-
-**Two SQL files are new** (3 and 4). **The worker must be redeployed.**
+Verificat înainte de trimitere: `tsc --noEmit` curat, `next build` curat (zero
+avertismente pe pagina nouă), **56 de suite, 2081 de aserțiuni, 0 căzute**.
+Randarea MP3 e testată cu ffmpeg pe fișiere reale, nu doar afirmată.
 
 ---
 
-## 1 · The campaign driver is no longer only a browser tab
+## 1 · Commit — copiezi peste, exact pe aceste căi
 
-`render-worker/src/campaign-poller.js`, **off unless you turn it on.**
+| Cale | Ce e |
+|---|---|
+| `lib/podcast/edit.ts` | **nou** — modelul de montaj: tăieturi manuale, comutatoare, undo |
+| `lib/podcast/deliver.ts` | **nou** — capitole, transcriere, titlu/descriere |
+| `lib/podcast/episode.ts` | modificat — gain per vorbitor, sunetul camerelor |
+| `lib/podcast/clip.ts` | modificat — sunetul camerelor |
+| `lib/timeline/migrate.ts` | modificat — `sceneAudio` și `audioGain` per plan |
+| `app/admin/podcast/page.tsx` | **rescris** — editorul |
+| `_verification/51-reachable.cjs` | modificat — controalele noi |
+| `_verification/61-episode.cjs` | modificat — episodul are sunet |
+| `_verification/63-audio-episode.cjs` | **nou** — MP3-ul, cu ffmpeg |
+| `_verification/64-transcript-edit.cjs` | **nou** — montajul prin transcriere |
+| `_verification/65-deliver.cjs` | **nou** — capitole, note, parser |
+| `_verification/report.cjs` | modificat — matricea, cu funcțiile noi |
 
-It needs a Supabase service key in the worker's environment. That key bypasses
-row level security entirely, so it is a decision, not a default: the poller does
-nothing at all unless `CAMPAIGN_POLL`, `SUPABASE_URL` and
-`SUPABASE_SERVICE_ROLE_KEY` are all present, and it logs **which one is missing**
-rather than being silently absent.
+## 2 · Railway — **da, aici trebuie deploy**
 
-**Why it is small, and why that matters.** It does not build timelines. Each row
-now carries its finished timeline, built once when the campaign is created, so a
-driver only renders a document that already exists. The films the poller makes
-are identical to the ones your tab makes — not because two builders agree, but
-because there is one document. It also makes a campaign inspectable: a row that
-produced a wrong film can be read.
+Trei fișiere din `render-worker/src/`: `render.js`, `index.js`, `audio.js`.
 
-It uses the same atomic claim, the same lease, the same attempt cap. A tab and
-the worker can work one campaign at the same time without either doing a row
-twice — which is the common case: start a campaign, close the laptop, the worker
-finishes it. `59` asserts the poller and the browser agree exactly on what is
-retryable and on the backoff, because two opinions means a row the tab gives up
-on is retried forever by the worker and paid for every time.
+Fără ele, butonul **MP3 pentru feed** trimite un job pe care workerul actual nu
+știe să-l facă. Restul paginii merge; MP3-ul nu.
 
-**To turn it on**, on Railway:
+## 3 · SQL — nimic
 
-```
-CAMPAIGN_POLL=1
-SUPABASE_URL=https://<your-project>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service role key>
-RENDER_WORKER_PUBLIC_URL=https://transilvania-times-news-hub-production.up.railway.app
-```
+## 4 · Funcții edge — nimic
 
-The last one is not optional — without it a finished file exists at an address
-nothing can reach, and the poller says so rather than returning a URL that 404s.
-
-## 2 · `fullyGenerated` campaigns now generate
-
-`lib/campaign/generate.ts`. Three things separate this from a loop that calls an
-image model:
-
-- **The row reaches the prompt.** A loop that sends the template's prompt
-  unchanged makes the same picture every time and charges per row for it — the
-  most expensive possible way to do nothing.
-- **The budget is checked between pictures, not between rows.** A row with four
-  shots can otherwise spend four times the per-row estimate before anything
-  looks.
-- **A refused picture does not lose the row.** One rejected image out of four is
-  a film with a gap; failing the row throws away the three already paid for.
-
-The estimate now comes from `costPerRow` reading the same draft the generator
-walks, so the number you are shown and the number spent have one source. It used
-to count the template's beats, which inflated every estimate by the shots the
-campaign had already filled.
-
-## 3 · Lipsync across a campaign
-
-The driver generates a voice per row in `spokenName` and `fullyGenerated` modes
-and lipsyncs through `generate-motion` — the same `{action:'lipsync', video_url,
-audio_url, engine}` contract the Studio uses, read from the function rather than
-remembered.
-
-## 4 · Speaker labelling is no longer manual
-
-Whisper does not diarise, and the usual answers are a second paid service or a
-clustering model. **Neither is needed with a lapel on each speaker.** The person
-talking is the one whose *own* microphone is loud; every other track hears them
-across the room, quieter. That is a measurement your recording already contains —
-and on this material it is more reliable than a diariser, which works from one
-mixed track and has to infer what two tracks state outright.
-
-Two details that make it usable rather than merely clever:
-
-- **The measured alignment is applied to the envelopes first.** Attributing words
-  with unaligned tracks picks whoever was loudest half a second later, which is
-  the other speaker about as often as not.
-- **A clear winner, or the previous speaker.** Bleed makes two tracks similar
-  during a pause, and a bare argmax then flips speaker on individual words
-  mid-sentence — nonsense in a transcript, and a camera cutting back and forth.
-
-**And it tells you when it cannot.** Two omnidirectional mics on one table
-separate almost nothing; the ratio is reported and, below 1.5×, the interface
-says the attribution is unreliable rather than printing an authoritative-looking
-transcript that is half wrong.
-
-## 5 · Podcast clips are rendered, not just ranked
-
-`lib/podcast/clip.ts`. A list of timecodes is not a deliverable — turning one
-into a vertical with burned-in captions was still a manual job per clip, which is
-exactly the work the tab was meant to remove.
-
-- **The words are retimed to the clip.** A clip starting at 14:32 carries words
-  timestamped at 14:32; paste them over without subtracting and every caption in
-  every clip is fourteen minutes late — which looks like broken caption code and
-  sends you looking in the wrong place.
-- **The camera offset is added to the source in-point**, because the transcript
-  clock and each camera's clock differ by the measured alignment.
-- **Cues group by characters, not word count.** "și" and "întreprinderea" are one
-  word each and nothing like the same width; a fixed count gives lines
-  alternately half empty and overflowing, which is why burned-in captions usually
-  look amateur.
-- **The hook is what is actually said**, because writing a separate headline per
-  clip is work nobody does.
-- **Captions are on and not optional** — a clip is watched without sound.
-
-## 6 · Tenancy, seats, metering
-
-Migration 4. `studio_orgs`, `studio_org_members`, `studio_api_keys`,
-`studio_usage`.
-
-- **`org_id` is nullable everywhere**, and `studio_in_org()` returns true when it
-  is null. Existing rows stay visible to existing admins, nothing is migrated,
-  nothing breaks, and the column is there to build on. Tenancy added any other
-  way is a migration that has to be right first time.
-- **The ledger is append-only.** One row per chargeable event with what it cost —
-  never a counter, because a counter cannot be audited, cannot be re-summed after
-  a pricing bug, and cannot answer "what did that campaign actually cost". There
-  is deliberately no UPDATE or DELETE policy: the only reason to edit a spend
-  record is to make a bill look different.
-- **API keys are stored as a hash**, with a prefix for identification. A table of
-  live keys is a breach waiting for a backup to leak, and there is no legitimate
-  reason to read a customer's key back.
-- **`studio_org_can_spend()` checks before the work**, in SQL. A ceiling enforced
-  afterwards is an invoice.
-
-**What is still missing for selling it:** billing. Stripe, plans, invoices and
-dunning need your account and your prices — the schema and the meter are ready
-for them, and I will not invent your pricing.
+Nici un fișier din `supabase/functions/` nu s-a atins. Titlul și descrierea merg
+prin `ai-blog-assistant`, care e deja deployat.
 
 ---
 
-## And the thing I said I would add
+## Ce s-a schimbat, și de ce
 
-`/health` now reports **what the deployed code can do**:
+### Nu se putea tăia. Acum se taie citind.
 
-```json
-"features": { "speedRamps": true, "wipes": true, "gradeStyles": true,
-              "masters": true, "animatedHtml": true, "campaignPoller": false }
-```
+Pagina veche calcula un montaj și nu îl arăta nimănui. Scria „38 tăieturi ·
+214,6s scoase" și nu îți dădea niciun fel de a vedea care 38, de a auzi una, de
+a nu fi de acord cu una, sau de a face a treizeci și noua. La întrebarea „cum
+tai?", răspunsul sincer era „nu tai — taie el, și speri".
 
-Each flag is derived from the shared code actually loaded, not from a version
-string somebody has to remember to bump. The gate thresholds only move when the
-measurement moves, so a deploy that changed ramps, wipes or the grade left
-`/health` identical — and the only way to tell was to pay for a render. Now
-`curl /health` answers it.
+Acum transcrierea **e** montajul: selectezi cuvinte cu mouse-ul, apeși Taie, iar
+ele ies din episod — barate pe ecran, ca să vezi ce ai făcut, și se pun înapoi cu
+un click. Tăieturile automate sunt același fel de obiect ca ale tale, de aia
+poate fi anulată oricare, individual.
+
+Totul produce `Cut[]`. `keptRanges` face din asta ce rămâne și
+`buildEpisodeProject` face din asta filmul — deci previzualizarea, MP3-ul,
+video-ul și subtitrările nu pot fi în dezacord despre unde sunt tăieturile.
+
+### Două bug-uri găsite în ce ți-am trimis săptămâna trecută
+
+**Episodul ieșea MUT.** `migrateLegacyProject` pune fiecare clip video pe
+`audio: { gain: 0 }` — corect pentru b-roll sub un voiceover, și înseamnă
+programul întreg pentru o conversație. Butonul „Randează episodul" pe care ți
+l-am dat ar fi produs un film fără sunet, și clipurile verticale la fel. Nimic nu
+prinsese asta pentru că toate aserțiunile se opreau la proiect și niciuna nu
+construia timeline-ul pe care îl primește randorul. Găsit construindu-l și
+uitându-mă la el.
+
+**Parserul de note tăia răspunsul la primul rând.** Flagul `m` face ca `$` să se
+potrivească la sfârșitul fiecărui **rând**, deci o descriere de două paragrafe
+venea ca primul paragraf, iar o listă de trei citate ca un citat. Arăta exact ca
+un model care a răspuns scurt.
+
+Ambele au acum aserțiuni care le prind, și am verificat că aserțiunile chiar cad
+când repun bug-ul.
+
+### MP3-ul, care lipsea
+
+Un podcast livrează în primul rând un fișier audio. Pipeline-ul nu putea face
+unul: mixerul, ducking-ul cu sidechain și loudnorm-ul în două treceri existau
+toate, în spatele unei funcții care desenează întâi fiecare cadru de video. Deci
+o oră de conversație însemna o oră de Chromium rasterizând o imagine fixă ca să
+ajungă la sunetul care era gata în minutul zece — și apoi scoteai video-ul de pe
+el manual.
+
+`renderAudioOnly` ajunge la etapa de sunet fără imagine, prin **același** mixer
+și același normalizator. Testat cu ffmpeg: e chiar MP3 (extensia nu dovedește
+nimic), la 44,1 kHz stereo, de lungimea timeline-ului și nu a patului muzical, la
+−16 LUFS măsurat pe fișierul final, sub −1 dBTP. Și muzica **se dă măsurabil la
+o parte** de sub voce: 880 Hz sub vorbire față de 880 Hz în gol, cu ducking-ul
+neutralizat diferența e −0,1 dB, cu el funcțional trece pragul de 2,5 dB.
+
+### Ținta de volum
+
+`podcast: −16 LUFS, −1 dBTP, LRA 7`. Aceeași țintă ca presetul social, dar
+interval mai strâns: 11 LU e potrivit pentru un feed cu multă muzică și prea larg
+pentru doi oameni care vorbesc, unde lasă vorbitorul mai încet să dispară sub
+zgomotul din mașină.
 
 ---
 
-## Deploy
+## Ce nu e făcut
 
-```
-1. Copy the folder over the repo, commit, push.        Netlify builds — tested.
-2. Paste SQL 3 and 4 into Supabase, in order.          Tested on real Postgres.
-3. Redeploy the render worker on Railway.              Required.
-```
+Scris aici ca să nu-l descoperi în ziua în care publici:
 
-```
-1.  20260901120000_studio_avatars_campaigns_podcast.sql   ← already run
-2.  20260901180000_campaign_queue.sql                     ← already run
-3.  20260901220000_queue_grants_and_indexes.sql           ← NEW
-4.  20260902090000_campaign_timelines_and_org.sql         ← NEW
-```
+- **intro / outro** ca piese separate (muzica e pat continuu, nu jingle)
+- **reducere de zgomot** dincolo de filtrul trece-sus
+- **redenumirea capitolelor în pagină** (se face în fișierul exportat)
+- **corectarea transcrierii** — poți tăia cuvinte, nu le poți rescrie, deci un
+  nume propriu greșit de Whisper rămâne greșit în subtitrări
 
-**No edge functions to deploy.** Nothing in `supabase/functions/` is in this zip;
-every fix this round was on my side.
+Primele două sunt lucru de o zi fiecare. Al patrulea e cel pe care l-aș face
+următorul dacă podcastul intră în producție în două săptămâni: un nume greșit în
+subtitrări e vizibil pentru toată lumea.
 
-**Step 3 is required.** `grade.js` no longer uses `eq=` for contrast and
-saturation, and `index.js` gained the health flags and the poller. Until the
-worker is redeployed the render keeps the old YUV contrast while the preview
-shows the new one — worse than before, not better.
+---
 
-After redeploying, `curl https://<worker>/health` should show
-`"gradeStyles": true` and `"speedRamps": true`. That is now the answer to
-"is the worker current?", and it costs nothing to check.
+## Dacă nu ai comis zip-ul anterior (`tt-podcast`)
+
+Nu contează ordinea: zip-ul ăsta **le conține și pe acelea**, în aceeași stare
+verificată. Fișierele în plus, incluse ca să fie de sine stătător:
+
+`app/admin/components/ProductionChrome.tsx` · `app/admin/productie/page.tsx` ·
+`app/admin/studio/page.tsx` · `app/admin/layout.tsx` ·
+`render-worker/package.json` · `_verification/56-audio-chunking.cjs` ·
+`_verification/62-nav.cjs` ·
+`supabase/migrations/20260902090000_campaign_timelines_and_org.sql` ·
+`.github/workflows/ci.yml`
+
+Migrarea aceea e **deja aplicată** în baza ta — fișierul merge în repo doar ca să
+existe evidența. Tot nu ai nimic de rulat în Supabase.

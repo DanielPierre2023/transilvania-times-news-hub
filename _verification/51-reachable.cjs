@@ -258,7 +258,7 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
   ok('A RANKED CLIP CAN BE TURNED INTO A FINISHED VERTICAL — a list of timecodes ' +
      'is not a deliverable', /buildClipProject\(\{/.test(pod))
   ok('...using the cameras, with their offsets', /offsetSeconds: t\.offset/.test(pod))
-  ok('...and it reports what could not be done', /p\.warnings\.length/.test(pod))
+  ok('...and it reports what could not be done', /episodeProject\(\)\.warnings\.map/.test(pod))
 
   // ── the two ends that used to stop at a number or a JSON file ──────────
   //
@@ -269,11 +269,11 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
   // "finished" features that a person could not get an MP4 out of.
   ok('THE EPISODE ITSELF CAN BE RENDERED — a cut list that produces no film is ' +
      'a measurement, not an edit', /buildEpisodeProject\(\{/.test(pod))
-  ok('...with a button that starts it', /Randează episodul/.test(pod))
+  ok('...with a button that starts it', /MP3 pentru feed/.test(pod) && /Video 1080p/.test(pod))
   ok('...at 4K as well as 1080', /'2160'/.test(pod))
-  ok('...and it can still be opened in the Studio instead', /episod\.json/.test(pod))
-  ok('...showing what the builder could not do', /episodeProject\(false\)\.warnings\.map/.test(pod))
-  ok('...and how much of the recording survives the cut', /keptSeconds\(kept\)/.test(pod))
+  ok('...and it can still be opened in the Studio instead', /proiect pentru Studio/.test(pod))
+  ok('...showing what the builder could not do', /warnings\.map\(\(w, i\) => <Note/.test(pod))
+  ok('...and how much of the recording survives the cut', /fmt\(summary\.keptSeconds\)/.test(pod))
 
   ok('A CLIP RENDERS WITHOUT A DETOUR THROUGH THE STUDIO', /randează vertical/.test(pod))
   ok('...through the same builder campaigns use, not a second renderer',
@@ -289,6 +289,62 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
     /downloadUrl/.test(pod) && !/s\?\.url\b/.test(pod))
   ok('a render that never answers gives up rather than polling forever',
     /deadline/.test(pod))
+
+  // ── THE EDITOR, WHICH IS THE ANSWER TO "HOW DO I CUT?" ─────────────────
+  //
+  // Everything above this line was true of a page on which a person could not
+  // cut anything. The surface computed an edit, printed a number, and offered
+  // no way to see it, hear it, disagree with one cut, or make one. These are
+  // the controls that make it an editor rather than a report.
+  ok('THE TRANSCRIPT IS ON SCREEN, word by word', /blocks\.map/.test(pod) && /b\.indices\.map/.test(pod))
+  ok('...a word can be clicked to hear it', /onDoubleClick=\{\(\) => seek\(words\[i\]\.start\)/.test(pod))
+  ok('...and words can be selected by dragging across them',
+    /onMouseDown=\{onWordDown\(i\)\}/.test(pod) && /onMouseEnter=\{onWordEnter\(i\)\}/.test(pod))
+  ok('THE SELECTION CAN BE CUT', /onClick=\{cutSelection\}/.test(pod))
+  ok('...from the keyboard too, on the key people already press',
+    /e\.key === 'Delete' \|\| e\.key === 'Backspace'/.test(pod))
+  ok('CUT WORDS STAY VISIBLE rather than vanishing', /line-through/.test(pod))
+  ok('...and clicking one puts it back', /cutAtWord\(words, edit, i\)/.test(pod))
+  ok('there is a legend saying what the colours mean', /Legendă/.test(pod))
+
+  ok('UNDO EXISTS — the gesture is destructive and nobody tries a cut without it',
+    /setHistory\(undo\)/.test(pod) && /setHistory\(redo\)/.test(pod))
+  ok('...on ctrl+z as well as a button', /metaKey \|\| e\.ctrlKey/.test(pod))
+
+  ok('THE AUTOMATIC PASSES ARE TOGGLES, not a fixed policy',
+    /removeFillers: e\.target\.checked/.test(pod) && /removeSilences: e\.target\.checked/.test(pod))
+  ok('...and the pause threshold is a slider with a number next to it',
+    /maxGap: Number\(e\.target\.value\)/.test(pod))
+  ok('THE EDIT CAN BE HEARD BEFORE IT IS RENDERED — the player skips the cuts',
+    /previewEdit/.test(pod) && /el\.currentTime = hit\.to/.test(pod))
+  ok('the length before and after is shown at all times',
+    /summary\.keptSeconds/.test(pod) && /summary\.removedSeconds/.test(pod))
+
+  // ── the deliverables a podcast actually needs ──────────────────────────
+  ok('THE MP3 FOR THE FEED can be rendered', /audioOnly: true/.test(pod))
+  ok('...and the video for YouTube', /'video'/.test(pod) && /Film/.test(pod))
+  ok('SUBTITLES come out as .srt', /toSRT\(captionCues/.test(pod))
+  ok('...and as .vtt', /toVTT\(captionCues/.test(pod))
+  ok('CHAPTERS come out in both formats a podcast needs',
+    /chapterLines\(chapterList\)/.test(pod) && /chaptersJson\(chapterList/.test(pod))
+  ok('THE DESCRIPTION AND TITLE are written from the EDITED transcript',
+    /transcriptText\(editedWords\)/.test(pod))
+  ok('...through the deployed text function, by its real action name',
+    /'ai-blog-assistant'/.test(pod) && /action: 'free_chat'/.test(pod))
+  ok('...and the raw answer is kept visible, so a field the parser missed is not lost',
+    /notes\.raw/.test(pod))
+  ok('THE LOUDNESS TARGET is a choice, and the podcast one is the default',
+    /useState<'podcast'/.test(pod))
+  ok('TWO LAPELS CAN BE BALANCED against each other',
+    /trimDb/.test(pod) && /gainDbBySpeaker/.test(pod))
+  ok('A MUSIC BED can be added and its level set', /setMusicUrl/.test(pod) && /setMusicVol/.test(pod))
+
+  ok('THE STAGES ARE NUMBERED AND A LOCKED ONE SAYS WHY',
+    /STAGES\.map/.test(pod) && /const locked = /.test(pod))
+  ok('there is one button that runs everything that needs no judgement',
+    /onClick=\{prepareAll\}/.test(pod))
+  ok('...and it stops at the edit rather than rendering unread',
+    !/prepareAll[\s\S]{0,900}render\(/.test(pod))
 }
 
 // ── podcast ──────────────────────────────────────────────────────────────
@@ -296,19 +352,19 @@ const ok = (n, c, e = '') => { if (c) pass++; else { fail++; console.log('  FAIL
   ok('PODCAST tracks can be uploaded', /setTracks\(l => \[\.\.\.l/.test(pod))
   ok('...and labelled by speaker, which is what two-camera cutting needs',
     /speaker: e\.target\.value/.test(pod))
-  ok('ALIGNMENT IS OFFERED', /onClick=\{align\}/.test(pod))
+  ok('ALIGNMENT IS OFFERED', /onClick=\{\(\) => align\(\)\}/.test(pod))
   ok('...and uses the measured shift, not a guess', /r\.shiftBBySeconds/.test(pod))
   ok('LOW CONFIDENCE IS SHOWN RATHER THAN SILENTLY TRUSTED — an automatic sync ' +
      'that is wrong is worse than none, because nobody re-checks it',
     /SYNC_CONFIDENCE_MIN/.test(pod))
   ok('TRANSCRIPTION IS CHUNKED', /planChunks/.test(pod))
   ok('...and stitched back into one timeline', /stitch\(parts\)/.test(pod))
-  ok('TIGHTENING is shown with what it removes', /secondsRemoved\(cuts\)/.test(pod))
+  ok('TIGHTENING is shown with what it removes', /summary\.removedSeconds\.toFixed/.test(pod))
   ok('...and the retimed transcript is what everything downstream uses',
-    /retime\(words, cuts\)/.test(pod))
-  ok('CLIPS are listed', /clips\.map/.test(pod))
+    /retime\(words, plainCuts\)/.test(pod))
+  ok('CLIPS are listed', /socialClips\.map/.test(pod))
   ok('...with the reason each was chosen', /\{c\.why\}/.test(pod))
-  ok('CHAPTERS are listed', /chapterList\.map/.test(pod))
+  ok('CHAPTERS are listed', /chapterList\.slice\(0, 40\)\.map/.test(pod))
   ok('SPEAKER SWITCHES are reported', /switches\.length/.test(pod))
 }
 

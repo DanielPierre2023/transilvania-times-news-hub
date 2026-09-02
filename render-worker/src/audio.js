@@ -22,6 +22,12 @@ const timeline = require('./timeline')
 const TARGETS = {
   broadcast: { I: -23, TP: -1, LRA: 7 },
   social: { I: -16, TP: -1, LRA: 11 },
+  // SPEECH, DELIVERED AS A PODCAST. Same -16 LUFS the platforms normalise to,
+  // and the same -1 dBTP ceiling, but a NARROWER loudness range: 11 LU is right
+  // for a mixed feed of music and speech and too wide for two people talking,
+  // where it lets the quieter speaker sit far enough down to disappear under
+  // road noise in a car. 7 LU keeps both of them present without pumping.
+  podcast: { I: -16, TP: -1, LRA: 7 },
 }
 
 function run(args, { capture = 'stderr' } = {}) {

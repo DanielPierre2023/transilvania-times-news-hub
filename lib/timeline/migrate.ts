@@ -23,6 +23,15 @@ export interface LegacyScene {
   kind: 'image' | 'video'
   url: string
   name: string
+  /**
+   * Linear gain for THIS shot's own sound, overriding the project's.
+   *
+   * The reason it is per shot rather than per project: in a two-person podcast
+   * each shot is one speaker, and with a lapel each, one of them is reliably
+   * three or four dB louder than the other. That is the most audible flaw in
+   * the format and a single project-wide gain cannot correct it.
+   */
+  audioGain?: number
   /** Seconds. */
   duration: number
   kb: LegacyKenBurns
@@ -71,6 +80,12 @@ export interface LegacyProject {
   voUrl?: string
   /** Seconds. */
   voDur?: number
+  /**
+   * Linear gain for the pictures' OWN sound. 0 (the default) mutes them, which
+   * is right for b-roll under a voiceover and wrong for a conversation, where
+   * the camera's audio is the programme. A podcast episode sets this to 1.
+   */
+  sceneAudio?: number
   cues?: LegacyCue[]
   words?: LegacyWord[]
   capMode?: 'clasic' | 'karaoke'
@@ -205,7 +220,38 @@ export function migrateLegacyProject(
       fadeIn: 0,
       fadeOut: 0,
       enabled: true,
-      ...(scene.kind === 'video' ? { audio: { gain: 0 } } : {}),
+      // THE PICTURE'S OWN SOUND, AND WHY THE DEFAULT IS SILENCE.
+      //
+      // A marketing film is b-roll under a voiceover: the clip's own audio is
+      // wind, traffic and somebody saying "is it recording", and muting it is
+      // right. A CONVERSATION IS THE OPPOSITE — the camera's audio IS the
+      // programme, and muting it renders a silent episode.
+      //
+      // That is not hypothetical. This project shipped an "Randează episodul"
+      // button on top of this line, and it would have produced a film with no
+      // sound: the timeline came out with one video clip at gain 0, and the
+      // audio-only path would have refused it outright for having no audio at
+      // all. It was found by building a timeline and looking at it, not by
+      // reading this line and believing it.
+      //
+      // So the default stays 0 — changing it would silently unmute the b-roll
+      // under every voiceover in the newsroom — and a project that IS its own
+      // soundtrack says so with `sceneAudio`.
+      ...(scene.kind === 'video'
+        ? {
+            audio: {
+              // A SCENE MAY OVERRIDE THE PROJECT. With a lapel on each speaker,
+              // one of them is always three or four dB louder than the other,
+              // and that is the commonest audible flaw in a two-person podcast.
+              // Balancing it needs a gain PER SHOT, because each shot is one
+              // speaker; a single project-wide gain cannot express it.
+              gain: scene.audioGain ?? project.sceneAudio ?? 0,
+              // When the pictures carry the talking, they are what music has to
+              // duck under. Without this the bed sits on top of the interview.
+              ...((scene.audioGain ?? project.sceneAudio) ? { duckSource: true } : {}),
+            },
+          }
+        : {}),
     }
     tl = addClip(tl, videoTrack.id, clip)
     playhead += duration

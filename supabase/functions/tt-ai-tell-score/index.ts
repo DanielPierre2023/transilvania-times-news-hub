@@ -1,61 +1,73 @@
-// supabase/functions/tt-translate-html/index.ts
+// supabase/functions/tt-ai-tell-score/index.ts
 //
-// Translates a 'rich' (Word-imported) article body between Romanian and English
-// while preserving the EXACT HTML structure — bold, italic, headings, lists and
-// tables all stay in place; only the human-readable text is translated. This is
-// what makes the English version 1:1 with the Romanian one for Birou editorial
-// rich articles.
+// Deterministic "AI-tell score" for the pre-publish admin check — no LLM, so it
+// is instant and free. Scores an article's English and Romanian title+body for
+// the machine-writing tells (ALL-CAPS titles, em dashes, the AI lexicon, "not
+// only … but also", summary paragraphs …) and returns the score, a level, and
+// the NAMED tells with a sample of each, so an editor sees exactly what to fix.
 //
-// Input:  { html: string, source_lang: 'ro'|'en', target_lang: 'ro'|'en' }
-// Output: { ok: true, html: string } | { ok: false, error: string }
-// Env:    CLAUDE_API_KEY  (shared with the rest of the pipeline)
+// Input : { blog_post_id: string }                      // scores both languages
+//    or : { title?: string, content?: string, lang?: 'en'|'ro' }
+// Output: { ok:true, overall:{score,level}, en?:Report, ro?:Report }
 //
-// Deploy PUBLIC (no JWT verification) — the token-gated editor calls it without
-// a Supabase session, exactly like tt-proof-article.
+// Deploy GATED (admin only) — same posture as tt-adsense-quality-check.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-// ── Anthropic Claude helper (inlined from _shared/claude.ts so this function
-//    is fully self-contained for dashboard paste — no ../_shared import) ──────
-const CLAUDE_SONNET = 'claude-sonnet-4-6'
-interface ClaudeRequest { systemInstruction: string; userMessage: string; temperature?: number; maxTokens?: number; jsonMode?: boolean; model?: string }
-interface ClaudeResponse { text: string; error?: string }
-async function claudeFetchWithRetry(body: object, apiKey: string, attempt = 0): Promise<Response> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
-  })
-  if (res.status === 429 && attempt < 3) {
-    const delay = Math.pow(2, attempt) * 2000
-    console.warn(`[Claude] Rate limited. Retrying in ${delay}ms (attempt ${attempt + 1}/3)`)
-    await new Promise((r) => setTimeout(r, delay))
-    return claudeFetchWithRetry(body, apiKey, attempt + 1)
-  }
-  return res
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
-async function callClaude({ systemInstruction, userMessage, temperature = 0.7, maxTokens = 4096, jsonMode = false, model = CLAUDE_SONNET }: ClaudeRequest): Promise<ClaudeResponse> {
-  const apiKey = Deno.env.get('CLAUDE_API_KEY')
-  if (!apiKey) return { text: '', error: 'CLAUDE_API_KEY not configured' }
-  const system = jsonMode ? `${systemInstruction}\n\nCRITICAL: Respond with ONLY a valid JSON object. No markdown, no backticks, no preamble.` : systemInstruction
+const json = (data: unknown, status = 200): Response =>
+  new Response(JSON.stringify(data), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+
+// ── admin gate (inlined) ───────────────────────────────────────────────
+// ── admin gate (inlined; self-contained for dashboard paste) ─────────────────
+// Allows only this project's service-role key (internal callers) or a signed-in
+// admin (a user_roles 'admin' row). Anon/non-admin are rejected — the anon key
+// in the public bundle cannot drive this function's Unsplash quota or storage.
+async function requireAdmin(req: Request): Promise<Response | null> {
+  const AUTH_CORS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+  const deny = (status: number, error: string) =>
+    new Response(JSON.stringify({ error }), { status, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' } });
+
+  const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) return deny(401, 'Unauthorized');
+
+  const url = Deno.env.get('SUPABASE_URL')!;
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (serviceKey && token === serviceKey) return null;
+
   try {
-    const t0 = Date.now()
-    const res = await claudeFetchWithRetry({ model, max_tokens: maxTokens, temperature, system, messages: [{ role: 'user', content: userMessage }] }, apiKey)
-    const data = await res.json()
-    if (!res.ok) return { text: '', error: data.error?.message || JSON.stringify(data.error) || 'Claude API error' }
-    const text = data.content?.[0]?.text || ''
-    console.log(`[Claude] ${model} — ${Date.now() - t0}ms — ${text.length} chars`)
-    return { text }
+    const probe = createClient(url, token, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { error } = await probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+    if (!error) return null;
+  } catch { /* not service-role — fall through to the admin-user check */ }
+
+  try {
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? serviceKey!;
+    const sb = createClient(url, anonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data: u, error: uErr } = await sb.auth.getUser(token);
+    if (uErr || !u.user) return deny(401, 'Unauthorized');
+    const { data: role, error: rErr } = await sb
+      .from('user_roles').select('role').eq('user_id', u.user.id).eq('role', 'admin').maybeSingle();
+    if (rErr || !role) return deny(403, 'Forbidden');
+    return null;
   } catch (e) {
-    return { text: '', error: (e as Error).message }
+    console.error('[requireAdmin] check failed, denying by default:', (e as Error).message);
+    return deny(401, 'Unauthorized');
   }
 }
 
-// ╔══════════════════════════════════════════════════════════════════════╗
-// ║ TT-ANTI-AI — inlined verbatim from supabase/functions/_shared/tt-anti-ai.ts ║
-// ║ Single source of truth. Do NOT hand-edit here; edit the module and re-run  ║
-// ║ build/inject.py. Kept inline so this file dashboard-pastes with no import. ║
-// ╚══════════════════════════════════════════════════════════════════════╝
+// ── anti-AI module (inlined from _shared/tt-anti-ai.ts) ─────────────────
 
 // ─────────────────────────────────────────────────────────────────────────
 // Data
@@ -507,76 +519,53 @@ function ttScoreAiTells(input: { title?: string; content?: string; lang?: 'en' |
   tells.sort((a, b) => TT_WEIGHT[b.severity] - TT_WEIGHT[a.severity] || b.count - a.count)
   return { score, level, tells }
 }
-// ── end TT-ANTI-AI inline ─────────────────────────────────────────────────
-
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-const LANG = { ro: 'Romanian', en: 'English' } as const
+// ── end inline ────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors })
   if (req.method !== 'POST') return json({ ok: false, error: 'Method Not Allowed' }, 405)
 
+  const denied = await requireAdmin(req)
+  if (denied) return denied
+
   try {
-    const body = await req.json().catch(() => ({}))
-    const html = String(body.html || '').trim()
-    const source: 'ro' | 'en' = body.source_lang === 'en' ? 'en' : 'ro'
-    const target: 'ro' | 'en' = body.target_lang === 'ro' ? 'ro' : 'en'
+    const input = await req.json().catch(() => ({})) as {
+      blog_post_id?: string; title?: string; content?: string; lang?: 'en' | 'ro'
+    }
 
-    if (!html) return json({ ok: false, error: 'html is required' }, 400)
-    if (source === target) return json({ ok: true, html })
+    // ad-hoc scoring of supplied text
+    if (!input.blog_post_id) {
+      const lang: 'en' | 'ro' = input.lang === 'ro' ? 'ro' : 'en'
+      const rep = ttScoreAiTells({ title: input.title, content: input.content, lang })
+      return json({ ok: true, overall: { score: rep.score, level: rep.level }, [lang]: rep })
+    }
 
-    const system = [
-      `You are a professional news translator for a bilingual Romanian/English newspaper (Transilvania Times).`,
-      `Translate the article body below from ${LANG[source]} to ${LANG[target]}.`,
-      ``,
-      `Return VALID HTML whose STRUCTURE is identical to the input:`,
-      `- Preserve every tag, its attributes, and their order EXACTLY: <p>, <br>, <strong>, <b>, <em>, <i>, <u>, <s>, <h2>, <h3>, <h4>, <blockquote>, <ul>, <ol>, <li>, <a>, <sub>, <sup>, <hr>, <table>, <thead>, <tbody>, <tfoot>, <tr>, <th>, <td>, <caption>.`,
-      `- Translate ONLY the human-readable text between the tags. Do NOT add, remove, merge, split, or reorder any element.`,
-      `- Keep inline emphasis on the same words: bold stays bold, italic stays italic.`,
-      `- Translate each table cell's text in place; never change the table's rows or columns.`,
-      `- Keep numbers, dates, URLs, and proper names intact. Do NOT add a title, extra headings, notes, or a wrapping element.`,
-      ``,
-      ``,
-      `Choose natural, human news wording in ${LANG[target]} — do not make it read like a machine:`,
-      `- Use NO em dashes or en dashes (\u2014 \u2013). Use commas, periods or parentheses instead.`,
-      `- Any heading or title stays in sentence case: never ALL CAPS, never Title Case; keep real acronyms (PSD, UE, NATO, TVA).`,
-      `- Avoid AI-tell words and filler: ${target === 'en' ? `delve, boasts, nestled, tapestry, \"a testament to\", \"stands as a\", underscores, showcases, \"it's worth noting\", \"plays a crucial role\", moreover / furthermore` : `\u201ejoac\u0103 un rol crucial\u201d, \u201ereprezint\u0103 o dovad\u0103\u201d, \u201emerit\u0103 men\u021bionat c\u0103\u201d, \u201eo gam\u0103 larg\u0103 de\u201d, \u201e\u00een cele din urm\u0103\u201d`}. Prefer plain words.`,
-      `- No summary or conclusion filler paragraph; keep it factual and direct.`,
-      `Output ONLY the translated HTML — no markdown code fences, no preamble, no explanation.`,
-    ].join('\n')
+    // score a stored article, both languages
+    const url = Deno.env.get('SUPABASE_URL')!
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const sb = createClient(url, serviceKey, { auth: { persistSession: false } })
 
-    const { text, error } = await callClaude({
-      systemInstruction: system,
-      userMessage: html,
-      model: CLAUDE_SONNET,
-      temperature: 0.2,
-      maxTokens: 8000,
-    })
+    const { data: post, error } = await sb
+      .from('blog_posts')
+      .select('title_en, content_en, title_ro, content_ro')
+      .eq('id', input.blog_post_id)
+      .single()
+    if (error || !post) return json({ ok: false, error: error?.message || 'Article not found' }, 404)
 
-    if (error) return json({ ok: false, error }, 502)
+    const en = ttScoreAiTells({ title: post.title_en as string, content: post.content_en as string, lang: 'en' })
+    const ro = ttScoreAiTells({ title: post.title_ro as string, content: post.content_ro as string, lang: 'ro' })
+    const hasEn = Boolean((post.title_en as string) || (post.content_en as string))
+    const hasRo = Boolean((post.title_ro as string) || (post.content_ro as string))
 
-    const out = (text || '')
-      .trim()
-      .replace(/^```html\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim()
+    const scores = [hasEn ? en.score : -1, hasRo ? ro.score : -1].filter((n) => n >= 0)
+    const worst = scores.length ? Math.max(...scores) : 0
+    const level = worst === 0 ? 'clean' : worst <= 15 ? 'low' : worst <= 40 ? 'medium' : 'high'
 
-    if (!out) return json({ ok: false, error: 'empty translation' }, 502)
-    // deterministic anti-AI safety net — strips dashes / AI lexicon / calms
-    // ALL-CAPS headings, touching ONLY text nodes so the HTML structure stays 1:1
-    const humanized = ttHumanizeHtml(out, target)
-    return json({ ok: true, html: humanized })
+    const out: Record<string, unknown> = { ok: true, overall: { score: worst, level } }
+    if (hasEn) out.en = en
+    if (hasRo) out.ro = ro
+    return json(out)
   } catch (e) {
     return json({ ok: false, error: (e as Error).message || 'Unknown error' }, 500)
   }
 })
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
-}

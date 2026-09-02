@@ -26,8 +26,18 @@ Screen recording          da   49-screen 50/50               da       da    prod
 Podcast alignment         da   47-podcast 55/55              da       da    podcast
 Chunked transcription     da   56-audio-chunking 29/29       da       da    podcast
 Speaker attribution       da   59-poller-diarise-clips 63/63 da       da    podcast
-Episode for publishing    da   61-episode 47/47              da       da    podcast
-Social verticals          da   61-episode 47/47              da       da    podcast
+Transcript editing        da   64-transcript-edit 61/61      da       da    podcast
+Undo / redo               da   64-transcript-edit 61/61      da       da    podcast
+Hear the edit             da   64-transcript-edit 61/61      da       da    podcast
+Episode video             da   61-episode 52/52              da       da    podcast
+Episode MP3               da   63-audio-episode 20/20        da       da    podcast
+Loudness -16 LUFS         da   63-audio-episode 20/20        da       da    podcast
+Music bed + ducking       da   63-audio-episode 20/20        da       da    podcast
+Speaker balance           da   64-transcript-edit 61/61      da       da    podcast
+Captions srt/vtt          da   22-captions-parity 19/19      da       da    podcast
+Chapters, both formats    da   65-deliver 55/55              da       da    podcast
+Title + description       da   65-deliver 55/55              da       da    podcast
+Social verticals          da   61-episode 52/52              da       da    podcast
 Project → timeline        da   54-project-builder 40/40      da       da    studio
 Railway poller            da   59-poller-diarise-clips 63/63 —        —     fără UI (server)
 Tenancy / seats           da   50-migration 17/17            —        —     fără UI (server)
@@ -41,5 +51,5 @@ generate-cover-image      există: da  · citește cheia: da  · e apelată: da
 render-worker             există: da  · citește cheia: da  · e apelată: da 
 
 ========================================================================================================
-53 suite · 1912 aserțiuni trecute · 0 căzute
+56 suite · 2081 aserțiuni trecute · 0 căzute
 Fiecare funcție are cod, dovadă, control și ușă.
