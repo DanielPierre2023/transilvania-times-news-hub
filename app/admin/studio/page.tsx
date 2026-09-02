@@ -22,6 +22,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { invokeEdge } from '@/lib/supabase/edgeError'
+import { encodeWav, monoSlice } from '@/lib/media/wav'
 import type { SupabaseClient } from '@supabase/supabase-js'
 // tt-timeline — real loudness measurement and caption sidecars.
 import { checkCaptions, conformCues, extractCues, toSRT, toVTT } from '@/lib/timeline/captions'
@@ -390,6 +392,8 @@ export default function StudioPage() {
   const [clonePerson, setClonePerson] = useState('')
   const [cloneConsent, setCloneConsent] = useState(false)
   const [cloneSamples, setCloneSamples] = useState<string[]>([])
+  // null = the browser could not decode it, which is not the same as zero.
+  const [cloneSampleSeconds, setCloneSampleSeconds] = useState<(number | null)[]>([])
   const [cloneEngine, setCloneEngine] = useState<'minimax' | 'elevenlabs'>('minimax')
   const [providers, setProviders] = useState<{ elevenlabs: boolean; minimax: boolean }>({ elevenlabs: false, minimax: false })
 
@@ -413,6 +417,10 @@ export default function StudioPage() {
 
   const [busy, setBusy] = useState<string>('')       // label of in-flight op
   const [error, setError] = useState('')
+  // A FACT IS NOT A FAILURE. "I converted your .m4a to .wav" belongs in a
+  // neutral line, not in the red banner: colouring information as an error is
+  // how people learn to stop reading the banner that matters.
+  const [notice, setNotice] = useState('')
   const [rendering, setRendering] = useState(false)
   const [renderPct, setRenderPct] = useState(0)
   const [outUrl, setOutUrl] = useState('')
@@ -452,18 +460,24 @@ export default function StudioPage() {
   }, [overlays, totalDur])
 
   // ─── helpers ────────────────────────────────────────────────────────────
+  // BOTH OF THESE USED TO THROW `e.message`, WHICH IS ALWAYS THE SAME SENTENCE.
+  //
+  // supabase-js sets a fixed "Edge Function returned a non-2xx status code" and
+  // hides the function's real answer in `error.context`. Every failure on this
+  // page — a voice clone, a motion generation, a render, a TTS call — therefore
+  // reported one identical string that named neither the step nor the cause,
+  // while the edge functions were carefully answering 400 with "FAL_KEY not
+  // set", 403 with a consent explanation and 502 with the provider's own text.
+  //
+  // `invokeEdge` reads that body. It lives in lib/supabase/edgeError.ts rather
+  // than here because three other pages had the same two-line version and only
+  // the Newsroom got it right.
   async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<T> {
-    const { data, error: e } = await supabase.functions.invoke(fn, { body })
-    if (e) throw new Error(e.message)
-    const d = data as { error?: string }
-    if (d?.error) throw new Error(d.error)
-    return data as T
+    return invokeEdge<T>(supabase, fn, body)
   }
   // Raw invoke (does not treat {error} as fatal) — used for the render-video passthrough.
   async function invokeRaw(fn: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const { data, error: e } = await supabase.functions.invoke(fn, { body })
-    if (e) throw new Error(e.message)
-    return (data || {}) as Record<string, unknown>
+    return invokeEdge<Record<string, unknown>>(supabase, fn, body, { errorInBodyIsFatal: false })
   }
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
@@ -493,8 +507,19 @@ export default function StudioPage() {
 
   async function uploadAsset(folder: string, file: File): Promise<string> {
     const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
+    return uploadBlob(folder, file, ext, file.type)
+  }
+  /**
+   * Upload with an EXPLICIT extension.
+   *
+   * The extension is part of the contract with some providers, not decoration:
+   * fal's voice-clone reads the URL and refuses anything that is not `.wav` or
+   * `.mp3` — with a 422 naming the extension, before it ever looks at the bytes.
+   */
+  async function uploadBlob(folder: string, blob: Blob, ext: string, contentType?: string): Promise<string> {
     const path = `${folder}/${Date.now()}-${uid()}.${ext}`
-    const { error: e } = await supabase.storage.from('studio-assets').upload(path, file, { contentType: file.type, upsert: false })
+    const { error: e } = await supabase.storage.from('studio-assets')
+      .upload(path, blob, { contentType: contentType || blob.type || 'application/octet-stream', upsert: false })
     if (e) throw new Error(`Upload eșuat: ${e.message}`)
     return supabase.storage.from('studio-assets').getPublicUrl(path).data.publicUrl
   }
@@ -1262,12 +1287,89 @@ export default function StudioPage() {
   }
 
   // ─── voice cloning (ElevenLabs, consent required) ───────────────────────
+  // THE LENGTH IS MEASURED HERE, NOT GUESSED FROM THE FILE SIZE ON THE SERVER.
+  //
+  // The edge function rejects a sample under 60 KB as "too short", because it
+  // cannot cheaply measure duration and file size is the only proxy it has.
+  // That proxy is wrong in both directions: 20 seconds of clean speech in a
+  // 48 kbps mono MP3 is about 120 KB and passes, the same 20 seconds in a
+  // heavily compressed voice-note codec can be 40 KB and is refused — and the
+  // person is told their perfectly good sample is too short.
+  //
+  // The browser has the file and can decode it, so it measures the real thing
+  // and says the actual number. A rejection that names the measurement is one
+  // a person can act on; "too short" about a 20-second file is one that makes
+  // them doubt the tool.
+  const CLONE_MIN_SECONDS = 10
+
+  // FAL ACCEPTS .wav AND .mp3. NOTHING ELSE. THIS IS THE BUG THAT WAS HAPPENING.
+  //
+  // A voice sample recorded on a phone is .m4a, and one recorded in a browser is
+  // .webm — neither is on the list. fal answers 422 "Unsupported audio format.
+  // Supported formats are .wav, .mp3." and voice-lab turns that into a 502,
+  // which supabase-js turned into "Edge Function returned a non-2xx status
+  // code". The right file was two clicks away and nothing said so.
+  //
+  // The browser can already decode all of those formats — it is doing exactly
+  // that to measure the duration — so it converts on the way through rather
+  // than refusing the file and asking the person to go and find a converter.
+  // The result is WAV at the SOURCE sample rate: resampling a clone reference
+  // down to 16 kHz to save bandwidth is throwing away the thing being cloned.
+  const CLONE_FORMATS = ['wav', 'mp3']
+
+  async function prepareCloneSample(file: File): Promise<{
+    blob: Blob; ext: string; seconds: number | null; converted: boolean
+  }> {
+    const ext = (file.name.split('.').pop() || '').toLowerCase()
+    const AC = window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+
+    let decoded: AudioBuffer | null = null
+    try {
+      const ctx = new AC()
+      decoded = await ctx.decodeAudioData(await file.arrayBuffer())
+      await ctx.close()
+    } catch { decoded = null }
+
+    if (CLONE_FORMATS.includes(ext)) {
+      // Already acceptable — send the original bytes rather than a re-encode.
+      return { blob: file, ext, seconds: decoded ? decoded.duration : null, converted: false }
+    }
+    if (!decoded) {
+      throw new Error(
+        `Formatul .${ext || '?'} nu e acceptat de serviciul de clonare (doar .wav și .mp3), ` +
+        'iar browserul nu a putut să-l deschidă ca să-l convertească. ' +
+        'Exportă mostra ca .wav sau .mp3 și încarc-o din nou.')
+    }
+    const samples = monoSlice(decoded, 0, decoded.duration)
+    return {
+      blob: encodeWav(samples, decoded.sampleRate),
+      ext: 'wav',
+      seconds: decoded.duration,
+      converted: true,
+    }
+  }
+
   async function onCloneSample(file?: File) {
     if (!file) return
-    setError(''); setBusy('clonesample')
+    setError(''); setNotice(''); setBusy('clonesample')
     try {
-      const url = await uploadAsset('voice-samples', file)
+      const prepared = await prepareCloneSample(file)
+      if (prepared.seconds !== null && prepared.seconds < CLONE_MIN_SECONDS) {
+        throw new Error(
+          `Mostra are ${prepared.seconds.toFixed(1)} secunde. MiniMax și ElevenLabs cer cel puțin ` +
+          `${CLONE_MIN_SECONDS} secunde de vorbire curată — sub asta, vocea clonată ` +
+          'seamănă cu persoana doar pe alocuri. Înregistrează 20–30 de secunde.')
+      }
+      const url = await uploadBlob('voice-samples', prepared.blob, prepared.ext,
+        prepared.ext === 'wav' ? 'audio/wav' : file.type)
       setCloneSamples(s => [...s, url].slice(0, 3))
+      setCloneSampleSeconds(s => [...s, prepared.seconds].slice(0, 3))
+      if (prepared.converted) {
+        setNotice(`Mostra era .${(file.name.split('.').pop() || '').toLowerCase()}, ` +
+          'pe care serviciul de clonare nu o acceptă — am convertit-o în .wav ' +
+          `la ${Math.round((prepared.blob.size / 1e6) * 10) / 10} MB, fără pierdere de rată.`)
+      }
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
   async function doClone() {
@@ -1286,7 +1388,7 @@ export default function StudioPage() {
       })
       const nv: ElVoice = { voice_id: r.voice_id, name: cloneName.trim(), category: 'cloned', provider: (r.provider as 'minimax' | 'elevenlabs') || cloneEngine }
       setElVoices(v => [nv, ...v]); setElConfigured(true); setElVoiceId(r.voice_id)
-      setCloneOpen(false); setCloneName(''); setClonePerson(''); setCloneConsent(false); setCloneSamples([])
+      setCloneOpen(false); setCloneName(''); setClonePerson(''); setCloneConsent(false); setCloneSamples([]); setCloneSampleSeconds([])
     } catch (e) { setError((e as Error).message) } finally { setBusy('') }
   }
 
@@ -2362,6 +2464,13 @@ export default function StudioPage() {
       {error && (
         <div className="mb-5 flex items-start gap-2 text-[12.5px] text-red-400 bg-red-400/10 border border-red-400/20 p-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span>
+          <button onClick={() => setError('')} className="ml-auto text-white/40 hover:text-white">×</button>
+        </div>
+      )}
+      {notice && (
+        <div className="mb-5 flex items-start gap-2 text-[12.5px] text-sky-300/90 bg-sky-400/[0.07] border border-sky-400/20 p-3">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{notice}</span>
+          <button onClick={() => setNotice('')} className="ml-auto text-white/40 hover:text-white">×</button>
         </div>
       )}
 
@@ -3210,6 +3319,27 @@ export default function StudioPage() {
                         {busy === 'clonesample' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Mostre audio ({cloneSamples.length}/3)
                         <input type="file" accept="audio/*" hidden onChange={e => onCloneSample(e.target.files?.[0])} />
                       </label>
+                      {/* The measurement, shown. A person who can see "24.3s" next
+                          to their sample never has to wonder whether the length
+                          was the problem. */}
+                      {cloneSamples.length > 0 && (
+                        <div className="grid gap-1 text-[10.5px] text-white/40">
+                          {cloneSamples.map((_, i) => {
+                            const sec = cloneSampleSeconds[i]
+                            return (
+                              <span key={i} className={sec !== null && sec !== undefined && sec < 20 ? 'text-amber-300/70' : ''}>
+                                mostra {i + 1}: {sec === null || sec === undefined
+                                  ? 'durată necunoscută (browserul nu a putut decoda formatul)'
+                                  : `${sec.toFixed(1)}s${sec < 20 ? ' — merge, dar 20–30s dau o voce mult mai fidelă' : ''}`}
+                              </span>
+                            )
+                          })}
+                          <button onClick={() => { setCloneSamples([]); setCloneSampleSeconds([]) }}
+                            className="w-fit text-white/30 hover:text-white underline">
+                            șterge mostrele
+                          </button>
+                        </div>
+                      )}
                       <label className="flex items-start gap-2 text-[11.5px] text-white/60 cursor-pointer leading-snug">
                         <input type="checkbox" checked={cloneConsent} onChange={e => setCloneConsent(e.target.checked)} className="mt-0.5" />
                         <span><ShieldCheck className="w-3 h-3 inline mr-1" />Confirm că persoana numită mai sus și-a dat <b>acordul explicit</b> pentru clonarea vocii sale. Fără acest acord, clonarea este refuzată.</span>
@@ -3221,6 +3351,8 @@ export default function StudioPage() {
                         {cloneEngine === 'minimax'
                           ? 'O mostră curată de min. 10 secunde (fără muzică de fundal). Fără abonament — se plătește per folosire din creditele fal. Vocea se salvează în contul tău și apare în listă cu 👤 · fal.'
                           : '1–3 mostre curate, fără muzică de fundal, total 1–3 minute. Necesită plan ElevenLabs. Vocea apare în listă cu 👤.'}
+                        {' '}Serviciul acceptă doar .wav și .mp3; orice altceva (.m4a de pe telefon,
+                        .webm dintr-o înregistrare în browser) se convertește automat aici.
                       </p>
                     </div>
                   )}

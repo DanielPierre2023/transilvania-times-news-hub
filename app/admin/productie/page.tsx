@@ -28,6 +28,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+// Reads the function's real answer instead of "non-2xx". See lib/supabase/edgeError.ts.
+import { invokeEdge } from '@/lib/supabase/edgeError'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   AlertCircle, Check, Loader2, Mic, Monitor, Pause,
@@ -205,11 +207,8 @@ export default function ProductiePage() {
         // whole campaign, which is what makes it cost cents rather than dollars.
         let media: RowMedia = { voiceUrl: sharedVoiceUrl, voiceSeconds: sharedVoiceSeconds }
         if (mode !== 'textOnly' && draft.script) {
-          const v = await db.functions.invoke('generate-voiceover', {
-            body: { text: draft.script, voice_id: avatar?.voiceId, language: 'ro' },
-          })
-          if (v.error) throw new Error(v.error.message)
-          const vd = v.data as { publicUrl?: string; url?: string; seconds?: number }
+          const vd = await invokeEdge<{ publicUrl?: string; url?: string; seconds?: number }>(
+            db, 'generate-voiceover', { text: draft.script, voice_id: avatar?.voiceId, language: 'ro' })
           const voiceUrl = vd?.publicUrl || vd?.url
           if (!voiceUrl) throw new Error('voice generation returned no file')
           // MEASURED, NOT READ OFF THE RESPONSE. generate-voiceover returns no
@@ -228,12 +227,8 @@ export default function ProductiePage() {
         if (mode === 'fullyGenerated') {
           const genHooks: GenerateHooks = {
             image: async (prompt, aspect) => {
-              const r = await db.functions.invoke('generate-cover-image', {
-                body: { raw_prompt: prompt, aspect },
-              })
-              if (r.error) throw new Error(r.error.message)
-              const d = r.data as { publicUrl?: string; error?: string }
-              if (d?.error) throw new Error(d.error)
+              const d = await invokeEdge<{ publicUrl?: string }>(
+                db, 'generate-cover-image', { raw_prompt: prompt, aspect })
               if (!d?.publicUrl) throw new Error('image generation returned no file')
               return d.publicUrl
             },
@@ -268,10 +263,8 @@ export default function ProductiePage() {
         await db.from('studio_campaign_jobs')
           .update({ timeline }).eq('campaign_id', id).eq('row_index', rowIndex)
 
-        const created = await db.functions.invoke('render-worker', {
-          body: createRenderBody(timeline),
-        })
-        if (created.error) throw new Error(created.error.message)
+        const created = { data: await invokeEdge<Record<string, unknown>>(
+          db, 'render-worker', createRenderBody(timeline), { errorInBodyIsFatal: false }) }
         const jobId = (created.data as { id?: string })?.id
         if (!jobId) throw new Error((created.data as { error?: string })?.error || 'render did not start')
 
@@ -280,9 +273,8 @@ export default function ProductiePage() {
         while (Date.now() < deadline) {
           if (signal.aborted) throw new Error('aborted')
           await new Promise(r => setTimeout(r, 4_000))
-          const st = await db.functions.invoke('render-worker', { body: statusRenderBody(jobId) })
-          if (st.error) throw new Error(st.error.message)
-          const job = st.data as { state?: string; downloadUrl?: string; error?: string }
+          const job = await invokeEdge<{ state?: string; downloadUrl?: string; error?: string }>(
+            db, 'render-worker', statusRenderBody(jobId), { errorInBodyIsFatal: false })
           const state = String(job?.state || '')
           if (!isFinished(state)) continue
           if (isFailure(state)) throw new Error(job?.error || `render ${state}`)
@@ -679,16 +671,12 @@ export default function ProductiePage() {
                         setBusy('cadru'); setError('')
                         try {
                           const spec = shotSpec(avatar, 'reference', shotPrompt.trim())
-                          const r = await db.functions.invoke('generate-image-edit', {
-                            body: {
+                          const d = await invokeEdge<{ publicUrl?: string }>(
+                            db, 'generate-image-edit', {
                               image_urls: spec.referenceUrls,
                               prompt: spec.prompt,
                               aspect: avatar.aspect ?? '16:9',
-                            },
-                          })
-                          if (r.error) throw new Error(r.error.message)
-                          const d = r.data as { publicUrl?: string; error?: string }
-                          if (d?.error) throw new Error(d.error)
+                            })
                           if (!d?.publicUrl) throw new Error('generarea nu a returnat o imagine')
                           setShotUrl(d.publicUrl)
                         } catch (err) { setError((err as Error).message) } finally { setBusy('') }
@@ -867,11 +855,8 @@ export default function ProductiePage() {
                           setBusy('voce'); setError('')
                           try {
                             const base = buildDraft(template, slotValues, sheet.rows[0] ?? {})
-                            const v = await db.functions.invoke('generate-voiceover', {
-                              body: { text: base.script, voice_id: avatar?.voiceId, language: 'ro' },
-                            })
-                            if (v.error) throw new Error(v.error.message)
-                            const vd = v.data as { publicUrl?: string; url?: string; seconds?: number }
+                            const vd = await invokeEdge<{ publicUrl?: string; url?: string; seconds?: number }>(
+                              db, 'generate-voiceover', { text: base.script, voice_id: avatar?.voiceId, language: 'ro' })
                             const u = vd?.publicUrl || vd?.url
                             if (!u) throw new Error('generarea vocii nu a returnat un fișier')
                             setSharedVoiceUrl(u)

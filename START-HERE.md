@@ -1,135 +1,114 @@
-# tt-podcast-studio — stația de montaj podcast
+# De ce nu mergea clonarea vocii
 
-Citește **GHID.md** pentru cum se folosește. Acest fișier e ce se comite și ce se
-deployează.
+## Răspunsul exact
 
-Verificat înainte de trimitere: `tsc --noEmit` curat, `next build` curat (zero
-avertismente pe pagina nouă), **56 de suite, 2081 de aserțiuni, 0 căzute**.
-Randarea MP3 e testată cu ffmpeg pe fișiere reale, nu doar afirmată.
+Am prins răspunsul real al funcției din browserul tău. Era acesta:
+
+```
+fal minimax voice-clone 422: Unsupported audio format.
+Supported formats are .wav, .mp3.
+```
+
+**Mostra ta audio nu era .wav sau .mp3.** Aproape sigur .m4a (de pe telefon) sau
+.webm (înregistrare făcută în browser). fal o refuză înainte să se uite la
+conținut — se uită la extensia din URL.
+
+Nu era vina cheilor, a creditelor, a consimțământului sau a lungimii mostrei. Am
+verificat pe viu: `voice-lab` răspunde 200, `elevenlabs: true`, `minimax: true`,
+și ai deja trei voci clonate (Adriana, Daniel TT, Daniel TT2).
+
+## De ce ai văzut „Edge Function returned a non-2xx status code"
+
+Ăsta e al doilea bug, și e cel mai grav dintre cele două.
+
+`supabase.functions.invoke` pune mereu **aceeași** propoziție în `error.message`,
+indiferent de motiv. Răspunsul adevărat al funcției stă în `error.context`, iar
+pagina Studio îl arunca:
+
+```ts
+if (e) throw new Error(e.message)     // ← mereu "non-2xx"
+```
+
+Deci **fiecare** eșec din Studio — clonare, generare de mișcare, randare, voce —
+raporta o propoziție identică, fără să spună nici măcar care pas a picat. Iar
+funcțiile edge răspundeau atent: 400 cu „FAL_KEY not set", 403 cu explicația
+consimțământului, 502 cu textul providerului. Nimic din toate astea nu ajungea
+pe ecran.
+
+Pagina Newsroom citea corect. Studio, Producție și Podcast — nu. Patru locuri,
+unul singur corect: asta se întâmplă cu o reparație care trăiește într-o pagină.
 
 ---
 
-## 1 · Commit — copiezi peste, exact pe aceste căi
+## Ce s-a schimbat
+
+### 1. Motivul real ajunge pe ecran, peste tot
+
+`lib/supabase/edgeError.ts` — un singur cititor, folosit de toate cele patru
+pagini. De acum eroarea arată așa:
+
+> `voice-lab: fal minimax voice-clone 422: Unsupported audio format. Supported formats are .wav, .mp3.`
+
+Numele funcției în față, pentru că o pagină care face unsprezece apeluri
+trebuie să spună și **care** a picat.
+
+Traduc doar patru mesaje în limbaj omenesc (credite fal terminate, cheie fal
+lipsă, cheie ElevenLabs lipsă, consimțământ). Restul trec **cuvânt cu cuvânt** —
+o traducere greșită e mai rea decât niciuna, fiindcă trimite omul să repare
+ceva ce nu e stricat.
+
+### 2. Formatul se convertește singur
+
+Browserul poate deschide .m4a, .webm, .ogg, .aac — o face oricum, ca să măsoare
+durata. Deci acum le **convertește în .wav** pe drum, la rata de eșantionare a
+sursei (o referință de clonare e exact fișierul care nu trebuie redus la 16 kHz),
+și îți spune într-o linie albastră că a făcut-o.
+
+Dacă browserul chiar nu poate deschide formatul, îți spune asta — nu te lasă să
+încarci ceva ce fal va refuza.
+
+### 3. Durata se măsoară aici, nu se ghicește pe server
+
+Funcția respingea o mostră sub 60 KB ca „prea scurtă", pentru că mărimea era
+singurul indiciu pe care îl avea. Indiciul e greșit în ambele direcții: 20 de
+secunde într-un codec de mesaj vocal au 40 KB și erau refuzate, cu mesajul că
+sunt prea scurte.
+
+Acum browserul măsoară durata reală și scrie numărul lângă fiecare mostră
+(„mostra 1: 24.3s"). Sub 10 secunde e refuz, cu numărul în mesaj. Sub 20 merge,
+dar îți spune că 20–30 dau o voce mult mai fidelă.
+
+---
+
+## Ce comiți
 
 | Cale | Ce e |
 |---|---|
-| `lib/podcast/edit.ts` | **nou** — modelul de montaj: tăieturi manuale, comutatoare, undo |
-| `lib/podcast/deliver.ts` | **nou** — capitole, transcriere, titlu/descriere |
-| `lib/podcast/episode.ts` | modificat — gain per vorbitor, sunetul camerelor |
-| `lib/podcast/clip.ts` | modificat — sunetul camerelor |
-| `lib/timeline/migrate.ts` | modificat — `sceneAudio` și `audioGain` per plan |
-| `app/admin/podcast/page.tsx` | **rescris** — editorul |
-| `_verification/51-reachable.cjs` | modificat — controalele noi |
-| `_verification/61-episode.cjs` | modificat — episodul are sunet |
-| `_verification/63-audio-episode.cjs` | **nou** — MP3-ul, cu ffmpeg |
-| `_verification/64-transcript-edit.cjs` | **nou** — montajul prin transcriere |
-| `_verification/65-deliver.cjs` | **nou** — capitole, note, parser |
-| `_verification/report.cjs` | modificat — matricea, cu funcțiile noi |
+| `lib/supabase/edgeError.ts` | **nou** — cititorul, într-un singur loc |
+| `app/admin/studio/page.tsx` | cititorul + conversia formatului + durata măsurată |
+| `app/admin/productie/page.tsx` | cititorul, 6 apeluri |
+| `app/admin/podcast/page.tsx` | cititorul, 4 apeluri |
+| `app/admin/newsroom/page.tsx` | pus pe modulul comun (avea copia lui corectă) |
+| `render-worker/package.json` | build-ul compilează și noul modul, pentru teste |
+| `_verification/66-edge-errors.cjs` | **nou** — 42 de aserțiuni |
+| `_verification/55-campaign-render.cjs` | aserțiuni mutate pe noua formă a apelului |
 
-## 2 · Railway — **da, aici trebuie deploy**
+**Supabase: nimic. Railway: nimic** (pentru reparația asta — deploy-ul de
+`render-worker/src/` din zip-ul anterior rămâne de făcut, dacă nu l-ai făcut).
 
-Trei fișiere din `render-worker/src/`: `render.js`, `index.js`, `audio.js`.
-
-Fără ele, butonul **MP3 pentru feed** trimite un job pe care workerul actual nu
-știe să-l facă. Restul paginii merge; MP3-ul nu.
-
-## 3 · SQL — nimic
-
-## 4 · Funcții edge — nimic
-
-Nici un fișier din `supabase/functions/` nu s-a atins. Titlul și descrierea merg
-prin `ai-blog-assistant`, care e deja deployat.
+Verificat: `tsc --noEmit` curat, `next build` curat, **57 de suite, 2123 de
+aserțiuni, 0 căzute**. Am și stricat înadins cititorul ca să confirm că
+aserțiunile chiar cad.
 
 ---
 
-## Ce s-a schimbat, și de ce
+## Ce faci acum
 
-### Nu se putea tăia. Acum se taie citind.
+1. Comiți.
+2. Reîncerci clonarea cu aceeași mostră — se convertește automat.
+3. Dacă mai pică, mesajul îți spune de data asta **exact** de ce.
 
-Pagina veche calcula un montaj și nu îl arăta nimănui. Scria „38 tăieturi ·
-214,6s scoase" și nu îți dădea niciun fel de a vedea care 38, de a auzi una, de
-a nu fi de acord cu una, sau de a face a treizeci și noua. La întrebarea „cum
-tai?", răspunsul sincer era „nu tai — taie el, și speri".
-
-Acum transcrierea **e** montajul: selectezi cuvinte cu mouse-ul, apeși Taie, iar
-ele ies din episod — barate pe ecran, ca să vezi ce ai făcut, și se pun înapoi cu
-un click. Tăieturile automate sunt același fel de obiect ca ale tale, de aia
-poate fi anulată oricare, individual.
-
-Totul produce `Cut[]`. `keptRanges` face din asta ce rămâne și
-`buildEpisodeProject` face din asta filmul — deci previzualizarea, MP3-ul,
-video-ul și subtitrările nu pot fi în dezacord despre unde sunt tăieturile.
-
-### Două bug-uri găsite în ce ți-am trimis săptămâna trecută
-
-**Episodul ieșea MUT.** `migrateLegacyProject` pune fiecare clip video pe
-`audio: { gain: 0 }` — corect pentru b-roll sub un voiceover, și înseamnă
-programul întreg pentru o conversație. Butonul „Randează episodul" pe care ți
-l-am dat ar fi produs un film fără sunet, și clipurile verticale la fel. Nimic nu
-prinsese asta pentru că toate aserțiunile se opreau la proiect și niciuna nu
-construia timeline-ul pe care îl primește randorul. Găsit construindu-l și
-uitându-mă la el.
-
-**Parserul de note tăia răspunsul la primul rând.** Flagul `m` face ca `$` să se
-potrivească la sfârșitul fiecărui **rând**, deci o descriere de două paragrafe
-venea ca primul paragraf, iar o listă de trei citate ca un citat. Arăta exact ca
-un model care a răspuns scurt.
-
-Ambele au acum aserțiuni care le prind, și am verificat că aserțiunile chiar cad
-când repun bug-ul.
-
-### MP3-ul, care lipsea
-
-Un podcast livrează în primul rând un fișier audio. Pipeline-ul nu putea face
-unul: mixerul, ducking-ul cu sidechain și loudnorm-ul în două treceri existau
-toate, în spatele unei funcții care desenează întâi fiecare cadru de video. Deci
-o oră de conversație însemna o oră de Chromium rasterizând o imagine fixă ca să
-ajungă la sunetul care era gata în minutul zece — și apoi scoteai video-ul de pe
-el manual.
-
-`renderAudioOnly` ajunge la etapa de sunet fără imagine, prin **același** mixer
-și același normalizator. Testat cu ffmpeg: e chiar MP3 (extensia nu dovedește
-nimic), la 44,1 kHz stereo, de lungimea timeline-ului și nu a patului muzical, la
-−16 LUFS măsurat pe fișierul final, sub −1 dBTP. Și muzica **se dă măsurabil la
-o parte** de sub voce: 880 Hz sub vorbire față de 880 Hz în gol, cu ducking-ul
-neutralizat diferența e −0,1 dB, cu el funcțional trece pragul de 2,5 dB.
-
-### Ținta de volum
-
-`podcast: −16 LUFS, −1 dBTP, LRA 7`. Aceeași țintă ca presetul social, dar
-interval mai strâns: 11 LU e potrivit pentru un feed cu multă muzică și prea larg
-pentru doi oameni care vorbesc, unde lasă vorbitorul mai încet să dispară sub
-zgomotul din mașină.
-
----
-
-## Ce nu e făcut
-
-Scris aici ca să nu-l descoperi în ziua în care publici:
-
-- **intro / outro** ca piese separate (muzica e pat continuu, nu jingle)
-- **reducere de zgomot** dincolo de filtrul trece-sus
-- **redenumirea capitolelor în pagină** (se face în fișierul exportat)
-- **corectarea transcrierii** — poți tăia cuvinte, nu le poți rescrie, deci un
-  nume propriu greșit de Whisper rămâne greșit în subtitrări
-
-Primele două sunt lucru de o zi fiecare. Al patrulea e cel pe care l-aș face
-următorul dacă podcastul intră în producție în două săptămâni: un nume greșit în
-subtitrări e vizibil pentru toată lumea.
-
----
-
-## Dacă nu ai comis zip-ul anterior (`tt-podcast`)
-
-Nu contează ordinea: zip-ul ăsta **le conține și pe acelea**, în aceeași stare
-verificată. Fișierele în plus, incluse ca să fie de sine stătător:
-
-`app/admin/components/ProductionChrome.tsx` · `app/admin/productie/page.tsx` ·
-`app/admin/studio/page.tsx` · `app/admin/layout.tsx` ·
-`render-worker/package.json` · `_verification/56-audio-chunking.cjs` ·
-`_verification/62-nav.cjs` ·
-`supabase/migrations/20260902090000_campaign_timelines_and_org.sql` ·
-`.github/workflows/ci.yml`
-
-Migrarea aceea e **deja aplicată** în baza ta — fișierul merge în repo doar ca să
-existe evidența. Tot nu ai nimic de rulat în Supabase.
+Un singur lucru de știut despre vocile clonate cu MiniMax: fal le șterge dacă nu
+sunt folosite cel puțin o dată în 7 zile. Funcția rostește deja o frază scurtă
+imediat după clonare, ca să le rețină permanent — deci vocile tale existente sunt
+în siguranță.

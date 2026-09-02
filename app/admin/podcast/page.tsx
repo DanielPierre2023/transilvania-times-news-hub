@@ -44,6 +44,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { invokeEdge } from '@/lib/supabase/edgeError'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   Check, Clapperboard, Download, FileAudio, FileText, Film, Loader2, Lock,
@@ -221,11 +222,12 @@ export default function PodcastPage() {
         }
         const url = await upload(blob, `chunk-${chunk.index}.wav`)
         // snake_case: the deployed function reads `audio_url`.
-        const { data, error: e } = await db.functions.invoke('align-subtitles', {
-          body: { audio_url: url, language: 'ro' },
-        })
-        if (e) throw new Error(e.message)
-        const ws = ((data as { words?: { word: string; start: number; end: number }[] })?.words) || []
+        // invokeEdge, not functions.invoke: the latter reports every failure as
+        // "Edge Function returned a non-2xx status code" and discards the
+        // sentence the function actually sent.
+        const data = await invokeEdge<{ words?: { word: string; start: number; end: number }[] }>(
+          db, 'align-subtitles', { audio_url: url, language: 'ro' })
+        const ws = data?.words || []
         parts.push({ chunk, words: ws.map(w => ({ ...w, speaker: mic.speaker })) })
       }
 
@@ -414,8 +416,8 @@ export default function PodcastPage() {
           ...(title ? { tags: { title, artist: 'Transilvania Times' } } : {}),
         },
       } as typeof timeline
-      const created = await db.functions.invoke('render-worker', { body: createRenderBody(timeline) })
-      if (created.error) throw new Error(created.error.message)
+      const created = { data: await invokeEdge<Record<string, unknown>>(
+        db, 'render-worker', createRenderBody(timeline), { errorInBodyIsFatal: false }) }
       // `create` answers with the worker's job object; its id field is `id`, not
       // `job_id` (which is what the REQUEST uses). `status` answers with
       // `downloadUrl`, not `url`. Both wrong guesses render, cost money, finish,
@@ -437,8 +439,8 @@ export default function PodcastPage() {
           return
         }
         await new Promise(r => setTimeout(r, 4000))
-        const st = await db.functions.invoke('render-worker', { body: statusRenderBody(jobId) })
-        if (st.error) throw new Error(st.error.message)
+        const st = { data: await invokeEdge<Record<string, unknown>>(
+          db, 'render-worker', statusRenderBody(jobId), { errorInBodyIsFatal: false }) }
         const s = st.data as { state?: string; downloadUrl?: string | null; error?: string } | null
         const state = String(s?.state ?? '')
         if (isFinished(state)) {
@@ -467,15 +469,12 @@ export default function PodcastPage() {
     if (!editedWords.length) { setError('Transcrie întâi episodul.'); return }
     setBusy('note')
     try {
-      const { data, error: e } = await db.functions.invoke('ai-blog-assistant', {
-        body: {
-          action: 'free_chat',
-          content: transcriptText(editedWords).slice(0, 60000),
-          prompt: showNotesPrompt({ minutes: summary.keptSeconds / 60, speakers }),
-        },
+      const data = await invokeEdge<{ result?: string }>(db, 'ai-blog-assistant', {
+        action: 'free_chat',
+        content: transcriptText(editedWords).slice(0, 60000),
+        prompt: showNotesPrompt({ minutes: summary.keptSeconds / 60, speakers }),
       })
-      if (e) throw new Error(e.message)
-      const raw = String((data as { result?: string })?.result ?? '')
+      const raw = String(data?.result ?? '')
       if (!raw.trim()) throw new Error('Modelul a răspuns gol.')
       const parsed = parseShowNotes(raw)
       setNotes(parsed)

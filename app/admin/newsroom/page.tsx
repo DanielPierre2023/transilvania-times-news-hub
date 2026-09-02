@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { invokeEdge } from '@/lib/supabase/edgeError'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   Tv, Newspaper, FileText, Mic, User, Film, Loader2, Wand2, Upload,
@@ -243,28 +244,16 @@ export default function NewsroomPage() {
   // the banner that actually matters.
   const [notice, setNotice] = useState('')
 
+  // THIS PAGE HAD THE ONLY CORRECT VERSION OF THIS, AND THAT WAS THE PROBLEM.
+  //
+  // Reading the function's real answer out of `error.context` was written here,
+  // and here only — the Studio, Producție and Podcast pages each had the
+  // two-line version that throws supabase-js's fixed "non-2xx" sentence. Four
+  // call sites, one of them right, is what a fix living inside a page looks like
+  // after a few months. It now lives in lib/supabase/edgeError.ts, including the
+  // fal TOP_UP translation that was first written on this line.
   async function invokeRaw(fn: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const { data, error: e } = await supabase.functions.invoke(fn, { body })
-    if (e) {
-      // supabase-js sets a generic "non-2xx status code" message and hides the
-      // function's real JSON body ({error:"..."}) inside error.context (the raw
-      // Response). Dig it out so failures name the actual step + cause.
-      let detail = ''
-      const ctx = (e as { context?: unknown }).context
-      if (ctx && typeof (ctx as Response).json === 'function') {
-        try {
-          const b = await (ctx as Response).clone().json() as Record<string, unknown>
-          if (b && typeof b.error === 'string') detail = b.error
-        } catch { /* not JSON — try text below */ }
-        if (!detail) { try { const t = await (ctx as Response).text(); if (t) detail = t.slice(0, 300) } catch { /* ignore */ } }
-      }
-      let msg = detail || e.message
-      if (/TOP_UP|User is locked/i.test(msg)) {
-        msg = 'Creditele fal.ai s-au terminat (cont blocat: TOP_UP). Deschide fal.ai → Billing → Add credits (preplătit, fără abonament; 10–20 $ ajung săptămâni), apoi apasă din nou butonul.'
-      }
-      throw new Error(`${fn}: ${msg}`)
-    }
-    return (data || {}) as Record<string, unknown>
+    return invokeEdge<Record<string, unknown>>(supabase, fn, body, { errorInBodyIsFatal: false })
   }
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 

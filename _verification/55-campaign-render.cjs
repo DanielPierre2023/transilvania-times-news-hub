@@ -78,9 +78,13 @@ const prod = stripComments(prodRaw)
 
 // ── the driver uses those helpers rather than an object literal ──────────
 {
+  // The `body:` wrapper went away when the page moved to `invokeEdge`, which
+  // takes the body as an argument rather than inside an options object. What
+  // is being asserted is unchanged: the payload comes from the named builder
+  // and is not retyped at the call site.
   ok('THE DRIVER SENDS THE BUILT BODY, not a hand-typed one',
-    /body: createRenderBody\(timeline\)/.test(prod))
-  ok('...and polls with the built status body', /body: statusRenderBody\(jobId\)/.test(prod))
+    /createRenderBody\(timeline\)/.test(prod))
+  ok('...and polls with the built status body', /statusRenderBody\(jobId\)/.test(prod))
   ok('THE INVENTED PAYLOAD IS GONE', !/body: \{ draft, aspect/.test(prod))
   ok('the driver builds a real timeline first', /rowTimeline\(project/.test(prod))
   // `rowDraft` rather than `draft`: a fully-generated row has its pictures made
