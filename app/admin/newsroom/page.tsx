@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { invokeEdge } from '@/lib/supabase/edgeError'
+import { LOWER_THIRD_MAX, truncateWords } from '@/lib/text/truncate'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   Tv, Newspaper, FileText, Mic, User, Film, Loader2, Wand2, Upload,
@@ -1315,7 +1316,9 @@ export default function NewsroomPage() {
     if (!sections || !sections.stories.length || !sectionsInSync) {
       return selectedPosts.map((p, i) => ({
         start: (dur / Math.max(1, selectedPosts.length)) * i,
-        title: ((lang === 'ro' ? p.title_ro : p.title_en) || '').slice(0, 60),
+        // Word-safe: a hard slice here is how an article title becomes
+        // "…străzii Pet" on air.
+        title: truncateWords((lang === 'ro' ? p.title_ro : p.title_en) || '', LOWER_THIRD_MAX),
         category: p.category,
         cover: p.cover_image,
       }))
@@ -1413,7 +1416,30 @@ export default function NewsroomPage() {
       start = Math.min(Math.max(start, i === 0 ? greetingFloor : prevStart + 0.8), Math.max(0, dur - 0.5))
       prevStart = start
       const src = postIdx[i] >= 0 ? selectedPosts[postIdx[i]] : undefined
-      out.push({ start, title: st.lower_third || `Știrea ${i + 1}`, category: src?.category, cover: src?.cover_image })
+      // THE HEADLINE, CHOSEN IN THE FRONTEND SO IT CANNOT ARRIVE BROKEN.
+      //
+      // This line used to pass `st.lower_third` straight to the screen. When the
+      // edge function's label came back as a spoken sentence sliced at 38
+      // characters — "Lucian Bratu scrie că debitul râului C" — that fragment
+      // WAS the headline, cut mid-word, and nothing here stopped it. The edge
+      // function is fixed too, but it is deployed by hand and that deploy keeps
+      // failing; this path deploys through Netlify and does not depend on it.
+      //
+      // A lower-third that is a PREFIX of the spoken text is not a title — it is
+      // a sliced sentence. That is the exact signature of the bug and it is what
+      // this detects. When the label is a real crafted title (not a prefix of
+      // what is said) it is kept. Either way the winner is the ARTICLE'S OWN
+      // headline when we have it — the real, editor-written one — and everything
+      // is shortened on a WORD BOUNDARY so it can never end mid-word again.
+      const say = (st.text || '').replace(/\s+/g, ' ').trim().toLowerCase()
+      const label = (st.lower_third || '').replace(/\s+/g, ' ').trim()
+      const articleTitle = src ? ((lang === 'ro' ? src.title_ro : src.title_en) || src.title_ro || src.title_en || '') : ''
+      const labelIsSpokenFragment = label.length > 0 && say.startsWith(label.toLowerCase())
+      const chosen = (!label || labelIsSpokenFragment)
+        ? (articleTitle || (st.text || ''))   // the real headline, or the block to word-trim
+        : label
+      const headline = truncateWords(chosen, LOWER_THIRD_MAX) || `Știrea ${i + 1}`
+      out.push({ start, title: headline, category: src?.category, cover: src?.cover_image })
       acc += wc[(sections.greeting ? 1 : 0) + i]
     })
     return out
@@ -2003,7 +2029,19 @@ export default function NewsroomPage() {
           ctx.translate(0, (1 - txtIn) * 10)
           ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
           ctx.font = `700 ${isWide ? 34 : 30}px Lora, Georgia, serif`
-          const lines = wrapText(ctx, cur?.title || '', barW - 60).slice(0, 2)
+          // TWO LINES, AND THE THIRD IS NOT DROPPED IN SILENCE.
+          //
+          // `.slice(0, 2)` alone loses whatever did not fit with nothing on
+          // screen to say so — the same class of failure as the mid-word cut,
+          // one layer down. With the 70-character limit a third line cannot
+          // happen (two lines hold about 118 at this font, measured), so this
+          // is a guard rather than a routine path; when it does fire it ends
+          // the second line on a whole word and marks it.
+          const allLines = wrapText(ctx, cur?.title || '', barW - 60)
+          const lines = allLines.slice(0, 2)
+          if (allLines.length > 2 && lines.length === 2) {
+            lines[1] = truncateWords(lines[1], Math.max(8, lines[1].length - 2), '…')
+          }
           const lh = isWide ? 40 : 36
           const cyc = ltY + ltH / 2 + (isWide ? 6 : 5)
           let yy = cyc - (lines.length - 1) * lh / 2

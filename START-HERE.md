@@ -1,82 +1,83 @@
-# Vocea „pe viteză" — a fost greșeala mea, din zip-ul de acum o oră
+# Burtiera = începutul frazei rostite. Adevărata cauză, și de ce reparațiile mele n-au prins.
 
-## Ce s-a întâmplat
+## Ce ai văzut
 
-Ți-am trimis conversia automată în .wav. Am scris-o așa:
+„Lucian Bratu scrie că debitul râului C" — începutul frazei rostite, tăiat la
+38 de caractere. Nu e un titlu; e prima propoziție a știrii, retezată.
 
-```ts
-encodeWav(monoSlice(buf, 0, buf.duration), buf.sampleRate)
+## De ce reparațiile mele n-au schimbat nimic
+
+Am reparat de două ori **funcția edge** (care scrie eticheta) și te-am pus s-o
+redeployezi manual. Dar bulletinul se randează în **browser**, iar linia care
+desenează burtiera lua eticheta funcției **exact așa cum venea, netrecută prin
+nimic**:
+
+```js
+out.push({ ..., title: st.lower_third || `Știrea ${i+1}`, ... })
 ```
 
-Se citește corect. E greșit.
+Când funcția trimitea o frază tăiată, fraza aia AJUNGEA pe ecran. Niciuna dintre
+plasele mele din frontend nu atingea linia asta — reparasem alte două ramuri,
+nu pe cea pe care o folosește buletinul tău. Greșeala mea, de trei ori la rând,
+și pe layerul greșit.
 
-`monoSlice` **reeșantionează întotdeauna la 16 kHz** — a fost scrisă pentru
-Whisper, unde 16 kHz e gratis ca acuratețe și o treime din octeți. Numele nu
-spune asta. Apoi am scris în antetul WAV rata sursei, 48 kHz.
+## Reparația adevărată — în frontend, se deployează prin Netlify
 
-48000 / 16000 = **3**. Fișierul se redă de trei ori mai repede. MiniMax a clonat
-fidel o veveriță.
+Acum browserul **nu mai are încredere** în eticheta funcției. Pentru fiecare
+știre alege titlul singur:
 
-Trei lucruri obișnuite au conspirat: funcția nu spune în nume că
-reeșantionează, un `Float32Array` nu poate spune la ce rată e, iar `encodeWav`
-primea rata ca argument **separat**. Ușor de greșit, imposibil de văzut la
-citire.
+1. Dacă eticheta funcției e de fapt **începutul textului rostit** (un prefix al
+   frazei) — semnătura exactă a bug-ului — o ignoră.
+2. Folosește **titlul real al articolului** din baza ta de date — titlul scris
+   de om, care nu e tăiat niciodată la mijloc de cuvânt.
+3. Taie pe **cuvânt întreg**, la 70 de caractere, orice sursă.
 
-## Reparația
+Verificat cu cazul tău exact:
 
-Nu „am grijă data viitoare". Perechea nu se mai poate desface:
-
-```ts
-export interface MonoAudio { samples: Float32Array; rate: number }
-export function monoAudio(buffer, from?, to?, outRate = buffer.sampleRate): MonoAudio
-export const encodeWavFrom = (audio: MonoAudio) => encodeWav(audio.samples, audio.rate)
+```
+înainte : "Lucian Bratu scrie că debitul râului C"          (frază tăiată)
+după    : "Debitul Crișului Repede a scăzut la cel mai redus nivel din ultimii"
 ```
 
-`monoAudio` are **rata sursei** ca implicit — opusul lui `monoSlice` — pentru că
-o mostră de clonare e singurul fișier care nu trebuie coborât la 16 kHz: mostra
-**e** lucrul care se copiază.
+## De ce contează asta enorm
 
-`monoSlice` primește acum un parametru de rată explicit și un comentariu de
-douăzeci de rânduri care spune exact ce a pățit.
+Reparația e la **momentul randării**, nu la generarea scriptului. Deci:
 
-## Dovada
-
-`_verification/67-sample-rate.cjs` — 22 de aserțiuni care **măsoară înălțimea
-sunetului**, nu parametrii. A verifica dacă o variabilă conține 48000 ar fi
-trecut și pe codul stricat: variabila chiar conținea 48000.
-
-Deci: sintetizez un ton de 440 Hz, îl trec prin conversia reală și întreb
-ffmpeg ce frecvență iese.
-
-- prin calea corectă: **440 Hz, 3.0 secunde** ✓
-- prin linia care ți-a ajuns pe site: **1320 Hz, 1.0 secundă** — bug-ul,
-  reprodus intenționat, ca aserțiunea să nu poată trece dacă revine
+- Se deployează prin **git → Netlify** (comitere normală). **NU trebuie să mai
+  redeployezi nicio funcție edge.** Aia era partea care-ți tot pica.
+- Merge chiar și pe buletinele **deja generate**: nu regenera scriptul —
+  recompune videoul (butonul de compunere) și burtierele ies corect, pentru că
+  titlul se recalculează în browser din titlul articolului, nu din eticheta
+  veche stocată.
 
 ## Ce faci
 
-1. Comiți zip-ul ăsta.
-2. **Șterge vocea clonată din mostra convertită** — e clonată dintr-un fișier
-   3× accelerat, nu are cum să fie salvată.
-3. Clonează din nou cu aceeași mostră. Acum iese la rata corectă.
+1. **Comiți** cele 4 fișiere frontend (page + lib/text + package.json + suita).
+   Netlify le deployează. Gata — asta repară ecranul.
+2. Recompui buletinul. Burtierele arată titluri întregi.
 
-Vocile tale mai vechi (Adriana, Daniel TT, Daniel TT2) sunt dinainte de
-schimbarea mea și nu sunt afectate.
+Funcția `newsroom-anchor` e și ea în zip, curățată (self-contained, fără import
+`_shared`, fără limita de 38, tăiere pe cuvânt). **E opțională acum** — o
+deployezi când ai chef; chiar dacă n-o atingi niciodată, frontendul acoperă
+totul. Nu mai depinzi de deploy-ul manual de funcție pentru burtiere corecte.
 
 ## Fișiere
 
-| Cale | Ce e |
-|---|---|
-| `lib/media/wav.ts` | `monoAudio` + `encodeWavFrom`; `monoSlice` cu rată explicită |
-| `app/admin/studio/page.tsx` | folosește perechea |
-| `_verification/67-sample-rate.cjs` | **nou** — 22 aserțiuni, măsoară Hz cu ffmpeg |
-| restul | cititorul de erori din zip-ul anterior, neschimbat |
+| Cale | Ce e | Unde |
+|---|---|---|
+| `app/admin/newsroom/page.tsx` | **reparația reală** — titlul ales în browser | commit → Netlify |
+| `lib/text/truncate.ts` | tăiere pe cuvânt | commit |
+| `render-worker/package.json` | build-ul include `lib/text` | commit |
+| `_verification/68-lower-third.cjs` | +4 aserțiuni pe ramura in-sync | commit |
+| `supabase/functions/newsroom-anchor/index.ts` | funcția, curată | **opțional** deploy |
 
-Supabase: nimic. Railway: nimic pentru asta.
+Supabase SQL: nimic. Railway: nimic.
 
-Verificat: `tsc` curat, `next build` curat, **58 de suite, 2145 de aserțiuni,
-0 căzute**.
+## Verificat
 
----
+`tsc` curat, `next build` curat (zero avertismente pe newsroom), **59 de suite,
+2185 de aserțiuni, 0 căzute**. Am simulat alegerea titlului pe cazul tău real
+(mai sus) — iese titlul întreg al articolului, nu fraza tăiată.
 
-Îmi pare rău — asta a fost o regresie pe care ți-am trimis-o eu, iar tu ai
-găsit-o ascultând. Suita de acum o prinde măsurând frecvența, nu citind cod.
+O aserțiune nouă pică dacă vreo ramură mai trimite `st.lower_third` brut pe
+ecran — exact greșeala care ți-a stricat buletinul, prinsă de acum înainte.

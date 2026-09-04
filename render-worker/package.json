@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "build:timeline": "tsc ../lib/timeline/*.ts ../lib/podcast/*.ts ../lib/supabase/edgeError.ts ../lib/media/*.ts --rootDir ../lib --outDir dist --module commonjs --target es2020 --moduleResolution node --skipLibCheck --strict"
+    "build:timeline": "tsc ../lib/timeline/*.ts ../lib/podcast/*.ts ../lib/supabase/edgeError.ts ../lib/media/*.ts ../lib/text/*.ts --rootDir ../lib --outDir dist --module commonjs --target es2020 --moduleResolution node --skipLibCheck --strict"
   },
   "dependencies": {
     "canvas": "^3.2.0",

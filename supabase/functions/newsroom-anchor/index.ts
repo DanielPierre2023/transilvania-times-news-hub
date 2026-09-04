@@ -23,6 +23,39 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// ── LOWER-THIRD TEXT, WORD-SAFE ────────────────────────────────────────────
+//
+// INLINED ON PURPOSE. This started as an import from _shared/text.ts, and the
+// deploy failed: "Module not found _shared/text.ts". This function is deployed
+// by pasting THIS FILE into the Supabase dashboard, and a brand-new _shared
+// file does not exist there until it is uploaded separately — so a single-file
+// paste cannot resolve it. The other _shared imports work only because those
+// files are already in the project from earlier deploys.
+//
+// So the helper lives here, self-contained. The app keeps its own copy in
+// lib/text/truncate.ts, and _verification/68-lower-third.cjs extracts THIS
+// block (between the markers below) and asserts the two give identical answers
+// on every input — the duplication is declared and checked, not left to drift.
+//
+// WHY IT EXISTS: a lower-third once went out reading "Lucrările de modernizare
+// a străzii Pet" — 38 characters, cut mid-word. The prompt asked for 38 (a
+// third of one line of the bar) and the guard was `.slice(0, 44)`, which cuts
+// at a code unit and cannot tell the middle of a word from the end of one.
+//
+// >>> TT_TRUNCATE (do not remove these markers; the verification suite reads between them)
+const LOWER_THIRD_MAX = 70;
+const trimDangling = (x: string): string => x.replace(/[\s,;:–—-]+$/u, "").trim();
+function truncateWords(text: string, max: number, ellipsis = ""): string {
+  const clean = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  const room = Math.max(1, max - ellipsis.length);
+  const cut = clean.slice(0, room + 1);
+  const lastSpace = cut.lastIndexOf(" ");
+  const body = lastSpace > 0 ? clean.slice(0, lastSpace) : clean.slice(0, room);
+  return trimDangling(body) + ellipsis;
+}
+// <<< TT_TRUNCATE
+
 // ── MODEL CONFIGURATION ───────────────────────────────────────────────────
 // ADDED 31 Aug 2026. claude-sonnet-4-5-20250929 was hard-coded in EIGHT places
 // in this file and retires on 29 September 2026. A hard-coded model id is an
@@ -505,7 +538,7 @@ serve(async (req) => {
       // STRUCTURED script: JSON sections so the broadcast compositor can time
       // lower-thirds per story. `script` (joined spoken text) stays the TTS input.
       const sys = language === 'ro'
-        ? `Ești prezentatorul de știri al Transilvania Times. Scrie un buletin video de ~${target} secunde (~${wordsTarget} cuvinte) în română naturală, cu diacritice, ton profesionist: cald, clar, autoritar, fără senzaționalism. Răspunde DOAR cu JSON valid, fără alt text, exact în forma: {"greeting":"...","stories":[{"lower_third":"titlu de burtieră, max 38 caractere, fără punct final","text":"1-3 fraze rostite despre știre, cu tranziție naturală"}],"signoff":"..."}. Fără indicații de regie, fără emoji, fără markdown.
+        ? `Ești prezentatorul de știri al Transilvania Times. Scrie un buletin video de ~${target} secunde (~${wordsTarget} cuvinte) în română naturală, cu diacritice, ton profesionist: cald, clar, autoritar, fără senzaționalism. Răspunde DOAR cu JSON valid, fără alt text, exact în forma: {"greeting":"...","stories":[{"lower_third":"titlu de burtieră, maximum 70 de caractere, TERMINAT PE CUVÂNT ÎNTREG — nu tăia niciodată un cuvânt la jumătate; fără punct final","text":"1-3 fraze rostite despre știre, cu tranziție naturală"}],"signoff":"..."}. Fără indicații de regie, fără emoji, fără markdown.
 
 ACESTA ESTE BULETINUL UNUI ZIAR, NU AL UNEI TELEVIZIUNI.
 Nu relatezi de la fața locului. Prezinți articolele publicate azi de redacție.
@@ -539,7 +572,7 @@ Pentru opinii și eseuri, formulează afirmația ca afirmație a autorului, nu c
 FIECARE ȘTIRE TREBUIE SĂ CONȚINĂ CEL PUȚIN UN FAPT CONCRET — cine, ce, unde, când, cât. Dacă rezumatul primit nu conține niciun fapt, spune ideea principală în cuvinte simple; nu umple spațiul cu descrieri despre ce "își propune" articolul.
 
 ${coverageRo}`
-        : `You are the news anchor of Transilvania Times. Write a ~${target}-second (~${wordsTarget} words) bulletin in natural English: warm, clear, authoritative. Respond ONLY with valid JSON, no other text, exactly: {"greeting":"...","stories":[{"lower_third":"lower-third title, max 38 chars, no final period","text":"1-3 spoken sentences with a natural transition"}],"signoff":"..."}. No stage directions, no emoji, no markdown.
+        : `You are the news anchor of Transilvania Times. Write a ~${target}-second (~${wordsTarget} words) bulletin in natural English: warm, clear, authoritative. Respond ONLY with valid JSON, no other text, exactly: {"greeting":"...","stories":[{"lower_third":"lower-third title, at most 70 characters, ENDING ON A WHOLE WORD — never cut a word in half; no final period","text":"1-3 spoken sentences with a natural transition"}],"signoff":"..."}. No stage directions, no emoji, no markdown.
 
 THIS IS A NEWSPAPER'S BULLETIN, NOT A TV STATION'S. You are not reporting from the scene; you are presenting the articles the newsroom published today.
 
@@ -587,7 +620,7 @@ ${coverageEn}`;
           try { obj = JSON.parse(slice) }
           catch { obj = JSON.parse(repairJson(slice)) }   // second chance
           const stories = (Array.isArray((obj as Record<string, unknown>).stories) ? (obj as Record<string, unknown>).stories as Record<string, unknown>[] : [])
-            .map((st: Record<string, unknown>) => ({ lower_third: String(st.lower_third || '').slice(0, 44), text: String(st.text || '') }))
+            .map((st: Record<string, unknown>) => ({ lower_third: truncateWords(String(st.lower_third || ''), LOWER_THIRD_MAX), text: String(st.text || '') }))
             .filter((st: { text: string }) => st.text);
           if (!stories.length) return null;
           const greeting = String((obj as Record<string, unknown>).greeting || '');
@@ -790,14 +823,14 @@ ${coverageEn}`;
       if (!storyTexts.length) return json({ sections: null, note: 'Nu am gasit blocuri de stiri in script.' });
 
       const fallbackLabel = (t: string) =>
-        t.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0].slice(0, 38).replace(/[\s,;:.]+$/, '');
+        truncateWords(t.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0], LOWER_THIRD_MAX).replace(/[.]+$/, '');
 
       let labels: string[] = storyTexts.map(fallbackLabel);
       const secKey = Deno.env.get('CLAUDE_API_KEY');
       if (secKey) {
         const secSys = language === 'ro'
-          ? 'Primesti blocurile rostite ale unui buletin de stiri. Pentru fiecare bloc scrie un titlu de burtiera: maxim 38 de caractere, fara punct final, cu diacritice, concret (cine/ce/unde). Nu rescrie textul, nu adauga informatii. Raspunde DOAR cu JSON: {"labels":["...","..."]} — exact cate un titlu per bloc, in ordine.'
-          : 'You receive the spoken blocks of a news bulletin. For each block write a lower-third title: max 38 characters, no final period, concrete. Do not rewrite the text or add information. Respond ONLY with JSON: {"labels":["...","..."]} — exactly one per block, in order.';
+          ? 'Primesti blocurile rostite ale unui buletin de stiri. Pentru fiecare bloc scrie un titlu de burtiera: maximum 70 de caractere, TERMINAT PE CUVANT INTREG (nu taia niciodata un cuvant la jumatate), fara punct final, cu diacritice, concret (cine/ce/unde). Nu rescrie textul, nu adauga informatii. Raspunde DOAR cu JSON: {"labels":["...","..."]} — exact cate un titlu per bloc, in ordine.'
+          : 'You receive the spoken blocks of a news bulletin. For each block write a lower-third title: at most 70 characters, ENDING ON A WHOLE WORD (never cut a word in half), no final period, concrete. Do not rewrite the text or add information. Respond ONLY with JSON: {"labels":["...","..."]} — exactly one per block, in order.';
         try {
           const secRes = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -824,7 +857,7 @@ ${coverageEn}`;
             // Only accept a COMPLETE answer of the right size. A partial list
             // would silently mislabel the tail of the bulletin.
             if (got.length === storyTexts.length && got.every((l: string) => l.trim())) {
-              labels = got.map((l: string) => l.trim().slice(0, 44));
+              labels = got.map((l: string) => truncateWords(l, LOWER_THIRD_MAX));
             }
           }
         } catch { /* labels already have a deterministic fallback */ }
