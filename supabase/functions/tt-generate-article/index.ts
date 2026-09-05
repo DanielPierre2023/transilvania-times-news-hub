@@ -207,13 +207,26 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
-const SONNET_MODEL = 'claude-sonnet-4-5-20250929'
+// v18 — model migration + quality tier (prices verified vs the Claude pricing
+// page, Sep 2026).
+//   * Sonnet 4.5 (claude-sonnet-4-5-20250929) retires ≥2026-09-29 — migrated to
+//     Sonnet 5, which is BOTH newer and cheaper ($2/$10 vs 4.5's $3/$15) and
+//     safe to ≥2027-06-30. Used for news drafts, polish, extend and enforcement.
+//   * OPUS_MODEL = Opus 5 ($5/$25 — identical price to Opus 4.8, safe to
+//     ≥2027-07-24). Used to DRAFT voice-class pieces (pamflet/editorial/opinie/…)
+//     so the editor's voice drives the bones instead of being polished onto a
+//     GPT-4.1 skeleton. Opus is $5/$25, not the $15/$75 of the older Opus line.
+//   * Haiku 4.5 kept for the cheap semantic guard; it retires ≥2026-10-15, so
+//     watch for a successor and re-pin then.
+const SONNET_MODEL = 'claude-sonnet-5'
+const OPUS_MODEL   = 'claude-opus-5'
 const HAIKU_MODEL  = 'claude-haiku-4-5'
 
 const PRICE = {
   gemini: { in: 0.10, out: 0.40 },
-  openai: { in: 2.00, out: 8.00 },  // GPT-4.1 launch pricing
-  sonnet: { in: 3.00, out: 15.00 },
+  openai: { in: 2.00, out: 8.00 },   // GPT-4.1
+  sonnet: { in: 2.00, out: 10.00 },  // Sonnet 5
+  opus:   { in: 5.00, out: 25.00 },  // Opus 4.8
   haiku:  { in: 1.00, out: 5.00 },
 }
 
@@ -530,8 +543,9 @@ Sanitizers strip residual stock phrases at runtime, but the model MUST NOT gener
 - At least ONE rhetorical callback to an earlier fact: "the same €2.3M gap mentioned by the treasurer" / "aceleași cifre pe care Curtea de Conturi le contestase".
 - NEVER use the same transition word twice in one article.
 
---- META-COMMENTARY BAN ---
+--- META-COMMENTARY & INSTRUCTION-ECHO BAN (critical anti-AI rule) ---
 Never describe the article ("this piece explores", "in this article", "în acest articol"). Just report.
+The EDITOR SIGNATURE and TYPE REGISTER you were given are INSTRUCTIONS about your method, angle and standards — never phrases to print. NEVER quote a cue as article text. If a cue names an example question or phrase ("who benefits" / "cine câștigă", "the analytical question" / "întrebarea analitică", "what this reading misses" / "ceea ce ratează această lectură", "the harder question remains" / "întrebarea mai dificilă rămâne"), apply its INTENT silently: investigate who benefits and state it with names and sums; OPEN on the finding, never on the question. An article that prints its own instructions reads as machine-written and is rejected.
 
 --- DEMONSTRATIVE OPENER LIMIT ---
 Sentences starting with "Acest/Această/Aceste/Aceasta/This/These/That" — max TWICE per article. Rewrite others with the specific noun, a pronoun, or restructure.
@@ -858,7 +872,8 @@ Mecanică:
 - Fraze de lungimi inegale. O frază scurtă lovește; una lungă explică.
 - Verdictul final este o propoziție care poate fi citată mâine. Fără "rămâne de văzut".
 - Persoana întâi este permisă DAR substanțială — nu sentiment, ci judecată.
-Interzis: "este momentul să", "se cuvine să", "cu siguranță", sentimentalism.`,
+Interzis: "este momentul să", "se cuvine să", "cu siguranță", sentimentalism.
+CRAFT DE VÂRF: o singură teză, apărată cu dovezi numite și un „prin urmare" clar; concesia reală întărește poziția, nu o dizolvă în „pe de o parte / pe de altă parte".`,
     en: `EDITORIAL REGISTER — THE ANGLOPHONE SERIOUS PRESS TRADITION
 Voice: the institutional editorial of the FT or The Economist, with the rhythm of a James Bennet or Bret Stephens column. Authority without bombast.
 Mechanics:
@@ -869,7 +884,8 @@ Mechanics:
 - Vary sentence length sharply.
 - The closing line is a verdict the reader can quote tomorrow. No "only time will tell".
 - First person permitted BUT substantive — never feeling, always judgment.
-Banned: "it is time to", "we must all", "without a doubt", sentimentalism.`,
+Banned: "it is time to", "we must all", "without a doubt", sentimentalism.
+TOP CRAFT: one thesis, defended with named evidence and a clear "therefore"; the real concession strengthens the position, never dissolves it into on-the-one-hand balance.`,
   },
 
   opinie: {
@@ -880,8 +896,10 @@ Mecanică:
 - Teza apare clar în primele 100 de cuvinte.
 - Persoana întâi DA, dar întotdeauna în slujba argumentului.
 - Concesie la cea mai puternică obiecție.
+- RITM uman (obligatoriu, altfel sună a AI): alternează fraze scurte, sub 8 cuvinte, cu fraze lungi, peste 25; paragrafe de lungimi vizibil inegale, niciodată egale unul după altul.
 - Final ferm, nu deschis.
-Interzis: sentimentalism, "ca cetățean / ca părinte / ca român", retorism gol.`,
+Interzis: sentimentalism, "ca cetățean / ca părinte / ca român", retorism gol.
+CRAFT DE VÂRF: o singură revendicare, o cotitură reală („dar/însă") care reîncadrează la mijloc, persoana întâi în slujba argumentului — niciodată echilibru impersonal.`,
     en: `OPINION / COLUMN REGISTER — SIGNED VOICE
 Voice: the serious columnist. Tradition: a Ross Douthat column, Roger Cohen at the Times, Janan Ganesh at the FT. First person owned but disciplined.
 Mechanics:
@@ -889,29 +907,43 @@ Mechanics:
 - The thesis appears clearly within the first 100 words.
 - First person YES, but always serving the argument.
 - Concession to the strongest objection.
+- HUMAN RHYTHM (mandatory, or it reads as AI): alternate short sentences under 8 words with long ones over 25; paragraphs of visibly unequal length, never equal back to back.
 - Firm close, not open.
-Banned: sentimentalism, "as a citizen / as a parent", empty rhetoric.`,
+Banned: sentimentalism, "as a citizen / as a parent", empty rhetoric.
+TOP CRAFT: one claim, a real turn ("but/yet") that reframes mid-piece, first person in service of the argument — never impersonal balance.`,
   },
 
   analiza: {
-    ro: `REGISTRU ANALIZĂ — TRADIȚIA ROMÂNEASCĂ DE ANALIZĂ POLICY ȘI POLITICĂ
-Voce: analiza profesionistă — Adevărul lung-format, CURS-Avangarde, Stelian Tănase, Cristian Pîrvulescu, secțiunile lungi din Spotmedia. Distantă, structurată, cu metodă.
+    ro: `REGISTRU ANALIZĂ — ANALIZĂ DE ZIAR SERIOS (JURNALISM, NU ESEU ACADEMIC)
+Voce: analiza de fond a unui ziar serios — The Upshot (NYT), FT Big Read, secțiunea de analiză a Economist, în tradiția analizei documentate românești. Structurată și metodică, DAR scrisă ca jurnalism viu de către un om, niciodată ca o lucrare academică.
 Mecanică:
-- Deschidere prin formularea exactă a întrebării analitice. Fără retorism.
-- Marcaje ale mișcării: "Întrebarea mai dificilă rămâne", "Ceea ce această lectură ratează".
-- Evidența ca un corp, nu fapte izolate.
-- Recunoaște limita analizei.
-- Nu dă verdict. Închide pe întrebarea mai precisă.
-Interzis: "este evident că", "concluzia se impune", "nimeni nu poate nega", persoana întâi.`,
-    en: `ANALYSIS REGISTER — THE ANGLOPHONE LONG-FORM POLICY TRADITION
-Voice: the Brookings working paper, the Foreign Affairs essay, an Atlantic policy piece. Measured, structured, methodologically honest.
+- Deschizi cu CEA MAI PUTERNICĂ constatare concretă: un fapt, o cifră, o comparație care surprinde cititorul. Intri DIRECT în subiect, cu oameni și cifre.
+- Construiești argumentul din dovezi legate între ele — fiecare secțiune adaugă un MECANISM (de ce se întâmplă), nu doar încă o cifră.
+- RITM OBLIGATORIU (altfel textul sună a AI): alternează fraze scurte (sub 8 cuvinte) cu fraze lungi (peste 25). O frază scurtă lovește; una lungă explică. Paragrafe de lungimi VIZIBIL inegale — pune un paragraf de 1-2 propoziții lângă unul de 5+. Niciodată paragrafe egale unul după altul.
+- Recunoști ce NU poate stabili analiza, dar ca observație în corpul textului, nu ca secțiune etichetată.
+- Închizi pe CONSECINȚĂ concretă: ce se schimbă, cine câștigă sau pierde (cu nume și sume), ce urmează. Un final care poate fi citat mâine.
+INTERZIS — TICURI DE AI (încălcarea = articol respins):
+- Auto-referință la articol: "această analiză", "această lectură", "ceea ce ratează această lectură", "o altă limită a analizei constă în".
+- Deschidere prin întrebare, prin "întrebarea (analitică) de la care pornește", sau prin enunțarea tezei/metodei.
+- "Întrebarea mai dificilă rămâne", "rămâne de văzut", închidere pe întrebare retorică.
+- Enumerări-schelet: "în primul rând / în al doilea rând / nu în ultimul rând".
+- "este evident că", "concluzia se impune", "nimeni nu poate nega", persoana întâi.
+CRAFT DE VÂRF: o tensiune centrală numită prin fapte, un MECANISM (de ce), o consecință concretă cu nume și sume — fără schelet și fără registru academic.`,
+    en: `ANALYSIS REGISTER — SERIOUS-NEWSPAPER ANALYSIS (JOURNALISM, NOT AN ACADEMIC ESSAY)
+Voice: The Upshot (NYT), the FT Big Read, an Economist analysis piece. Structured and methodical, BUT written as live journalism by a human — never as a working paper.
 Mechanics:
-- Open by stating the analytical question precisely.
-- Mark the moves: "The harder question is", "What this reading misses".
-- Evidence as a body of work, not a list.
-- Acknowledge what the analysis cannot determine.
-- Refuse the verdict. Close on the sharper question.
-Banned: "clearly", "the conclusion is obvious", first person.`,
+- Open with the STRONGEST concrete finding: a fact, a number, a comparison that surprises. Start INSIDE the story, with people and figures.
+- Build the argument from linked evidence — each section adds a MECHANISM (why it happens), not just another figure.
+- MANDATORY RHYTHM (or it reads as AI): alternate short sentences (under 8 words) with long ones (over 25). A short sentence hits; a long one explains. Paragraphs of VISIBLY unequal length — put a 1-2 sentence paragraph next to a 5+ sentence one. Never equal paragraphs back to back.
+- Acknowledge what the analysis cannot determine, but as an observation inside the prose, never as a labelled section.
+- Close on a concrete CONSEQUENCE: what changes, who wins or loses (with names and sums), what comes next. A close the reader can quote tomorrow.
+BANNED — AI TELLS (violation = article rejected):
+- Self-reference to the article: "this analysis", "this reading", "what this reading misses", "another limitation of the analysis is".
+- Opening with a question, with "the question this analysis starts from", or by stating the thesis/method.
+- "The harder question remains", "remains to be seen", closing on a rhetorical question.
+- Skeleton enumeration: "firstly / secondly / not lastly".
+- "clearly", "the conclusion is obvious", first person.
+TOP CRAFT: a central tension named through facts, a MECHANISM (why), a concrete consequence with names and sums — no scaffold, no academic register.`,
   },
 
   pamflet: {
@@ -923,8 +955,10 @@ Mecanică:
 - Citatele țintei reproduse exact.
 - Analogii incomode care nu-i flatează.
 - Inserție de detaliu absurd verificabil.
+- RITM uman (obligatoriu — pamfletul plat sună a AI): fraze de lungimi mult diferite, o propoziție-cuțit scurtă după o frază lungă și ornată; paragrafe vizibil inegale.
 - Finalul: aparent o sugestie binevoitoare, în fapt o sentință.
-Interzis: vulgaritate, insultă neverificabilă, atac la familie, ironie ușoară de tip Facebook, persoana întâi.`,
+Interzis: vulgaritate, insultă neverificabilă, atac la familie, ironie ușoară de tip Facebook, persoana întâi.
+CRAFT DE VÂRF (marele pamflet vs. sarcasm plat): un singur conceit care ESCALADEAZĂ, nu se repetă; ciocnire de registru (solemn peste mărunt); poanta nu se explică. GARANȚIE: lovești idei și conduită publică — niciodată persoana privată sau familia; fiecare ghimpe stă pe un fapt real, citabil.`,
     en: `PAMPHLET REGISTER — THE ANGLOPHONE SATIRICAL ESSAY TRADITION
 Voice: Swift on the Irish question, H.L. Mencken, Christopher Hitchens dismantling Kissinger, Private Eye. Irony as scalpel, not bludgeon.
 Mechanics:
@@ -933,8 +967,10 @@ Mechanics:
 - Quote the target verbatim and let the words convict.
 - Uncomfortable analogies.
 - One verifiable absurd specific.
+- HUMAN RHYTHM (mandatory — a flat pamphlet reads as AI): sharply unequal sentence lengths, a short knife of a sentence after a long ornate one; visibly unequal paragraphs.
 - The close: a charitable suggestion that is in fact a sentence.
-Banned: vulgarity, unverifiable insult, attacks on family, easy social-media snark, first person.`,
+Banned: vulgarity, unverifiable insult, attacks on family, easy social-media snark, first person.
+TOP CRAFT (real satire vs. flat snark): a single conceit that ESCALATES, never repeats; register clash (solemn over trivial); never explain the joke. GUARDRAIL: strike ideas and public conduct — never a private person or family; every barb rides on a real, citable fact.`,
   },
 
   blog: {
@@ -948,7 +984,8 @@ Mecanică:
 - Un detaliu personal concret.
 - Auto-ironie, niciodată autovictimizare.
 - Final care lasă cititorului ceva de făcut.
-Interzis: "iubiții mei cititori", clișee motivaționale, "viața ne învață".`,
+Interzis: "iubiții mei cititori", clișee motivaționale, "viața ne învață".
+CRAFT DE VÂRF: un cârlig la persoana întâi ancorat într-un moment concret; un singur fir; final care reîncadrează, nu care rezumă. GARANȚIE: orice detaliu personal e real sau vădit ipotetic — niciodată inventat ca fapt biografic.`,
     en: `BLOG REGISTER — THE ANGLOPHONE PERSONAL ESSAY TRADITION
 Voice: Tyler Cowen on Marginal Revolution, Maria Popova, an essay by Zadie Smith.
 WARNING: this is the PERSONAL ESSAY. If the topic doesn't require first person, choose NEWS or ANALYSIS.
@@ -959,7 +996,8 @@ Mechanics:
 - One concrete personal detail.
 - Self-irony, never self-pity.
 - A close that leaves the reader with something to do.
-Banned: "dear reader", motivational cliché, "life teaches us".`,
+Banned: "dear reader", motivational cliché, "life teaches us".
+TOP CRAFT: a first-person hook anchored in one concrete moment; a single throughline; a close that reframes, not summarises. GUARDRAIL: any personal detail is real or plainly hypothetical — never invented as biographical fact.`,
   },
 
   reportaj: {
@@ -971,8 +1009,10 @@ Mecanică:
 - Citează minimum doi oameni obișnuiți cu numele complet.
 - Prezent narativ acolo unde aduce viața în text.
 - Tensiune narativă reală.
+- RITM uman (obligatoriu, altfel sună a AI): alternează fraze scurte, sub 8 cuvinte, cu fraze lungi, peste 25; paragrafe de lungimi vizibil inegale, niciodată egale unul după altul.
 - Întoarcerea finală la oamenii care trăiesc cu consecința.
-Interzis: "într-o zi obișnuită de toamnă", clișeu poetic, persoana întâi.`,
+Interzis: "într-o zi obișnuită de toamnă", clișeu poetic, persoana întâi.
+CRAFT DE VÂRF: deschidere-scenă (loc + om numit + un gest fizic), un personaj urmărit, dialog real țesut, închidere pe imagine — nu pe rezumat. GARANȚIE STRICTĂ: fiecare detaliu de scenă și senzorial vine DIN materialul real — nu inventa culoare; culoarea inventată e și tic de AI, și abatere deontologică.`,
     en: `REPORTAGE REGISTER — THE ANGLOPHONE LITERARY JOURNALISM TRADITION
 Voice: a New Yorker reported piece, a long Guardian feature, John Jeremiah Sullivan in GQ, Katherine Boo, Patrick Radden Keefe.
 Mechanics:
@@ -981,8 +1021,10 @@ Mechanics:
 - Quote at least two ordinary people by full name.
 - Present tense where it brings the page alive.
 - Real narrative tension.
+- HUMAN RHYTHM (mandatory, or it reads as AI): alternate short sentences under 8 words with long ones over 25; paragraphs of visibly unequal length, never equal back to back.
 - Return at the close to the people who live with the consequence.
-Banned: "on an ordinary autumn morning", tourist-board picturesque, first person.`,
+Banned: "on an ordinary autumn morning", tourist-board picturesque, first person.
+TOP CRAFT: a scene open (place + a named person + a physical gesture), one character followed, real dialogue woven in, a close on an image — not a summary. STRICT GUARDRAIL: every scene and sensory detail comes FROM the real material — never invent colour; invented colour is both an AI tell and an ethics breach.`,
   },
 
   cultura: {
@@ -993,8 +1035,9 @@ Mecanică:
 - Context istoric doar acolo unde luminează.
 - Numele artistului, opera, anul, materialul, formatul.
 - Tratează opera cu seriozitate pe propriii ei termeni. Critică, nu rezumat.
-- Final care deschide o întrebare nouă despre operă.
-Interzis: "capodopera", "geniu indiscutabil", "marele nostru", clișeu patriotic-cultural, persoana întâi.`,
+- Final pe o judecată critică precisă — o observație care rămâne cu cititorul. NICIODATĂ pe o întrebare retorică.
+Interzis: "capodopera", "geniu indiscutabil", "marele nostru", clișeu patriotic-cultural, persoana întâi.
+CRAFT DE VÂRF: o judecată critică precisă, opera tratată pe termenii ei, închidere pe judecată — niciodată pe întrebare retorică.`,
     en: `CULTURE REGISTER — THE ANGLOPHONE CRITICAL TRADITION
 Voice: a New York Review of Books essay, James Wood on a novel, Hilton Als at the theater, Jenny Diski on a memoir.
 Mechanics:
@@ -1002,8 +1045,9 @@ Mechanics:
 - Historical context only where it illuminates.
 - The artist's name, the work, the year, the material, the format.
 - Treat the work seriously on its own terms.
-- A close that opens a new question.
-Banned: "masterpiece", "undeniable genius", easy reverence, first person.`,
+- Close on a precise critical judgment — an observation that stays with the reader. NEVER on a rhetorical question.
+Banned: "masterpiece", "undeniable genius", easy reverence, first person.
+TOP CRAFT: a precise critical judgment, the work taken on its own terms, a close on judgment — never on a rhetorical question.`,
   },
 
   tehnologie: {
@@ -1015,6 +1059,7 @@ Mecanică:
 - Definește jargonul la prima folosire.
 - Urmărește decizia: de ce această alegere.
 - Numerele ca dovadă a consecinței.
+- RITM uman (obligatoriu, altfel sună a AI): alternează fraze scurte, sub 8 cuvinte, cu fraze lungi, peste 25; paragrafe de lungimi vizibil inegale, niciodată egale unul după altul.
 - Final pe ce încearcă protagonistul în continuare.
 Interzis: "revoluție digitală", "viitorul ne aparține", "transformare paradigmatică", entuziasm necritic, persoana întâi.`,
     en: `TECHNOLOGY REGISTER — ANGLOPHONE TECHNICAL JOURNALISM TRADITION
@@ -1025,6 +1070,7 @@ Mechanics:
 - Define jargon on first use.
 - Trace the decision: why this choice.
 - Numbers as evidence of consequence.
+- HUMAN RHYTHM (mandatory, or it reads as AI): alternate short sentences under 8 words with long ones over 25; paragraphs of visibly unequal length, never equal back to back.
 - Close on what the protagonist tries next.
 Banned: "digital revolution", "paradigm-shifting", uncritical enthusiasm, first person.`,
   },
@@ -1110,7 +1156,7 @@ Tradiția: Recorder, Cristian Tudor Popescu, Dan Tapalagă, RISE Project. Hard a
 CE FACE diferit:
 - Lucrează cu documentul ca probă: contractul (nr., dată, sumă, părți), decizia (autoritate emitentă, art. invocat), declarația de avere, votul nominal.
 - Numește persoana cu funcția exactă și instituția.
-- Întreabă "cine câștigă din asta" și răspunde cu nume, sume, dată.
+- Urmărește cine câștigă și răspunde cu nume, sume, dată — ca investigație în text, niciodată ca întrebare tipărită.
 - Tonul: rece, sec, fără ornament. Verbul puternic, fraza scurtă, atribuirea irefutabilă.
 - Concesie reală adversarului — dă-i răspunsul în text, nu îl construi de paie.
 INTERZIS: speculație fără document, "se zvonește", "surse spun" fără context, hiperbolă politică, entuziasm partizan.`,
@@ -1119,7 +1165,7 @@ Tradition: ProPublica's investigative method, NYT national desk on government ac
 WHAT THIS BYLINE DOES:
 - Treats the document as evidence: the contract, the ruling, the disclosure, the named vote.
 - Names the person by exact title and institution.
-- Asks "who benefits" and answers with names, sums, dates.
+- Traces who benefits and answers it with names, sums, dates — as reporting in the prose, never as a printed question.
 - Tone: cold, dry, unornamented. Strong verb, short sentence, irrefutable attribution.
 - A real concession to the opposing case.
 BANNED: speculation without a document, "sources whisper", anonymous quotes without justification, political hyperbole, partisan enthusiasm.`,
@@ -1744,6 +1790,87 @@ interface HumannessReport {
   pmcRepeat: boolean
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CRAFT SCORER (Phase 1 — columnist-grade). Companion to measureHumanness.
+// measureHumanness only ever SUBTRACTS for AI tells, so it rewards "clean",
+// never "columnist". measureCraft scores the PRESENCE of top-masthead craft on
+// SAFE, COUNTABLE signals: a concrete open, detail density, a real turn, a woven
+// quote, a landing kicker. Every signal rewards USING facts already in the piece
+// — never inventing them (the fabrication bans in the prompts stay authoritative).
+// Only voice-class types are scored; everything else returns a perfect 100, so
+// the gate never fires for news. Enforcement fires on low craft OR low humanness.
+// ═══════════════════════════════════════════════════════════════════════════
+const CRAFT_TARGET = 72
+const CRAFT_VOICE_TYPES = new Set(['pamflet', 'editorial', 'opinie', 'blog', 'reportaj', 'cultura', 'analiza'])
+const CRAFT_QUOTE_TYPES = new Set(['reportaj', 'editorial', 'analiza', 'opinie'])
+
+interface CraftReport { craftScore: number; missing: string[] }
+
+function measureCraft(text: string, lang: 'ro' | 'en', articleType: string): CraftReport {
+  if (!CRAFT_VOICE_TYPES.has(articleType)) return { craftScore: 100, missing: [] }
+  const missing: string[] = []
+  let score = 100
+
+  const paragraphs = text.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 20)
+  const wc = (text.split(/\s+/).filter(Boolean).length) || 1
+
+  // Countable specifics — all trace to source material, never invented.
+  const digits = (text.match(/\d/g) || []).length
+  const quotePairs = (text.match(/[„“"][^„“"]{3,}[”"]/g) || []).length
+  const properish = (text.match(/(?<=[a-zăâîșț,;:]\s)[A-ZĂÂÎȘȚ][a-zăâîșț]{2,}/g) || []).length
+  const specifics = digits + quotePairs * 4 + properish
+
+  // 1. Concrete open — the single most important columnist move.
+  const firstPara = paragraphs[0] || ''
+  const openHasDigit = /\d/.test(firstPara)
+  const openHasQuote = /[„“"][^„“"]{3,}[”"]/.test(firstPara)
+  const openProper = (firstPara.match(/(?<=[a-zăâîșț,;:]\s)[A-ZĂÂÎȘȚ][a-zăâîșț]{2,}/g) || []).length
+  if (!openHasDigit && !openHasQuote && openProper < 1) { missing.push('CONCRETE_OPEN'); score -= 30 }
+
+  // 2. Detail density — reward USING facts, never inventing.
+  if (specifics / wc * 100 < 2.5) { missing.push('THIN_DETAIL'); score -= 24 }
+
+  // 3. A real turn (a pivot that reframes).
+  const hasTurn = lang === 'ro'
+    ? /\b(dar|însă|numai că|și totuși|cu toate astea)\b/i.test(text)
+    : /\b(but|yet|and still|except that)\b/i.test(text)
+  if (!hasTurn) { missing.push('TURN'); score -= 14 }
+
+  // 4. A woven quote (only for types that normally carry one).
+  if (CRAFT_QUOTE_TYPES.has(articleType) && quotePairs === 0) { missing.push('QUOTE'); score -= 10 }
+
+  // 5. A kicker that lands, not a long abstract summary.
+  const lastPara = paragraphs[paragraphs.length - 1] || ''
+  const lastSent = ((lastPara.split(/(?<=[.!?])\s+/).pop()) || '').trim()
+  const lastWc = lastSent.split(/\s+/).filter(Boolean).length
+  const kickerLands = /\d/.test(lastSent) || /[„“"][^„“"]{3,}[”"]/.test(lastSent) || lastWc <= 12
+  if (!kickerLands && lastWc > 22) { missing.push('KICKER'); score -= 10 }
+
+  return { craftScore: Math.max(0, Math.min(100, score)), missing }
+}
+
+function buildCraftFixInstructions(missing: string[], lang: 'ro' | 'en'): string {
+  if (!missing.length) return ''
+  const items: string[] = []
+  const has = (k: string) => missing.includes(k)
+  if (has('CONCRETE_OPEN')) items.push(lang === 'ro'
+    ? 'DESCHIDERE CONCRETĂ: rescrie primul paragraf să deschidă pe un fapt concret, o cifră sau o scenă cu un nume — niciodată pe o generalitate. Folosește un fapt REAL din material; nu inventa nimic.'
+    : 'CONCRETE OPEN: rewrite the first paragraph to open on a concrete fact, a number, or a scene with a named person — never on a generality. Use a REAL fact from the material; invent nothing.')
+  if (has('THIN_DETAIL')) items.push(lang === 'ro'
+    ? 'DENSITATE: crește concretul — nume complete, cifre cu unitate, o citație reală din material. Fără a inventa; folosește doar faptele deja disponibile.'
+    : 'DENSITY: raise the concrete — full names, figures with units, a real quote from the material. Invent nothing; use only facts already present.')
+  if (has('TURN')) items.push(lang === 'ro'
+    ? 'COTITURĂ: introdu o întorsătură reală la mijloc — un „dar/însă" care reîncadrează, nu o simplă tranziție.'
+    : 'TURN: add a real pivot mid-piece — a "but/yet" that reframes, not a mere transition.')
+  if (has('QUOTE')) items.push(lang === 'ro'
+    ? 'CITAȚIE: țese cel puțin o citație reală din sursă în frază — nu blocată separat. Dacă materialul nu are niciuna, nu inventa; lasă textul fără citat.'
+    : 'QUOTE: weave at least one real quote from the source into a sentence — not block-dumped. If the material has none, do not invent one; leave it unquoted.')
+  if (has('KICKER')) items.push(lang === 'ro'
+    ? 'FINAL: încheie pe o imagine sau o consecință concretă, scurtă — nu pe un rezumat lung.'
+    : 'KICKER: end on a concrete image or consequence, short — not a long summary.')
+  return items.join('\n\n')
+}
+
 function measureHumanness(text: string, lang: 'ro' | 'en'): HumannessReport {
   const flags: string[] = []
   let score = 100
@@ -1758,7 +1885,7 @@ function measureHumanness(text: string, lang: 'ro' | 'en'): HumannessReport {
   const stdDev = Math.sqrt(variance)
 
   if (stdDev < 5) { flags.push(`LOW_BURSTINESS: stdDev=${stdDev.toFixed(1)}`); score -= 20 }
-  else if (stdDev < 7) { flags.push(`MODERATE_BURSTINESS: stdDev=${stdDev.toFixed(1)}`); score -= 10 }
+  else if (stdDev < 9) { flags.push(`MODERATE_BURSTINESS: stdDev=${stdDev.toFixed(1)}`); score -= 12 }  // v19: 7→9, catch flat-but-not-terrible rhythm
 
   let sameLen = 0
   for (let i = 1; i < sentenceLengths.length; i++) {
@@ -1774,7 +1901,7 @@ function measureHumanness(text: string, lang: 'ro' | 'en'): HumannessReport {
   if (paraLengths.length > 2) {
     const paraMean = paraLengths.reduce((a, b) => a + b, 0) / paraLengths.length
     const paraStdDev = Math.sqrt(paraLengths.reduce((a, b) => a + (b - paraMean) ** 2, 0) / paraLengths.length)
-    if (paraStdDev < 10) { flags.push(`UNIFORM_PARAGRAPHS: stdDev=${paraStdDev.toFixed(1)}`); score -= 10 }
+    if (paraStdDev < 14) { flags.push(`UNIFORM_PARAGRAPHS: stdDev=${paraStdDev.toFixed(1)}`); score -= 12 }  // v19: 10→14, catch near-equal paragraphs
   }
 
   // v16: detect demo openers at paragraph-start AND after sentence-ending punctuation within paragraphs
@@ -1812,6 +1939,43 @@ function measureHumanness(text: string, lang: 'ro' | 'en'): HumannessReport {
     aiWordCount += (text.toLowerCase().match(new RegExp(`\\b${w}`, 'g')) || []).length
   }
   if (aiWordCount > 2) { flags.push(`AI_VOCAB:${aiWordCount}`); score -= aiWordCount * 3 }
+
+  // v18.2 — ESSAY-SCAFFOLD TELLS. The strongest human-detectable AI markers in
+  // long-form (the "Întrebarea analitică de la care pornește această analiză…"
+  // family) were invisible to the old scorer, which rated such text 100/100.
+  const scaffoldPatterns = lang === 'ro'
+    ? [
+        /[îi]ntrebarea (analitic[ăa]|de la care|mai dificil[ăa]|central[ăa])/i,
+        /de la care porne[șs]te (aceast[ăa]\s+)?(analiz|lectur|abordar)/i,
+        /ceea ce (aceast[ăa]\s+)?(analiz[ăa]|lectur[ăa]) (rateaz[ăa]|nu surprinde|omite)/i,
+        /(aceast[ăa]) (analiz[ăa]|lectur[ăa]|abordare) (privește|porne[șs]te|examineaz[ăa]|exploreaz[ăa])/i,
+        /o alt[ăa] limit[ăa] a analizei/i,
+      ]
+    : [
+        /the (analytical |central |harder )?question (this|from which|that this)/i,
+        /what this (analysis|reading|piece) (misses|overlooks|fails to)/i,
+        /this (analysis|reading|piece) (examines|explores|begins|starts|concerns|asks)/i,
+        /another limitation of (the|this) analysis/i,
+      ]
+  const scaffoldHits = scaffoldPatterns.reduce((n, re) => n + ((text.match(re) || []).length), 0)
+  if (scaffoldHits > 0) { flags.push(`ANALYTIC_SCAFFOLD:${scaffoldHits}`); score -= 20 }
+
+  // Skeleton enumeration: "în primul rând … în al doilea rând" / "firstly … secondly"
+  const enumScaffold = lang === 'ro'
+    ? (/[îi]n primul r[âa]nd/i.test(text) && /[îi]n al doilea r[âa]nd/i.test(text))
+    : (/\bfirstly\b/i.test(text) && /\bsecondly\b/i.test(text))
+  if (enumScaffold) { flags.push('ENUM_SCAFFOLD'); score -= 12 }
+
+  // Opening on a (rhetorical) question — first paragraph ends on '?'
+  const firstPara = (paragraphs[0] || '').trim()
+  if (firstPara.length > 0 && /\?\s*$/.test(firstPara)) { flags.push('QUESTION_OPENER'); score -= 10 }
+
+  // Summary-closer that restates significance (RO family; EN speculative handled above)
+  const closerPatterns = lang === 'ro'
+    ? [/(aceast[ăa]) (performanț[ăa]|realizare|strategie|abordare) reflect[ăa]/i, /s-a transformat [îi]ntr-un model/i, /reprezint[ăa] un (model|exemplu) de/i, /face parte dintr-un efort mai (amplu|larg)/i]
+    : [/(this|the) (performance|achievement|strategy) reflects/i, /has become a model of/i, /represents a model of/i, /is part of a broader effort/i]
+  const closerHits = closerPatterns.reduce((n, re) => n + ((lastParas.match(re) || []).length), 0)
+  if (closerHits > 0) { flags.push(`SUMMARY_CLOSER:${closerHits}`); score -= 12 }
 
   return { score: Math.max(0, Math.min(100, score)), flags, sentenceStdDev: stdDev,
     burstiness: stdDev >= 7, demoOverkill, speculativeBlock, pmcRepeat }
@@ -2103,12 +2267,12 @@ async function callOpenAI(
 }
 
 async function callAnthropic(
-  model: 'sonnet' | 'haiku', system: string, user: string, opts: ModelOptions, cost: CostTracker, label: string,
+  model: 'opus' | 'sonnet' | 'haiku', system: string, user: string, opts: ModelOptions, cost: CostTracker, label: string,
 ): Promise<Result<string>> {
   const apiKey = Deno.env.get('CLAUDE_API_KEY')
   if (!apiKey) return err('CLAUDE_API_KEY not set', label)
-  const modelId = model === 'sonnet' ? SONNET_MODEL : HAIKU_MODEL
-  const price = model === 'sonnet' ? PRICE.sonnet : PRICE.haiku
+  const modelId = model === 'opus' ? OPUS_MODEL : model === 'sonnet' ? SONNET_MODEL : HAIKU_MODEL
+  const price = model === 'opus' ? PRICE.opus : model === 'sonnet' ? PRICE.sonnet : PRICE.haiku
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? CALL_TIMEOUT_MS)
@@ -2206,6 +2370,15 @@ interface PipelineInput {
   editorKey: string
   category: string
   voiceClass: boolean
+  // v19 — PRESERVE / EDITOR MODE. When true, the pipeline does NOT rebuild an
+  // article from atomized facts to a word target (which flattens rich drafts).
+  // Instead it COPY-EDITS the author's draft in draftLang and TRANSLATES it
+  // faithfully into the other language, keeping every fact, thread, section and
+  // roughly the same length. This is the workflow for a human-written analysis
+  // or editorial: the machine cleans and translates, it does not summarize.
+  preserve: boolean
+  draftLang: 'ro' | 'en'
+  columnMode?: boolean   // v20: async column engine — draft on Opus, off the 200s wall
 }
 
 interface MetadataFields {
@@ -2297,6 +2470,62 @@ async function stageContent(
 
   const langName = lang === 'ro' ? 'Romanian' : 'English'
 
+  // v19 — PRESERVE / EDITOR MODE. Do NOT rebuild from facts to a word target.
+  // In the author's language: copy-edit the draft. In the other: translate it
+  // faithfully. Either way keep every fact, thread and section; never summarize.
+  if (input.preserve) {
+    const isDraftLang = lang === input.draftLang
+    const task = isDraftLang
+      ? `COPY-EDIT the author's ${langName} draft below into a publishable piece. Fix grammar, spelling, diacritics, punctuation, awkward phrasing and weak sentence rhythm; remove any AI tells or scaffolding; apply your editorial hand lightly. This is the author's OWN analysis/editorial — PRESERVE every fact, name, number, quote, section, argument and the author's structure and order. Do NOT summarize, compress, cut sections, reorder the argument, or add claims of your own. Keep roughly the same length as the draft.`
+      : `TRANSLATE the author's draft below faithfully into ${langName}, then lightly copy-edit for natural rhythm. PRESERVE every fact, name, number, quote, section and argument — this is a FULL translation of a finished piece, NOT a summary. Keep the same structure and roughly the same length. Do NOT compress or drop sections.`
+    const psys = `You are ${editorName}, senior editor at Transilvania Times, working in ${langName}.
+
+${task}
+
+EDITOR SIGNATURE (apply lightly — do not overwrite the author's own voice)
+${editorVoice}
+
+${MASTER_HUMANIZING}
+
+${lang === 'ro' ? ROMANIAN_NATIVE : TT_STANDARDS}
+
+OUTPUT — exactly this, nothing else:
+<title>a fitting title (keep the author's if there is a good one)</title>
+<content>
+the full edited ${langName} piece, paragraphs separated by blank lines
+</content>`
+    const puser = `AUTHOR'S DRAFT:\n\n${input.brief}\n\nReturn the edited ${langName} version inside <title></title> and <content></content>.`
+    const pmax = Math.min(16000, Math.max(4000, countWords(input.brief) * 9))
+    let pres = await callAnthropic('sonnet', psys, puser, { maxTokens: pmax, temperature: 0.4 }, cost, `stage2-preserve-${lang}`)
+    if (!pres.ok) {
+      console.warn(`[v19] preserve-${lang} Sonnet failed (${pres.error}) — GPT-4.1 fallback`)
+      pres = await callOpenAI(psys, puser, { maxTokens: pmax, temperature: 0.4, responseFormat: 'text' }, cost, `stage2-preserve-${lang}-fallback`)
+    }
+    if (!pres.ok) return err(`preserve edit failed: ${pres.error}`, `stage2-preserve-${lang}`)
+    const ptr = extractXml(pres.value, 'title')
+    const pcr = extractXml(pres.value, 'content')
+    if (!pcr.ok) return err(`preserve content tag missing: ${pcr.error}`, `stage2-preserve-${lang}`)
+    const pTitle = lang === 'ro' ? sanitizeTitle(sanitizeContentRo(ptr.ok ? ptr.value : '')) : sanitizeTitle(sanitizeContentEn(ptr.ok ? ptr.value : ''))
+    const pContent = lang === 'ro' ? ensureParagraphs(sanitizeContentRo(pcr.value)) : ensureParagraphs(sanitizeContentEn(pcr.value))
+    if (pContent.length < 400) return err(`preserve content too short (${pContent.length}c)`, `stage2-preserve-${lang}`)
+    if (lang === 'ro' && !isRomanianText(pContent)) return err(`preserve content failed RO check`, `stage2-preserve-${lang}`)
+    console.log(`[v19 stage2] preserve-${lang} (${isDraftLang ? 'copy-edit' : 'translate'}) — ${countWords(pContent)}w`)
+    return ok({ content: pContent, title: pTitle.length >= 8 ? pTitle : (lang === 'ro' ? 'Editorial Transilvania Times' : 'Transilvania Times Editorial') })
+  }
+
+  // v20 — ANGLE COMMITMENT (column-class). A column is craft PLUS a claim; force
+  // the writer to commit to one thesis (or, for analiza, one central tension) and
+  // build to defend it — the fix for "clean but says nothing". Prompt-only.
+  const angleBlock = (input.articleType === 'editorial' || input.articleType === 'opinie')
+    ? (lang === 'ro'
+        ? '═══ ANGAJAMENT DE TEZĂ (obligatoriu) ═══\nÎnainte de a scrie, fixează O SINGURĂ teză — o propoziție pe care articolul o apără. Fiecare paragraf slujește teza. Concesia la cea mai serioasă obiecție întărește teza, nu o dizolvă. Nu enunța teza ca „teza acestui articol este…" — o demonstrezi.\n\n'
+        : '═══ THESIS COMMITMENT (mandatory) ═══\nBefore writing, fix ONE thesis — a single sentence the piece defends. Every paragraph serves it. The concession to the strongest objection strengthens the thesis, never dissolves it. Never write the thesis out as "the thesis of this article is…" — you prove it.\n\n')
+    : input.articleType === 'analiza'
+    ? (lang === 'ro'
+        ? '═══ ANGAJAMENT DE TENSIUNE (obligatoriu) ═══\nFixează O SINGURĂ tensiune centrală — contradicția sau miza pe care analiza o urmărește prin fapte și mecanism. Fiecare secțiune adaugă un mecanism (de ce), nu încă o cifră. Nu anunța tensiunea ca „întrebarea de la care pornește" — o arăți prin fapte.\n\n'
+        : '═══ TENSION COMMITMENT (mandatory) ═══\nFix ONE central tension — the contradiction or stake the analysis tracks through facts and mechanism. Each section adds a mechanism (why), not another figure. Never announce it as "the question this starts from" — show it through facts.\n\n')
+    : ''
+
   const system = `You are ${editorName}, journalist at Transilvania Times. Write a ${input.articleType.toUpperCase()} article in NATIVE ${langName.toUpperCase()}.
 
 ═══ TYPE REGISTER — ${input.articleType.toUpperCase()} ═══
@@ -2311,7 +2540,7 @@ ${standardsBlock}${newsRulesBlock}${newsStructureBlock}
 ═══ TITLE CRAFT ═══
 ${lang === 'ro' ? TITLE_CRAFT_RO : TITLE_CRAFT_EN}
 
-${MASTER_HUMANIZING}
+${angleBlock}${MASTER_HUMANIZING}
 
 ${humanizationBlock}
 
@@ -2361,7 +2590,36 @@ Now write the article. Return ONLY <title>...</title> and <content>...</content>
   const temperature = temperatureForType(input.articleType)
   const maxTokens = Math.min(14000, Math.max(4000, input.wordCount * 8))
 
-  const result = await callOpenAI(system, user, { maxTokens, temperature, responseFormat: 'text' }, cost, `stage2-content-${lang}`)
+  // v18 — VOICE-FIRST DRAFTING. The draft is the article's bones: its paragraph
+  // structure and sentence rhythm. Those now come from a Claude model, not
+  // GPT-4.1, so the editor's voice DRIVES the piece instead of being polished
+  // onto a uniform GPT-4.1 skeleton afterward. Voice-class types
+  // (pamflet/editorial/opinie/blog/reportaj/cultură/analiză) draft on Opus — the
+  // sharpest, most distinctive register; news-class drafts on Sonnet (excellent,
+  // and Opus adds little to straight wire). Output is still the same
+  // <title>/<content> XML the extractor expects.
+  //
+  // v18.1 — DRAFT ON SONNET 5, NOT OPUS. Production logs proved Opus drafting is
+  // too SLOW for this function: it writes RO and EN as two full native pipelines,
+  // and two ~1,400-word Opus drafts + the Sonnet polish exceeded the ~200s edge
+  // wall-clock limit, killing the request (the "non-2xx" error). Sonnet 5 is far
+  // faster (the scraper runs Sonnet within a similar budget daily), fits 200s,
+  // and is still a large voice upgrade over the old GPT-4.1 draft. OPUS_MODEL is
+  // kept for a future async / single-language-then-translate path where Opus's
+  // extra latency is affordable; it must NOT be used on this synchronous route.
+  const draftModel: 'opus' | 'sonnet' = input.columnMode ? 'opus' : 'sonnet'  // v20: Opus for async column mode
+  let result = await callAnthropic(draftModel, system, user, { maxTokens, temperature }, cost, `stage2-content-${lang}`)
+  if (!result.ok) {
+    // RESILIENCE. The draft is the one REQUIRED stage with no fallback: if it
+    // fails, the whole generation 500s. Before v18 this stage ran on GPT-4.1,
+    // which never failed. If the Claude draft errors for any reason (model not
+    // enabled on the key, rate limit, outage, bad request), fall back to GPT-4.1
+    // so the article still ships. NOTE: this fallback only catches a CLEAN error
+    // return — it cannot rescue a call that is merely slow, which is why the
+    // draft model must be one that comfortably fits the 200s budget (Sonnet 5).
+    console.warn(`[v18] stage2-content-${lang}: ${draftModel} draft failed (${result.error}) — falling back to GPT-4.1`)
+    result = await callOpenAI(system, user, { maxTokens, temperature, responseFormat: 'text' }, cost, `stage2-content-${lang}-fallback`)
+  }
   if (!result.ok) return err(`content generation failed: ${result.error}`, `stage2-content-${lang}`)
 
   const titleResult   = extractXml(result.value, 'title')
@@ -2462,6 +2720,8 @@ async function stagePolish(
   const standardsBlock    = lang === 'ro' ? ROMANIAN_NATIVE : TT_STANDARDS
 
   const system = `You are a senior editor at Transilvania Times. You receive a ${langName} article from ${editorName}. Lift it to the highest register of TYPE (${articleType.toUpperCase()}) AND EDITOR SIGNATURE (${editorKey}). Preserve all facts, numbers, names, quotes EXACTLY. Keep length around ${draftWordCount} words (±15%). No subheadings. No concluding rhetorical question. No closer about "the future" or "what comes next".
+
+CRITICAL — PRESERVE THE AUTHOR'S HAND. This draft was written in voice by the editor. Your job is to sharpen, not to smooth. KEEP the existing paragraph-length variation and sentence rhythm — a one-sentence paragraph stays a one-sentence paragraph; a long argumentative paragraph stays long. Do NOT regularize the piece into uniform 3-4 sentence paragraphs or even sentence lengths — that flattening is the single most common way a polish pass makes writing read as AI. If anything, INCREASE the burstiness (mix very short and very long sentences) per the constraints below. Change wording and cut weak lines; do not rebuild the architecture into something smoother and more uniform.
 
 ═══ TYPE REGISTER — ${articleType.toUpperCase()} ═══
 ${toneVoice}
@@ -2693,6 +2953,103 @@ Return ONLY valid JSON, no preamble:
 
 
 // ═══════════════════════════════════════════════════════════════════════════
+// STAGE 4b — RHYTHM / ANTI-AI ENFORCEMENT (v18.2)
+// Optional, budget-gated, single pass. Turns measureHumanness from telemetry into
+// a real gate: if the finished draft scores low on the AI-tell / burstiness
+// checks, ONE targeted Sonnet revision fixes exactly the flagged patterns. Uses
+// the XML <content> contract (never JSON — the old JSON loop failed to parse and
+// was removed). NEVER a required stage and always time-capped, so it cannot
+// threaten the ~200s edge kill: the caller skips it under ~45s of budget and the
+// call itself aborts at 40s.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function buildRhythmFixInstructions(flags: string[], lang: 'ro' | 'en'): string {
+  const items: string[] = []
+  const has = (k: string) => flags.some(f => f.startsWith(k))
+  if (has('ANALYTIC_SCAFFOLD') || has('QUESTION_OPENER')) items.push(lang === 'ro'
+    ? 'SCHELET DE ESEU: elimină orice auto-referință la articol ("această analiză/lectură", "întrebarea de la care pornește", "ceea ce ratează această lectură") și orice deschidere prin întrebare. Rescrie primul paragraf ca să deschidă DIRECT cu cel mai puternic fapt concret sau cea mai izbitoare cifră, cu oameni și nume.'
+    : 'ESSAY SCAFFOLD: remove every self-reference to the article ("this analysis/reading", "the question this starts from", "what this reading misses") and any question opener. Rewrite the first paragraph to open DIRECTLY on the strongest concrete fact or the most striking number, with people and names.')
+  if (has('SUMMARY_CLOSER') || has('SPECULATIVE_ENDING')) items.push(lang === 'ro'
+    ? 'FINAL DE REZUMAT: șterge paragraful final care rezumă semnificația ("această performanță reflectă…", "un model de eficiență", "rămâne de văzut"). Încheie pe ultimul fapt concret, cifră sau declarație atribuită.'
+    : 'SUMMARY CLOSER: delete the final paragraph that restates significance ("this performance reflects…", "a model of efficiency", "remains to be seen"). End on the last concrete fact, number or attributed statement.')
+  if (has('ENUM_SCAFFOLD')) items.push(lang === 'ro'
+    ? 'ENUMERARE-SCHELET: elimină "în primul rând / în al doilea rând / nu în ultimul rând". Integrează ideile în proză continuă.'
+    : 'SKELETON ENUMERATION: remove "firstly / secondly / not lastly". Fold the ideas into continuous prose.')
+  if (has('LOW_BURSTINESS') || has('MODERATE_BURSTINESS') || has('UNIFORM_LENGTHS') || has('UNIFORM_PARAGRAPHS')) items.push(lang === 'ro'
+    ? 'RITM: variază AGRESIV lungimile. Introdu cel puțin trei propoziții sub 8 cuvinte ȘI cel puțin trei peste 25. Niciodată două propoziții consecutive de lungime apropiată. Include cel puțin un paragraf de 1-2 propoziții ȘI cel puțin unul de 5+.'
+    : 'RHYTHM: vary lengths AGGRESSIVELY. Add at least three sentences under 8 words AND at least three over 25. Never two consecutive sentences of similar length. Include at least one 1-2 sentence paragraph AND at least one of 5+.')
+  if (has('DEMONSTRATIVE_OVERKILL')) items.push(lang === 'ro'
+    ? 'DEMONSTRATIVE: prea multe propoziții încep cu "Acest/Această/Aceste". Reformulează majoritatea. Maximum 2 în tot articolul.'
+    : 'DEMONSTRATIVES: too many sentences start with "This/These". Reformulate most. Max 2 in the whole article.')
+  if (has('AI_VOCAB')) items.push(lang === 'ro'
+    ? 'VOCABULAR AI: înlocuiește "semnificativ/considerabil/esențial/crucial" cu termenul concret sau cifra.'
+    : 'AI VOCAB: replace "significant/considerable/essential/crucial" with the concrete term or the number.')
+  return items.length ? items.join('\n\n') : (lang === 'ro'
+    ? 'Variază ritmul propozițiilor și structura paragrafelor; elimină formulările tipice de AI.'
+    : 'Vary sentence rhythm and paragraph structure; remove typical AI phrasings.')
+}
+
+async function enforceRhythm(
+  lang: 'en' | 'ro', content: string, articleType: string, editorKey: string,
+  cost: CostTracker, budgetMs: number,
+): Promise<{ content: string; applied: boolean; before: number; after: number }> {
+  const before = measureHumanness(content, lang)
+  const beforeCraft = measureCraft(content, lang, articleType)  // v20: craft gate
+  // Fire on a real AI-tell problem OR a craft deficit, given budget for a time-capped call.
+  if (((before.score >= 85 && beforeCraft.craftScore >= CRAFT_TARGET)) || budgetMs < 45000) {  // v19: 80→85; v20: also low craft
+    return { content, applied: false, before: before.score, after: before.score }
+  }
+  const editorVoice = getEditorVoice(editorKey, lang)
+  const toneVoice = getToneVoice(articleType, lang)
+  const craftFix = buildCraftFixInstructions(beforeCraft.missing, lang)
+  const targeted = [buildRhythmFixInstructions(before.flags, lang), craftFix].filter(Boolean).join('\n\n')
+  const langName = lang === 'ro' ? 'Romanian' : 'English'
+  const system = `You are ${getEditorDisplayName(editorKey, lang)}, senior editor at Transilvania Times. The ${langName} article below fails the human-rhythm / anti-AI check on the SPECIFIC patterns listed. Fix ONLY those patterns.
+
+UNTOUCHABLE:
+- Change NO fact, name, number, date, quote, institution.
+- Add no new information. Keep the same set of facts and roughly the same length (±10%).
+- Keep the editor's voice and register below.
+
+EDITOR SIGNATURE
+${editorVoice}
+
+TYPE REGISTER — ${articleType.toUpperCase()}
+${toneVoice}
+
+PATTERNS TO FIX (the only issues — the rest of the text stays as is):
+${targeted}
+
+OUTPUT — exactly this, nothing else:
+<content>
+the corrected article, paragraphs separated by blank lines
+</content>`
+  const user = `ARTICLE (${countWords(content)} words):\n\n${content}\n\nReturn the corrected version inside <content></content>.`
+  const maxTokens = Math.min(12000, Math.max(4000, countWords(content) * 6))
+  const result = await callAnthropic('sonnet', system, user, { maxTokens, temperature: 0.6, timeoutMs: 40000 }, cost, `stage4b-rhythm-${lang}`)
+  if (!result.ok) { console.warn(`[v18] rhythm-${lang} skipped: ${result.error}`); return { content, applied: false, before: before.score, after: before.score } }
+  const ex = extractXml(result.value, 'content')
+  if (!ex.ok) { console.warn(`[v18] rhythm-${lang} no <content> tag`); return { content, applied: false, before: before.score, after: before.score } }
+  const revised = lang === 'ro' ? ensureParagraphs(sanitizeContentRo(ex.value)) : ensureParagraphs(sanitizeContentEn(ex.value))
+  const ratio = revised.length / Math.max(content.length, 1)
+  if (revised.length < 400 || ratio < 0.8 || ratio > 1.25) {
+    console.warn(`[v18] rhythm-${lang} rejected — length ratio ${(ratio * 100).toFixed(0)}%`)
+    return { content, applied: false, before: before.score, after: before.score }
+  }
+  if (lang === 'ro' && !isRomanianText(revised)) { console.warn(`[v18] rhythm-ro rejected — RO check`); return { content, applied: false, before: before.score, after: before.score } }
+  const after = measureHumanness(revised, lang)
+  const afterCraft = measureCraft(revised, lang, articleType)
+  const craftImproved = afterCraft.craftScore > beforeCraft.craftScore
+  if (after.score < before.score || (after.score === before.score && !craftImproved)) {
+    console.log(`[v18] rhythm-${lang} no gain (${after.score} <= ${before.score}) — keeping original`)
+    return { content, applied: false, before: before.score, after: after.score }
+  }
+  console.log(`[v18] rhythm-${lang} lifted ${before.score} → ${after.score} [${before.flags.join(',')}]`)
+  return { content: revised, applied: true, before: before.score, after: after.score }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
 // V17 PIPELINE ORCHESTRATOR — runs one language end-to-end
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2714,9 +3071,10 @@ async function runPipelineForLanguage(
   let titleSwapped = false
   let closerSwapped = false
 
-  // STAGE 5 — Extend if under 85% of target (gated on budget)
+  // STAGE 5 — Extend if under 85% of target (gated on budget).
+  // v19: skipped in preserve mode — the draft's length IS the target; never pad it.
   const minWords = Math.floor(input.wordCount * 0.85)
-  if (draftWc < minWords && budgetRemaining() > 50000) {
+  if (!input.preserve && draftWc < minWords && budgetRemaining() > 50000) {
     const extendResult = await stageExtend(lang, content, input.brief, research.atoms, draftWc, input.wordCount, input.articleType, input.editorKey, cost)
     if (extendResult.ok) {
       content = extendResult.value
@@ -2726,8 +3084,10 @@ async function runPipelineForLanguage(
     }
   }
 
-  // STAGE 4 — Polish (gated on budget, optional)
-  if (budgetRemaining() > 40000) {
+  // STAGE 4 — Polish (gated on budget, optional).
+  // v19: skipped in preserve mode — a second rewrite would drift from the author's
+  // text; the preserve edit already applied the humanization rules.
+  if (!input.preserve && budgetRemaining() > 40000) {
     const polishResult = await stagePolish(lang, title, content, input.articleType, input.editorKey, input.voiceClass, cost)
     if (polishResult.ok) {
       title = polishResult.value.title
@@ -2738,8 +3098,18 @@ async function runPipelineForLanguage(
     }
   }
 
-  // STAGE 6 — Semantic guard (gated on budget, best-effort)
-  if (budgetRemaining() > 15000) {
+  // STAGE 4b — Rhythm / anti-AI enforcement (v18.2, optional, budget-gated).
+  // measureHumanness is no longer telemetry-only: a low score now triggers one
+  // targeted Sonnet revision that removes the AI tells and breaks the symmetry.
+  // Gated on ≥45s of budget; the call itself aborts at 40s — cannot overrun 200s.
+  if (!input.preserve && budgetRemaining() > 45000) {
+    const fixed = await enforceRhythm(lang, content, input.articleType, input.editorKey, cost, budgetRemaining())
+    if (fixed.applied) content = fixed.content
+  }
+
+  // STAGE 6 — Semantic guard (gated on budget, best-effort).
+  // v19: skipped in preserve mode — the author's own closer/title stay untouched.
+  if (!input.preserve && budgetRemaining() > 15000) {
     const guardResult = await stageSemanticGuard(lang, title, content, input.brief, cost)
     if (guardResult.ok) {
       if (guardResult.value.titleOverride) {
@@ -2998,6 +3368,148 @@ async function requireAdmin(req: Request): Promise<Response | null> {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// v20 — ASYNC COLUMN ENGINE (Phase 2). One phase per invocation, driven by the
+// column_jobs queue, so an Opus draft + craft-enforce passes + a faithful
+// translate each run as their own sub-200s invocation — the ~200s edge wall
+// never applies. tt-column-worker pumps this via pg_cron. The synchronous route
+// below is untouched. Reuses this function's OWN voice/register/craft code, so
+// there is a single source of truth for the voices — no duplicated registers.
+// ═══════════════════════════════════════════════════════════════════════════
+const SB_URL = () => Deno.env.get('SUPABASE_URL') || ''
+const SB_KEY = () => Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+
+async function cjGet(jobId: string): Promise<Record<string, unknown> | null> {
+  const r = await fetch(`${SB_URL()}/rest/v1/column_jobs?id=eq.${jobId}&select=*`, {
+    headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` },
+  })
+  if (!r.ok) return null
+  const rows = await r.json() as Record<string, unknown>[]
+  return rows[0] ?? null
+}
+
+async function cjPatch(jobId: string, patch: Record<string, unknown>): Promise<void> {
+  patch.updated_at = new Date().toISOString()
+  await fetch(`${SB_URL()}/rest/v1/column_jobs?id=eq.${jobId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(patch),
+  })
+}
+
+function columnInputFromJob(job: Record<string, unknown>): PipelineInput {
+  const at = String(job.article_type ?? 'editorial')
+  const rawPrompt = String((job.input as Record<string, unknown> | null)?.prompt ?? '')
+  return {
+    brief: defangBrief(rawPrompt),
+    wordCount: Number(job.word_count) || 1200,
+    articleType: at,
+    editorKey: String(job.editor_key ?? 'andrei_popescu'),
+    category: String(job.category ?? 'news'),
+    voiceClass: VOICE_CLASS_TYPES.includes(at),
+    preserve: false,
+    draftLang: String(job.draft_lang) === 'en' ? 'en' : 'ro',
+    columnMode: true,
+  }
+}
+
+const EMPTY_META: MetadataFields = { excerpt: '', summary: '', tags: [], seoTitle: '', seoDescription: '' }
+
+// Handles ONE phase of a column_jobs row and returns quickly. Called by the
+// worker via { mode:'column_phase', job_id }. The worker owns the claim lock
+// (claimed_at); this releases it (claimed_at:null) at the end of every phase.
+async function handleColumnPhase(body: Record<string, unknown>): Promise<Response> {
+  const J = (s: unknown) => new Response(JSON.stringify(s), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } })
+  const jobId = toStr(body.job_id, 'request.job_id')
+  if (!jobId) return J({ ok: false, error: 'missing job_id' })
+  const job = await cjGet(jobId)
+  if (!job) return J({ ok: false, error: 'job not found' })
+  const status = String(job.status)
+  if (status === 'done' || status === 'error') return J({ ok: true, status })
+
+  const input = columnInputFromJob(job)
+  const cost: CostTracker = { usd: 0 }
+  const priorCost = Number(job.est_cost) || 0
+  const draftLang = input.draftLang
+  const otherLang: 'ro' | 'en' = draftLang === 'ro' ? 'en' : 'ro'
+
+  try {
+    // PHASE A — draft in draft_lang on Opus (single language, one invocation).
+    if (status === 'queued' || status === 'drafting') {
+      await cjPatch(jobId, { status: 'drafting' })
+      const research = await stageResearch(input, cost)
+      const atoms = research.ok ? research.value.atoms : ''
+      const isEnriched = research.ok ? research.value.isEnriched : false
+      const draft = await stageContent(draftLang, input, atoms, isEnriched, cost)
+      if (!draft.ok) throw new Error(`draft: ${draft.error}`)
+      await cjPatch(jobId, {
+        draft: draft.value.content, draft_title: draft.value.title,
+        status: 'revising', phase: 1, passes: 0, claimed_at: null, est_cost: priorCost + cost.usd,
+      })
+      return J({ ok: true, status: 'revising' })
+    }
+
+    // PHASE B — one craft/humanness enforcement pass; loop until clean or capped.
+    if (status === 'revising') {
+      const draft = String(job.draft ?? '')
+      const passes = Number(job.passes) || 0
+      const maxPasses = Number(job.max_passes) || 3
+      const fixed = await enforceRhythm(draftLang, draft, input.articleType, input.editorKey, cost, 180000)
+      const newDraft = fixed.applied ? fixed.content : draft
+      const human = measureHumanness(newDraft, draftLang)
+      const craft = measureCraft(newDraft, draftLang, input.articleType)
+      const nextPasses = passes + 1
+      const clean = human.score >= 90 && craft.craftScore >= CRAFT_TARGET
+      const done = clean || nextPasses >= maxPasses || !fixed.applied
+      await cjPatch(jobId, {
+        draft: newDraft, passes: nextPasses,
+        status: done ? 'translating' : 'revising', claimed_at: null, est_cost: priorCost + cost.usd,
+      })
+      return J({ ok: true, status: done ? 'translating' : 'revising', humanness: human.score, craft: craft.craftScore })
+    }
+
+    // PHASE C — faithful translate to the other language (reusing preserve-mode's
+    // translator), metadata both languages, assemble the admin-shaped result.
+    if (status === 'translating') {
+      const draft = String(job.draft ?? '')
+      const draftTitle = String(job.draft_title ?? '')
+      const draftMeta = await stageMetadata(draftLang, draftTitle, draft, cost)
+      const transInput: PipelineInput = { ...input, preserve: true, draftLang, brief: draft }
+      const trans = await stageContent(otherLang, transInput, '', false, cost)
+      if (!trans.ok) throw new Error(`translate: ${trans.error}`)
+      const otherMeta = await stageMetadata(otherLang, trans.value.title, trans.value.content, cost)
+      const dm = draftMeta.ok ? draftMeta.value : EMPTY_META
+      const om = otherMeta.ok ? otherMeta.value : EMPTY_META
+      const side = (title: string, content: string, m: MetadataFields) => ({
+        title, content, excerpt: m.excerpt, summary: m.summary, tags: m.tags, seoTitle: m.seoTitle, seoDescription: m.seoDescription,
+      })
+      const draftSide = side(draftTitle, draft, dm)
+      const otherSide = side(trans.value.title, trans.value.content, om)
+      const ro = draftLang === 'ro' ? draftSide : otherSide
+      const en = draftLang === 'en' ? draftSide : otherSide
+      const result = {
+        title_ro: ro.title, content_ro: ro.content, excerpt_ro: ro.excerpt, summary_ro: ro.summary,
+        tags_ro: ro.tags, seo_title_ro: ro.seoTitle, seo_description_ro: ro.seoDescription,
+        title_en: en.title, content_en: en.content, excerpt_en: en.excerpt, summary_en: en.summary,
+        tags_en: en.tags, seo_title_en: en.seoTitle, seo_description_en: en.seoDescription,
+      }
+      await cjPatch(jobId, { result, status: 'done', claimed_at: null, est_cost: priorCost + cost.usd })
+      return J({ ok: true, status: 'done' })
+    }
+
+    return J({ ok: true, status })
+  } catch (e) {
+    const attempts = (Number(job.attempts) || 0) + 1
+    const patch: Record<string, unknown> = { attempts, claimed_at: null, error: (e as Error).message, est_cost: priorCost + cost.usd }
+    if (attempts >= 3) patch.status = 'error'
+    await cjPatch(jobId, patch)
+    return J({ ok: false, status: attempts >= 3 ? 'error' : 'retry', error: (e as Error).message })
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   // Admin-only. Service-role bearer (pg_cron) passes; a logged-in admin passes;
@@ -3011,11 +3523,15 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json() }
   catch { return new Response(JSON.stringify({ error: 'Invalid JSON in request body' }), { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } }) }
 
+  // v20 — async column engine: one phase per invocation. A phase request carries
+  // no prompt, so this must run BEFORE the brief-length validation below.
+  if (toStr(body.mode, 'request.mode') === 'column_phase') return await handleColumnPhase(body)
+
   const rawBrief    = toStr(body.prompt, 'request.prompt')
   const briefLen    = rawBrief.length
   const wordCount   = Number(body.word_count) || 1200
   const articleType = toStr(body.article_type, 'request.article_type') || 'news'
-  const editorKey   = toStr(body.editor, 'request.editor') || 'andrei_popescu'
+  const editorKey   = toStr(body.editor_key, 'request.editor_key') || toStr(body.editor, 'request.editor') || 'andrei_popescu'  // v20: admin sends editor_key; body.editor kept as a legacy fallback
   const category    = toStr(body.category, 'request.category') || 'news'
 
   if (briefLen < 50)     return new Response(JSON.stringify({ error: 'Brief too short (minimum 50 characters)' }), { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } })
@@ -3025,13 +3541,22 @@ Deno.serve(async (req: Request) => {
   const voiceClass = VOICE_CLASS_TYPES.includes(articleType)
   const safeBrief  = defangBrief(rawBrief)
 
+  // v19 — PRESERVE / EDITOR MODE. Triggered by mode:"preserve" (or preserve:true).
+  // The draft's own length becomes the target so nothing is compressed; draft_lang
+  // says which language the author wrote in (default RO), the other is translated.
+  const preserve = toStr(body.mode, 'request.mode') === 'preserve' || body.preserve === true
+  const draftLang: 'ro' | 'en' = toStr(body.draft_lang, 'request.draft_lang') === 'en' ? 'en' : 'ro'
+  const effectiveWordCount = preserve ? Math.min(5000, Math.max(200, countWords(safeBrief))) : wordCount
+
   const input: PipelineInput = {
     brief: safeBrief,
-    wordCount,
+    wordCount: effectiveWordCount,
     articleType,
     editorKey,
     category,
     voiceClass,
+    preserve,
+    draftLang,
   }
 
   let resultEnvelope: GenerationResult

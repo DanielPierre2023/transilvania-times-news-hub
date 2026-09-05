@@ -1,7 +1,7 @@
 // supabase/functions/tt-improve-for-adsense/index.ts
 //
 // TT Improve for AdSense - safe in-place editorial improvement
-// v5: treats scraped/source text as newsroom base material and rejects editorial no-go phrasing.
+// v6: newsroom base material, neutral news rewrite, validation returns JSON with 200 instead of 422.
 //
 // Required env:
 // - SUPABASE_URL
@@ -13,7 +13,6 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { requireAdmin } from "../_shared/requireAdmin.ts"
 
 const OPENAI_MODEL = "gpt-4o"
 const CALL_TIMEOUT_MS = 120000
@@ -118,7 +117,7 @@ function normalized(value: string | null | undefined): string {
   return cleanText(value)
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[„”"']/g, "")
     .replace(/\s+/g, " ")
     .trim()
@@ -141,9 +140,7 @@ function countParagraphs(value: string | null | undefined): number {
 
   return text
     .split(/\n\s*\n|\n/)
-    .map(function (p) {
-      return p.trim()
-    })
+    .map((p) => p.trim())
     .filter(Boolean).length
 }
 
@@ -183,9 +180,7 @@ function stringArray(v: unknown, max = 20): string[] {
   if (!Array.isArray(v)) return []
 
   return v
-    .map(function (x) {
-      return String(x || "").trim()
-    })
+    .map((x) => String(x || "").trim())
     .filter(Boolean)
     .slice(0, max)
 }
@@ -245,7 +240,7 @@ function sourceRiskSummary(report: unknown): string {
   const anyReport = report as any
   const sourceReview = anyReport?.source_comparison_review || {}
 
-  const parts = [
+  return [
     "status=" + String(anyReport?.status || "unknown"),
     "score=" + String(anyReport?.total_score || "unknown"),
     "similarity=" + String(sourceReview.similarity_risk || "unknown"),
@@ -254,9 +249,7 @@ function sourceRiskSummary(report: unknown): string {
     "added_value=" + String(sourceReview.value_added_score || "unknown"),
     "ai_artifact=" + String(anyReport?.ai_artifact_review?.risk || "unknown"),
     "type_score=" + String(anyReport?.voice_and_type_review?.type_preservation_score || "unknown")
-  ]
-
-  return parts.join("; ")
+  ].join("; ")
 }
 
 function shouldPreserveFullArticle(post: BlogPost): boolean {
@@ -293,9 +286,7 @@ function containsForbiddenPublicCitation(value: string | null | undefined): bool
     "base text"
   ]
 
-  return forbidden.some(function (term) {
-    return text.includes(term)
-  })
+  return forbidden.some((term) => text.includes(term))
 }
 
 function containsLanguageLeak(value: string | null | undefined): boolean {
@@ -310,9 +301,7 @@ function containsLanguageLeak(value: string | null | undefined): boolean {
     " government "
   ]
 
-  return leaks.some(function (term) {
-    return text.includes(term)
-  })
+  return leaks.some((term) => text.includes(term))
 }
 
 function containsEditorialNoGo(value: string | null | undefined): boolean {
@@ -332,9 +321,8 @@ function containsEditorialNoGo(value: string | null | undefined): boolean {
     "angajamentele neindeplinite",
     "tacerea este elocventa",
     "promisiunea a ramas doar pe hartie",
-    "esec al supercom",
-    "esecul supercom",
     "a-si onora obligatiile contractuale",
+    "obligatiile contractuale",
     "contractelor publice",
     "guvernele locale nu raspund",
     "oficialii guvernamentali locali",
@@ -351,21 +339,37 @@ function containsEditorialNoGo(value: string | null | undefined): boolean {
     "guvernamental"
   ]
 
-  return noGo.some(function (term) {
-    return text.includes(term)
-  })
+  return noGo.some((term) => text.includes(term))
 }
 
-function outputHasBadPublicWording(improved: ImprovedArticlePayload): boolean {
-  return (
+function validationProblems(original: BlogPost, improved: ImprovedArticlePayload): string[] {
+  const problems: string[] = []
+
+  if (articleTooShort(original, improved)) {
+    problems.push("too_short_or_too_few_paragraphs")
+  }
+
+  if (
     containsForbiddenPublicCitation(improved.content_ro) ||
     containsForbiddenPublicCitation(improved.excerpt_ro) ||
-    containsForbiddenPublicCitation(improved.summary_ro) ||
-    containsLanguageLeak(improved.content_ro) ||
+    containsForbiddenPublicCitation(improved.summary_ro)
+  ) {
+    problems.push("internal_base_material_publicly_cited")
+  }
+
+  if (containsLanguageLeak(improved.content_ro)) {
+    problems.push("english_language_leak")
+  }
+
+  if (
     containsEditorialNoGo(improved.content_ro) ||
     containsEditorialNoGo(improved.excerpt_ro) ||
     containsEditorialNoGo(improved.summary_ro)
-  )
+  ) {
+    problems.push("editorial_no_go_detected")
+  }
+
+  return problems
 }
 
 async function callOpenAI(system: string, user: string): Promise<{ text: string; error?: string }> {
@@ -373,9 +377,7 @@ async function callOpenAI(system: string, user: string): Promise<{ text: string;
   if (!apiKey) return { text: "", error: "OPENAI_API_KEY not set" }
 
   const controller = new AbortController()
-  const timer = setTimeout(function () {
-    controller.abort()
-  }, CALL_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS)
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -388,7 +390,7 @@ async function callOpenAI(system: string, user: string): Promise<{ text: string;
       body: JSON.stringify({
         model: OPENAI_MODEL,
         response_format: { type: "json_object" },
-        temperature: 0.18,
+        temperature: 0.12,
         max_tokens: 12000,
         messages: [
           { role: "system", content: system },
@@ -411,10 +413,7 @@ async function callOpenAI(system: string, user: string): Promise<{ text: string;
     const data = JSON.parse(raw)
 
     return {
-      text:
-        data && data.choices && data.choices[0] && data.choices[0].message
-          ? data.choices[0].message.content || ""
-          : ""
+      text: data?.choices?.[0]?.message?.content || ""
     }
   } catch (e) {
     clearTimeout(timer)
@@ -493,29 +492,25 @@ function buildSystemPrompt(): string {
   }
 
   return [
-    "You are the Transilvania Times senior desk editor for AdSense-quality local journalism.",
+    "You are the Transilvania Times senior desk editor for local news.",
     "Return valid JSON only. No markdown. No extra keys.",
-    "The scraped/original text is INTERNAL BASE MATERIAL for factual grounding. It is not a public source to cite in the article.",
-    "Never write 'sursa citată', 'potrivit sursei citate', 'relatarea inițială', 'materialul de bază', 'textul de bază', or similar public references to the input text.",
-    "Your task is to produce a clean full news article, not to summarize and not to editorialize.",
-    "Preserve journalistic context, but remove opinion, speculation, and broad conclusions that are not directly supported by the base material.",
-    "Write as Transilvania Times is reporting the news. Do not disclose or mention the internal base material.",
-    "Never invent facts, quotes, officials, resident reactions, dates, locations, phone numbers, policies, sanctions, medical claims, contract clauses, or statistics.",
-    "Never add a direct quotation unless the exact quote is present in the internal base material or the current article and is clearly attributable to a person/group in the article.",
-    "If quote integrity risk is medium or high, remove direct quotes that are not exactly supported. Convert them to cautious indirect wording or remove them.",
-    "If similarity risk is medium or high, do not paraphrase sentence-by-sentence. Re-architect the article with a new lead, new paragraph order, new sentence structure, no copied rhythm, no copied hooks, and no copied closing lines.",
-    "Use actor-based attribution only, tied to the actual people/organizations named in THIS article's base material — e.g. 'locuitorii semnalează', 'potrivit programului de colectare', 'autoritățile locale pot clarifica'. Never name a specific company, official, or institution unless that exact name appears in this article's own base material.",
-    "If a claim cannot be tied to a real actor or concrete fact in the story, remove it or soften it.",
-    "For news articles, enforce strict inverted pyramid: paragraph 1 answers what happened, where, who is involved/affected, when/duration if known, and why it matters. Later paragraphs add concrete context and what remains unclear.",
-    "CRITICAL LENGTH RULE: If the current Romanian article has at least 250 words, return a full Romanian article of 350 to 550 words, with at least 6 paragraphs. Do not compress it into a brief. Length is secondary to accuracy — if the base material does not support that length without padding, return the longest article the facts actually support and explain the shortfall in editorial_notes rather than inventing content to fill the gap.",
-    "CRITICAL LENGTH RULE: If the current English article has at least 250 words, return a full English article of 300 to 520 words, with at least 6 paragraphs. Do not compress it into a brief. Length is secondary to accuracy — if the base material does not support that length without padding, return the longest article the facts actually support and explain the shortfall in editorial_notes rather than inventing content to fill the gap.",
-    "Use restrained local-news language. Avoid outrage, exaggeration, advocacy, generic endings, slogans, rhetorical questions, and AI-style filler.",
-    "STRICT NO-GO PHRASES OR IDEAS: systemic weaknesses, broader inefficiency, uncomfortable questions, not the first violation, frequently criticized, government officials, public contracts, local governments do not respond, silence is eloquent, stricter supervision has never been clearer, accountability demands, residents losing trust, literally and figuratively, no options, someone in authority, public health will suffer.",
-    "Do not write broad unsupported claims about any named organization's history, repeated criticism, systemic negligence, public contracts, contractual obligations, local government failure, or loss of institutional trust unless THIS article's base material explicitly proves them and the claim is essential. In normal news output, remove them.",
-    "The correct safe angle is always the narrowest one THIS article's own base material directly supports: state only what happened, who is involved, what remains unclear, and what response (if any) has followed. Never borrow specifics — street names, company names, complaint details — from any article other than the one currently being rewritten.",
-    "Romanian text must use natural Romanian journalistic prose with diacritics and no English word leaks.",
+    "The scraped/original text is internal newsroom base material for factual grounding only. Do not cite it publicly and do not mention it in the article.",
+    "Write a clean full news article, not a summary, not an opinion column.",
+    "Preserve local journalistic context, but remove speculation, broad conclusions, rhetorical questions, and unsupported institutional accusations.",
+    "Do not invent facts, quotes, officials, reactions, dates, locations, policies, contract clauses, or statistics.",
+    "Do not add a direct quote unless the exact quote exists in the base material or current article.",
+    "Use actor-based attribution only, tied to the actual people/organizations named in THIS article's base material — e.g. locuitorii semnalează, potrivit autorităților locale, instituția vizată poate clarifica. Never name a company, official, or institution that does not appear in this article's own base material.",
+    "For news articles, use inverted pyramid: first paragraph answers what happened, where, who is affected, when/duration if known, and why it matters.",
+    "If the current Romanian article has at least 250 words, return 350 to 550 Romanian words with at least 6 paragraphs.",
+    "If the current English article has at least 250 words, return 300 to 520 English words with at least 6 paragraphs.",
+    "Avoid these ideas and phrases: systemic weaknesses, broader inefficiency, uncomfortable questions, not the first violation, frequently criticized, silence is eloquent, public contracts, loss of trust, literally and figuratively, no options.",
+    "The correct safe angle is always the narrowest one THIS article's own base material directly supports: state only what happened, who is involved, what remains unclear, and what response (if any) followed. Never borrow specifics — names, streets, companies — from any other article.",
+    "Romanian text must use diacritics and no English word leaks.",
     "Do not include the source URL inside the article body.",
-    "Quality target after rewriting: full article, clean 5W lead, neutral tone, quote risk low, similarity lower, added value through useful local context, no editorial no-go phrases.",
+    "HUMANIZATION (measurable, applies to both languages): make sentence length burst. Include at least three sentences under 8 words AND at least three over 25 words; never two consecutive sentences within 5 words of each other in length; include at least one deliberate verbless fragment. Do not alternate mechanically short-long-short.",
+    "Use strong finite verbs, not nominalizations or filler ('it is important', 'este important sa'). Avoid predictable connective pairs ('on one hand ... on the other hand', 'pe de o parte ... pe de alta parte'); never use 'firstly/secondly' or 'in primul rand / in al doilea rand'. Keep transitions invisible.",
+    "Never end a paragraph by restating it. Banned closers: 'This highlights', 'This underscores', 'In conclusion', 'In essence', 'Acest lucru arata', 'Acest lucru subliniaza', 'In concluzie', 'Ramane de vazut'. End each paragraph on its hardest concrete fact, number, or quote.",
+    "Vary paragraph openers and lengths: no two consecutive paragraphs may begin the same way; include at least one paragraph of 1-2 sentences and at least one of 5 or more sentences.",
     "Return exactly this JSON shape:",
     JSON.stringify(schema, null, 2)
   ].join("\n")
@@ -527,17 +522,18 @@ function buildUserPrompt(
   report: unknown,
   articleType: ArticleType,
   editorKey: string,
-  repairMode = false
+  attempt: number,
+  problems: string[]
 ): string {
   const preserveFull = shouldPreserveFullArticle(post)
 
   return [
-    repairMode
-      ? "REPAIR THE PREVIOUS OUTPUT: it was too short, mentioned internal source material, leaked English, or contained editorial no-go claims."
-      : "Rewrite this article as a stronger AdSense-ready Transilvania Times newsroom article.",
-    "This must be a complete publishable news article, not a summary, not a brief, and not an opinion column.",
-    "IMPORTANT: The source/original text below is internal base material. Do not cite it publicly. Do not write 'sursa citată' or similar wording.",
-    "IMPORTANT: Remove or neutralize the article's editorial no-go claims, especially: systemic weaknesses, broader inefficiency, uncomfortable questions, a named organization's history/repeated criticism, government/local authority failure, public contracts, loss of trust, calls for stricter oversight — unless THIS article's own base material explicitly and directly supports the specific claim.",
+    attempt === 1
+      ? "Rewrite this article as a stronger AdSense-ready Transilvania Times news article."
+      : "Repair the previous output. It failed validation for: " + problems.join(", ") + ". Produce a clean neutral news article that passes all validation rules.",
+    "This must be a complete publishable news article, not a summary and not an opinion column.",
+    "Do not cite or mention the source/original/base material publicly.",
+    "Remove the no-go angle entirely: systemic failure, broad supervision failure, public contracts, repeated corporate misconduct, rhetorical accountability questions.",
     "",
     "EXPECTED ARTICLE TYPE: " + articleType,
     "EXPECTED EDITOR KEY: " + editorKey,
@@ -546,12 +542,12 @@ function buildUserPrompt(
     "AUTHOR: " + (post.author_name || ""),
     "CURRENT SOURCE URL: " + (post.source_url || ""),
     "RISK SUMMARY: " + sourceRiskSummary(report),
-    "FULL ARTICLE MUST BE PRESERVED: " + (preserveFull ? "YES - keep a full article with journalistic context" : "Use judgment based on source length"),
+    "FULL ARTICLE MUST BE PRESERVED: " + (preserveFull ? "YES" : "Use judgment based on source length"),
     "",
-    "PRIOR QUALITY REPORT / PROBLEMS TO FIX",
+    "QUALITY REPORT",
     JSON.stringify(report || {}, null, 2).slice(0, 10000),
     "",
-    "INTERNAL BASE MATERIAL - factual boundary only. Use it to verify facts, not to copy prose and not to cite publicly.",
+    "INTERNAL BASE MATERIAL - factual boundary only, not for public citation",
     source
       ? JSON.stringify(
           {
@@ -577,17 +573,13 @@ function buildUserPrompt(
     "summary_en: " + (post.summary_en || ""),
     "content_en:\n" + truncate(post.content_en, 14000),
     "",
-    "Mandatory rewrite checklist:",
-    "- Return a complete full article, not one paragraph.",
-    "- Romanian content should normally be 350-550 words and at least 6 paragraphs when the current article is a full article.",
-    "- Preserve local news context: street, residents, waste type, collection timing, operator, discomfort, uncertainty, and need for clarification.",
-    "- Write a new neutral 5W lead.",
-    "- Do not mention the internal base material, source article, or source URL in public article text.",
-    "- Use actor-based attribution: 'locuitorii semnalează', 'programul de colectare menționează', 'operatorul este vizat de sesizare', 'autoritățile locale pot clarifica'.",
-    "- Remove unsupported direct quotes and avoid quote-like invented wording.",
-    "- Remove generic AI/editorial filler closings.",
-    "- Remove the following no-go angle entirely: systemic failure, broad supervision failure, public contracts, repeated corporate misconduct, rhetorical accountability questions.",
-    "- Keep allegations cautious and tied to actors: 'locuitorii reclamă', 'situația semnalată', not definitive claims beyond the base material."
+    "Checklist:",
+    "- Full article, not one paragraph.",
+    "- Neutral 5W lead.",
+    "- At least 6 paragraphs for a full article.",
+    "- Keep the local context that THIS article actually contains: who is involved, what happened, where, timing if known, and what remains unclear.",
+    "- Use cautious wording tied to actors: locuitorii reclamă, situația semnalată, programul menționează.",
+    "- Remove unsupported quotes and editorial filler."
   ].join("\n")
 }
 
@@ -611,10 +603,11 @@ async function generateImprovement(
   report: unknown,
   articleType: ArticleType,
   editorKey: string,
-  repairMode = false
+  attempt: number,
+  problems: string[]
 ): Promise<{ improved?: ImprovedArticlePayload; raw?: string; error?: string }> {
   const system = buildSystemPrompt()
-  const user = buildUserPrompt(post, source, report, articleType, editorKey, repairMode)
+  const user = buildUserPrompt(post, source, report, articleType, editorKey, attempt, problems)
 
   const ai = await callOpenAI(system, user)
   if (ai.error) return { error: ai.error }
@@ -633,31 +626,76 @@ async function generateImprovement(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Inlined admin-authorization gate (self-contained; no _shared import needed).
+// Allows only: (1) a trusted internal caller presenting this project's
+// SUPABASE_SERVICE_ROLE_KEY as bearer, or (2) a logged-in admin (user JWT whose
+// auth.uid() has an 'admin' row in public.user_roles). Everyone else -> 401/403.
+// Fails closed. Dynamic import of createClient avoids clashing with existing imports.
+// ---------------------------------------------------------------------------
+async function requireAdmin(req: Request): Promise<Response | null> {
+  const AUTH_CORS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+  const authHeader = req.headers.get('authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+    });
+  }
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (serviceKey && token === serviceKey) {
+    return null;
+  }
+  try {
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const supabase = createClient(supabaseUrl, anonKey ?? serviceKey!, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    if (userErr || !userData.user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+      });
+    }
+    const { data: roleRow, error: roleErr } = await supabase
+      .from('user_roles').select('role').eq('user_id', userData.user.id)
+      .eq('role', 'admin').maybeSingle();
+    if (roleErr || !roleRow) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+      });
+    }
+    return null;
+  } catch (e) {
+    console.error('[requireAdmin] check failed, denying by default:', (e as Error).message);
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...AUTH_CORS, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
 serve(async function (req: Request) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
-  if (req.method !== "POST") return plain("Method Not Allowed", 405)
+  const denied = await requireAdmin(req);
+  if (denied) return denied;
 
-  const denied = await requireAdmin(req)
-  if (denied) return denied
+  if (req.method !== "POST") return plain("Method Not Allowed", 405)
 
   try {
     const SUPABASE_URL = getEnv("SUPABASE_URL")
     const SERVICE_ROLE = getEnv("SUPABASE_SERVICE_ROLE_KEY")
 
     if (!SUPABASE_URL || !SERVICE_ROLE) {
-      return json(
-        {
-          ok: false,
-          error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing"
-        },
-        500
-      )
+      return json({ ok: false, error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing" }, 500)
     }
 
-    const body = await req.json().catch(function () {
-      return {}
-    })
-
+    const body = await req.json().catch(() => ({}))
     const postId = String(body.blog_post_id || body.post_id || body.id || "").trim()
 
     if (!postId) {
@@ -695,16 +733,10 @@ serve(async function (req: Request) {
       .single()
 
     if (error || !data) {
-      return json(
-        {
-          ok: false,
-          error: "Article not found: " + (error?.message || postId)
-        },
-        404
-      )
+      return json({ ok: false, error: "Article not found: " + (error?.message || postId) }, 404)
     }
 
-    const post = data as BlogPost
+    const post = data as unknown as BlogPost
 
     if (countWords(post.content_ro) < 50 && countWords(post.content_en) < 50) {
       return json({ ok: false, error: "Article content is too short to improve safely" }, 400)
@@ -715,63 +747,47 @@ serve(async function (req: Request) {
     const source = await loadSourceMaterial(supabase, post, body)
     const report = body.quality_report || body.adsense_report || {}
 
-    let generated = await generateImprovement(post, source, report, articleType, editorKey, false)
+    let improved: ImprovedArticlePayload | undefined
+    let problems: string[] = []
+    let attempts = 0
+    let raw = ""
 
-    if (generated.error || !generated.improved) {
-      return json(
-        {
-          ok: false,
-          error: generated.error || "Improvement failed",
-          raw: generated.raw
-        },
-        500
-      )
-    }
-
-    let improved = generated.improved
-    let repairedBecauseTooShort = false
-    let repairedBecauseBadPublicWording = false
-
-    if (articleTooShort(post, improved) || outputHasBadPublicWording(improved)) {
-      repairedBecauseTooShort = articleTooShort(post, improved)
-      repairedBecauseBadPublicWording = outputHasBadPublicWording(improved)
-
-      generated = await generateImprovement(post, source, report, articleType, editorKey, true)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      attempts = attempt
+      const generated = await generateImprovement(post, source, report, articleType, editorKey, attempt, problems)
 
       if (generated.error || !generated.improved) {
-        return json(
-          {
-            ok: false,
-            error:
-              "Improvement output failed validation and repair failed: " +
-              (generated.error || "unknown"),
-            original_word_count_ro: countWords(post.content_ro),
-            attempted_word_count_ro: countWords(improved.content_ro),
-            attempted_paragraph_count_ro: countParagraphs(improved.content_ro)
-          },
-          500
-        )
+        return json({ ok: false, error: generated.error || "Improvement failed", raw: generated.raw }, 500)
       }
 
       improved = generated.improved
+      raw = generated.raw || ""
+      problems = validationProblems(post, improved)
+
+      if (problems.length === 0) break
     }
 
-    if (articleTooShort(post, improved) || outputHasBadPublicWording(improved)) {
+    if (!improved) {
+      return json({ ok: false, error: "Improvement failed" }, 500)
+    }
+
+    if (problems.length > 0) {
       return json(
         {
           ok: false,
-          error:
-            "Improvement output was rejected because it lost journalistic context, became too short, cited internal base material, leaked English, or kept editorial no-go claims. Article was not updated.",
+          error: "Improvement was generated but rejected by editorial validation. Article was not updated.",
+          validation_problems: problems,
           original_word_count_ro: countWords(post.content_ro),
           improved_word_count_ro: countWords(improved.content_ro),
           improved_paragraph_count_ro: countParagraphs(improved.content_ro),
           forbidden_public_citation_detected: containsForbiddenPublicCitation(improved.content_ro),
           language_leak_detected: containsLanguageLeak(improved.content_ro),
           editorial_no_go_detected: containsEditorialNoGo(improved.content_ro),
-          advice:
-            "Try again after running Verifică AdSense, or improve manually. The function refused to overwrite the article with unsafe wording."
+          attempts,
+          raw_preview: raw.substring(0, 600),
+          advice: "The function returned HTTP 200 so the admin can display this validation reason instead of a generic Edge Function error."
         },
-        422
+        200
       )
     }
 
@@ -785,7 +801,7 @@ serve(async function (req: Request) {
       content_ro: improved.content_ro,
       content_en: improved.content_en,
       ai_review_reason:
-        "Improved for AdSense/editorial quality v5 neutral newsroom article at " +
+        "Improved for AdSense/editorial quality v6 neutral newsroom article at " +
         new Date().toISOString(),
       updated_at: new Date().toISOString()
     }
@@ -807,9 +823,8 @@ serve(async function (req: Request) {
       ok: true,
       post_id: post.id,
       slug: post.slug,
-      improvement_version: "v5_neutral_news_no_editorial_nogo",
-      repaired_because_too_short: repairedBecauseTooShort,
-      repaired_because_bad_public_wording: repairedBecauseBadPublicWording,
+      improvement_version: "v6_neutral_news_no_editorial_nogo_no_422",
+      attempts,
       original_word_count_ro: countWords(post.content_ro),
       improved_word_count_ro: countWords(improved.content_ro),
       improved_paragraph_count_ro: countParagraphs(improved.content_ro),

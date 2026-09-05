@@ -1415,29 +1415,39 @@ export default function NewsroomPage() {
       // Monotonic + in-bounds: a story can never start before the previous one.
       start = Math.min(Math.max(start, i === 0 ? greetingFloor : prevStart + 0.8), Math.max(0, dur - 0.5))
       prevStart = start
-      const src = postIdx[i] >= 0 ? selectedPosts[postIdx[i]] : undefined
-      // THE HEADLINE, CHOSEN IN THE FRONTEND SO IT CANNOT ARRIVE BROKEN.
+      // THE HEADLINE OF A NEWS BULLETIN IS THE ARTICLE'S OWN HEADLINE. FULL STOP.
       //
-      // This line used to pass `st.lower_third` straight to the screen. When the
-      // edge function's label came back as a spoken sentence sliced at 38
-      // characters — "Lucian Bratu scrie că debitul râului C" — that fragment
-      // WAS the headline, cut mid-word, and nothing here stopped it. The edge
-      // function is fixed too, but it is deployed by hand and that deploy keeps
-      // failing; this path deploys through Netlify and does not depend on it.
+      // A bulletin is built from articles the editor selected, and each story is
+      // one of those articles read aloud. The article already has a real,
+      // human-written headline in the database. That — not anything the language
+      // model invents — is what belongs on the bar.
       //
-      // A lower-third that is a PREFIX of the spoken text is not a title — it is
-      // a sliced sentence. That is the exact signature of the bug and it is what
-      // this detects. When the label is a real crafted title (not a prefix of
-      // what is said) it is kept. Either way the winner is the ARTICLE'S OWN
-      // headline when we have it — the real, editor-written one — and everything
-      // is shortened on a WORD BOUNDARY so it can never end mid-word again.
+      // The previous version of this only reached for the article title when a
+      // fuzzy text match happened to succeed, and fell back to the SPOKEN TEXT
+      // when it did not. That fallback is the whole complaint: the bar showed
+      // "Lucian Bratu scrie că debitul râului…" — the opening of the sentence,
+      // not a headline. Verified live: the article behind that story is titled
+      // "Seceta scoate la iveală resturi în râul Crișul Repede din Oradea", a
+      // perfectly good headline sitting right there unused.
+      //
+      // So the article is resolved TWO ways and the spoken text is never used:
+      //   1. the fuzzy text match (handles reordering and dropped stories), then
+      //   2. INDEX ALIGNMENT when the count of stories equals the count of
+      //      selected articles — which is the normal case, and is more reliable
+      //      than fuzzy matching because the function emits one story per article
+      //      in order.
+      // Only if BOTH fail is a crafted (non-fragment) label used, and only then
+      // a generic "Știrea N" — never the beginning of a sentence.
+      const alignable = sections.stories.length === selectedPosts.length
+      const art = (postIdx[i] >= 0 ? selectedPosts[postIdx[i]] : undefined)
+        || (alignable ? selectedPosts[i] : undefined)
+      const src = art
       const say = (st.text || '').replace(/\s+/g, ' ').trim().toLowerCase()
       const label = (st.lower_third || '').replace(/\s+/g, ' ').trim()
-      const articleTitle = src ? ((lang === 'ro' ? src.title_ro : src.title_en) || src.title_ro || src.title_en || '') : ''
+      const articleTitle = art ? ((lang === 'ro' ? art.title_ro : art.title_en) || art.title_ro || art.title_en || '') : ''
+      // A label that is a prefix of what is said is a sliced sentence, not a title.
       const labelIsSpokenFragment = label.length > 0 && say.startsWith(label.toLowerCase())
-      const chosen = (!label || labelIsSpokenFragment)
-        ? (articleTitle || (st.text || ''))   // the real headline, or the block to word-trim
-        : label
+      const chosen = articleTitle || (label && !labelIsSpokenFragment ? label : '')
       const headline = truncateWords(chosen, LOWER_THIRD_MAX) || `Știrea ${i + 1}`
       out.push({ start, title: headline, category: src?.category, cover: src?.cover_image })
       acc += wc[(sections.greeting ? 1 : 0) + i]
@@ -2362,8 +2372,23 @@ export default function NewsroomPage() {
         ctx.globalAlpha = 1; ctx.textAlign = 'left'
       }
 
+      // START CAPTURE ON A PAINTED CANVAS, WITH NO ASYNC GAP AFTER IT.
+      //
+      // This used to be `rec.start(200)` and THEN `await ac.resume()`. On the
+      // first user gesture the browser's autoplay policy can make resume() take
+      // real time, and the recorder was already rolling — so it captured blank
+      // frames for the whole stall. When that stall spanned the 4.2s branded
+      // intro, the intro never made it into the file: "the intro was not
+      // generated". Nothing was wrong with the intro; the camera was rolling on
+      // an empty stage.
+      //
+      // So resume the audio FIRST (get the slow await done), paint the intro's
+      // opening frame, and only THEN start the recorder. From rec.start to the
+      // first loop frame is now fully synchronous — the recorder can never begin
+      // on a blank canvas again.
+      await ac.resume().catch(() => {})   // do the slow await BEFORE capture starts
+      drawIntro(0)                          // first frame painted, so capture is never blank
       rec.start(200)
-      await ac.resume().catch(() => {})   // ensure the clock runs during the (silent-video) intro
       const acT0 = ac.currentTime + 0.1
       scheduleIntroSting(acT0)
       // News bed — a discreet broadcast underscore while the presenter talks:
@@ -2448,9 +2473,34 @@ export default function NewsroomPage() {
       // stopwatch says so, so nothing is ever cut.
       const t0 = performance.now()
       let started = false
-      let contentEndedAt = 0        // wall-clock second at which the media finished
+      // TWO moments, not one — and collapsing them is what cut "La revedere".
+      //
+      //   mediaEndedAt   — the wall second the presenter audio actually finished.
+      //   contentEndedAt — the wall second the OUTRO begins.
+      //
+      // The old loop had only `contentEndedAt`, and it set it the instant
+      // `v.currentTime >= dur - 0.05`. Two things followed, both wrong:
+      //
+      //   • `dur - 0.05` trips ~50 ms BEFORE the element's own `ended`, so the
+      //     clip was never allowed to play its last 50 ms;
+      //   • the very next frame ran `v.pause()`, which hard-gated the final
+      //     syllable with no ring-out — the compressor's 0.25 s release and the
+      //     natural decay of "revedere" were chopped off. The outro that took
+      //     over has the music bed but no voice, so the sign-off was cut EVERY
+      //     time, and it SOUNDED cut by more than the 50 ms actually missing.
+      //
+      // Now: end on the media's OWN `ended` signal. The numeric clause survives
+      // only as a STALL guard (parked at the very end AND not advancing) so a
+      // duration-metadata quirk can't hang the render — it is never what ends a
+      // clip that is still playing. Then HOLD the last frame for TAIL_PAD with
+      // the presenter STILL UNPAUSED, so the last word and its decay flush into
+      // the recording, and only AFTER that pause and start the outro.
+      const TAIL_PAD = 0.4          // let "La revedere" ring out before the endcard
+      let mediaEndedAt = 0
+      let contentEndedAt = 0
+      let lastMt = -1, lastAdvance = 0
       // Hard ceiling so a stalled element can never record forever.
-      const HARD_STOP = INTRO + dur + OUTRO + 30
+      const HARD_STOP = INTRO + dur + TAIL_PAD + OUTRO + 30
       await new Promise<void>(resolve => {
         const loop = () => {
           const t = (performance.now() - t0) / 1000
@@ -2458,17 +2508,27 @@ export default function NewsroomPage() {
           if (t < INTRO) {
             setCompPct(Math.min(99, Math.round((t / total) * 100)))
             drawIntro(t)
-          } else if (!contentEndedAt) {
+          } else if (!mediaEndedAt) {
             if (!started) { started = true; ac.resume(); v.play().catch(() => {}) }
             // MEDIA time, not elapsed time. While the element is still starting
             // this stays at 0 and the frame simply holds — no drift is possible.
             const mt = Math.min(v.currentTime || 0, dur)
+            if (mt > lastMt + 1e-3) { lastMt = mt; lastAdvance = t }
             setCompPct(Math.min(99, Math.round(((INTRO + mt) / total) * 100)))
             drawContent(INTRO + mt)
-            if (v.ended || (v.currentTime || 0) >= dur - 0.05) contentEndedAt = t
+            // End on the element's OWN end-of-play. The numeric clause is ONLY a
+            // stall guard now: parked within 50 ms of the end AND not advancing
+            // for half a second — never the thing that ends a playing clip early.
+            const stalledAtEnd = mt >= dur - 0.05 && (t - lastAdvance) > 0.5
+            if (v.ended || stalledAtEnd) mediaEndedAt = t
+          } else if (t - mediaEndedAt < TAIL_PAD) {
+            // TAIL: hold the last content frame while the final syllable and its
+            // decay ring out into the recorder. Do NOT pause and do NOT start the
+            // outro — pausing here is exactly what used to cut the sign-off.
+            drawContent(INTRO + Math.min(v.currentTime || dur, dur))
           } else {
-            v.pause()
-            // Outro still runs on the wall clock — it has no media to follow.
+            if (!contentEndedAt) { contentEndedAt = t; v.pause() }
+            // Outro runs on the wall clock — it has no media to follow.
             drawOutro(INTRO + dur + (t - contentEndedAt))
           }
 

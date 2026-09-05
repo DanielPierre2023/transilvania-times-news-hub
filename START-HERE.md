@@ -1,83 +1,51 @@
-# Burtiera = începutul frazei rostite. Adevărata cauză, și de ce reparațiile mele n-au prins.
+# Fix: clipul se tăia înainte de „La revedere"
 
-## Ce ai văzut
+## Ce era stricat
+La final, buletinul tăia ultima propoziție a prezentatorului — „La revedere" — cu o
+idee înainte să se termine. Nu era vina vocii, a fișierului sau a cardului de final.
+Era o singură linie din bucla de compunere (`app/admin/newsroom/page.tsx`).
 
-„Lucian Bratu scrie că debitul râului C" — începutul frazei rostite, tăiat la
-38 de caractere. Nu e un titlu; e prima propoziție a știrii, retezată.
+## Cauza (pe scurt)
+Bucla încheia faza de conținut la `v.currentTime >= dur - 0.05`. `dur` este durata
+reală a clipului, deci acea condiție se declanșa cu ~50 ms **înainte** ca elementul
+video să-și dea propriul semnal `ended` — clipul nu apuca să redea ultimele 50 ms.
+Mai rău: chiar cadrul următor apela `v.pause()`, care reteza brusc ultima silabă,
+fără „ring-out" (release-ul de 0.25 s al compresorului + stingerea naturală a lui
+„revedere"). De aceea suna tăiat mai mult decât cele 50 ms lipsă, iar peste el intra
+cardul de final (care are patul muzical, dar nu și vocea).
 
-## De ce reparațiile mele n-au schimbat nimic
+## Reparația
+1. Faza de conținut se încheie acum pe semnalul propriu al media-ului, `v.ended`.
+   Clauza numerică `dur - 0.05` rămâne **doar ca gardă anti-blocaj** (media oprită
+   la capăt ȘI care nu mai avansează o jumătate de secundă) — niciodată ca lucrul
+   care oprește un clip aflat încă în redare.
+2. Un `TAIL_PAD` de 0.4 s ține ultimul cadru cu prezentatorul **nepauzat**, ca
+   ultimul cuvânt și stingerea lui să intre în înregistrare.
+3. Abia după acel „tail" se pune pauză pe prezentator și pornește cardul de final.
 
-Am reparat de două ori **funcția edge** (care scrie eticheta) și te-am pus s-o
-redeployezi manual. Dar bulletinul se randează în **browser**, iar linia care
-desenează burtiera lua eticheta funcției **exact așa cum venea, netrecută prin
-nimic**:
+Rezultat: se aude „La revedere" întreg, plus o răsuflare, apoi endcard-ul.
 
-```js
-out.push({ ..., title: st.lower_third || `Știrea ${i+1}`, ... })
-```
+## Ce e în arhivă (2 fișiere, la căile exacte din repo)
+- `app/admin/newsroom/page.tsx` — fișierul complet, gata de pus peste cel din repo.
+  Conține și reparațiile anterioare (intro-ul care nu se genera + burtierele cu
+  titlul articolului), deci e cumulativ — dacă nu apucaseși să pui `tt-intro-fix`,
+  acesta le acoperă pe toate.
+- `_verification/69-signoff.cjs` — suită nouă care ține reparația pe loc: cade dacă
+  cineva readuce tăierea (verificat — vezi mai jos).
 
-Când funcția trimitea o frază tăiată, fraza aia AJUNGEA pe ecran. Niciuna dintre
-plasele mele din frontend nu atingea linia asta — reparasem alte două ramuri,
-nu pe cea pe care o folosește buletinul tău. Greșeala mea, de trei ori la rând,
-și pe layerul greșit.
+## Cum deployezi (doar frontend → Netlify)
+1. Copiază cele 2 fișiere peste cele din repo, la exact aceleași căi.
+2. Commit + push. Netlify redeployează automat.
 
-## Reparația adevărată — în frontend, se deployează prin Netlify
+**NU** e nevoie de nimic în Supabase (nicio funcție edge, nicio migrare SQL) și
+**nimic** pe Railway. E o schimbare pur de frontend.
 
-Acum browserul **nu mai are încredere** în eticheta funcției. Pentru fiecare
-știre alege titlul singur:
+## Verificare făcută înainte de livrare
+- `tsc --noEmit` — curat, 0 erori (verificare de tipuri pe tot proiectul).
+- `next build` (offline) — **Compiled successfully**, ieșire 0.
+- Suita completă: **2206 aserțiuni, 0 eșecuri**, 60 de suite — inclusiv noua
+  `69-signoff` (16 aserțiuni).
+- Test negativ: am rulat cele 5 gărzi noi pe varianta veche (cu bug) și toate 5
+  „prind" regresia — deci suita chiar mușcă, nu trece degeaba.
 
-1. Dacă eticheta funcției e de fapt **începutul textului rostit** (un prefix al
-   frazei) — semnătura exactă a bug-ului — o ignoră.
-2. Folosește **titlul real al articolului** din baza ta de date — titlul scris
-   de om, care nu e tăiat niciodată la mijloc de cuvânt.
-3. Taie pe **cuvânt întreg**, la 70 de caractere, orice sursă.
-
-Verificat cu cazul tău exact:
-
-```
-înainte : "Lucian Bratu scrie că debitul râului C"          (frază tăiată)
-după    : "Debitul Crișului Repede a scăzut la cel mai redus nivel din ultimii"
-```
-
-## De ce contează asta enorm
-
-Reparația e la **momentul randării**, nu la generarea scriptului. Deci:
-
-- Se deployează prin **git → Netlify** (comitere normală). **NU trebuie să mai
-  redeployezi nicio funcție edge.** Aia era partea care-ți tot pica.
-- Merge chiar și pe buletinele **deja generate**: nu regenera scriptul —
-  recompune videoul (butonul de compunere) și burtierele ies corect, pentru că
-  titlul se recalculează în browser din titlul articolului, nu din eticheta
-  veche stocată.
-
-## Ce faci
-
-1. **Comiți** cele 4 fișiere frontend (page + lib/text + package.json + suita).
-   Netlify le deployează. Gata — asta repară ecranul.
-2. Recompui buletinul. Burtierele arată titluri întregi.
-
-Funcția `newsroom-anchor` e și ea în zip, curățată (self-contained, fără import
-`_shared`, fără limita de 38, tăiere pe cuvânt). **E opțională acum** — o
-deployezi când ai chef; chiar dacă n-o atingi niciodată, frontendul acoperă
-totul. Nu mai depinzi de deploy-ul manual de funcție pentru burtiere corecte.
-
-## Fișiere
-
-| Cale | Ce e | Unde |
-|---|---|---|
-| `app/admin/newsroom/page.tsx` | **reparația reală** — titlul ales în browser | commit → Netlify |
-| `lib/text/truncate.ts` | tăiere pe cuvânt | commit |
-| `render-worker/package.json` | build-ul include `lib/text` | commit |
-| `_verification/68-lower-third.cjs` | +4 aserțiuni pe ramura in-sync | commit |
-| `supabase/functions/newsroom-anchor/index.ts` | funcția, curată | **opțional** deploy |
-
-Supabase SQL: nimic. Railway: nimic.
-
-## Verificat
-
-`tsc` curat, `next build` curat (zero avertismente pe newsroom), **59 de suite,
-2185 de aserțiuni, 0 căzute**. Am simulat alegerea titlului pe cazul tău real
-(mai sus) — iese titlul întreg al articolului, nu fraza tăiată.
-
-O aserțiune nouă pică dacă vreo ramură mai trimite `st.lower_third` brut pe
-ecran — exact greșeala care ți-a stricat buletinul, prinsă de acum înainte.
+Poți reface verificarea local oricând cu: `npm run verify`.

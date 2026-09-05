@@ -1479,7 +1479,7 @@ if (error || !data) {
   }, 404)
 }
 
-const post = data as BlogPost
+const post = data as unknown as BlogPost
 const sourceMaterial = await loadSourceMaterial(supabase, post, body)
 const scan = heuristicScan(post)
 

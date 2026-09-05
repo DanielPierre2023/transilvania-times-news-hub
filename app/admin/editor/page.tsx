@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { createBrowserClient } from '@supabase/ssr'
 import { Wand2, Save, Globe, RefreshCw, Upload, X, Loader2 } from 'lucide-react'
 
 // ─── EDITORS ─────────────────────────────────────────────────────────────────
@@ -43,6 +44,9 @@ const ARTICLE_TYPES = [
   { value: 'tehnologie', label: 'Tehnologie', emoji: '💻', hint: 'Fapt tehnic specific · jargonul definit · decizia urmărită · fără persoana întâi' },
   { value: 'blog',       label: 'Blog',       emoji: '📝', hint: 'ESEU PERSONAL · persoana întâi obligatorie · folosește doar dacă EXPERIENȚA TA este subiectul' },
 ] as const
+
+// v20 — column-class types eligible for async high-craft mode (Opus + multi-pass)
+const COLUMN_TYPES = new Set<string>(['pamflet', 'editorial', 'opinie', 'blog', 'reportaj', 'cultura', 'analiza'])
 
 const WORD_COUNTS = [
   { value: 800,  label: '800',  desc: 'Scurt' },
@@ -205,6 +209,7 @@ export default function EditorPage() {
   const [topic,        setTopic]        = useState('')
 
   const [generating, setGenerating] = useState(false)
+  const [columnMode, setColumnMode] = useState(false)
   const [generated, setGenerated]   = useState(false)
   const [genError, setGenError]     = useState('')
 
@@ -238,6 +243,8 @@ export default function EditorPage() {
   const [msg, setMsg]               = useState('')
 
   const supabase = createSupabaseBrowserClient()
+  // v20 — untyped client for the column_jobs queue (new table, not yet in Database types).
+  const queue = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 5000) }
 
@@ -264,7 +271,83 @@ export default function EditorPage() {
 
   // ── GENERATE ARTICLE ───────────────────────────────────────────────────────
 
+  // v20 — ASYNC COLUMN MODE. Enqueue a column_jobs row and poll until the worker
+  // finishes (Opus draft + craft passes + translate, off the 200s wall). The
+  // result shape is identical to the sync route, so the same field setters apply.
+  async function generateColumnAsync() {
+    if (!topic.trim()) { setGenError('Introduceți brieful editorial.'); return }
+    setGenerating(true)
+    setGenError('')
+    setGenerated(false)
+    setCoverImage('')
+    setCoverImageCredit('')
+
+    try {
+      const { data: inserted, error: insErr } = await queue
+        .from('column_jobs')
+        .insert({
+          article_type: articleType,
+          editor_key:   editorKey,
+          category,
+          county,
+          draft_lang:   'ro',
+          word_count:   wordCount,
+          max_passes:   3,
+          input:        { prompt: buildBrief(topic, wordCount, articleType) },
+        })
+        .select('id')
+        .single()
+      if (insErr || !inserted) throw new Error(insErr?.message || 'Nu s-a putut crea sarcina de generare.')
+      const jobId = inserted.id as string
+
+      // Poll every 5s until done/error. Typical ~2–4 min; hard cap ~8 min.
+      const deadline = Date.now() + 8 * 60 * 1000
+      let result: Record<string, unknown> | null = null
+      while (Date.now() < deadline) {
+        await new Promise(res => setTimeout(res, 5000))
+        const { data: row } = await queue
+          .from('column_jobs')
+          .select('status, result, error')
+          .eq('id', jobId)
+          .single()
+        if (!row) continue
+        if (row.status === 'done')  { result = row.result as Record<string, unknown>; break }
+        if (row.status === 'error') { throw new Error((row.error as string) || 'Generarea a eșuat.') }
+      }
+      if (!result) throw new Error('Generarea a expirat. Încearcă din nou.')
+
+      const d = result
+      setTitleRo((d.title_ro as string) || '')
+      setTitleEn((d.title_en as string) || '')
+      setSummaryRo((d.summary_ro as string) || '')
+      setSummaryEn((d.summary_en as string) || '')
+      setExcerptRo((d.excerpt_ro as string) || '')
+      setExcerptEn((d.excerpt_en as string) || '')
+      setContentRo((d.content_ro as string) || '')
+      setContentEn((d.content_en as string) || '')
+      setTagsRo(Array.isArray(d.tags_ro) ? (d.tags_ro as string[]).join(', ') : '')
+      setTagsEn(Array.isArray(d.tags_en) ? (d.tags_en as string[]).join(', ') : '')
+      setSeoTitleRo((d.seo_title_ro as string) || '')
+      setSeoTitleEn((d.seo_title_en as string) || '')
+      setSeoDescRo((d.seo_description_ro as string) || '')
+      setSeoDescEn((d.seo_description_en as string) || '')
+      setSlug(toSlug((d.title_ro as string) || (d.title_en as string) || ''))
+
+      setGenerated(true)
+      setContentTab('ro')
+      flash('✓ Columnă generată — generez imaginea...')
+      generateCoverImage(
+        (d.title_ro as string) || (d.title_en as string),
+        (d.summary_ro as string) || (d.summary_en as string) || (d.excerpt_ro as string),
+      )
+    } catch (e) {
+      setGenError(`Eroare: ${(e as Error).message}`)
+    }
+    setGenerating(false)
+  }
+
   async function generate() {
+    if (columnMode && COLUMN_TYPES.has(articleType)) { await generateColumnAsync(); return }
     if (!topic.trim()) { setGenError('Introduceți brieful editorial.'); return }
     setGenerating(true)
     setGenError('')
@@ -515,6 +598,25 @@ export default function EditorPage() {
             )}
           </div>
 
+          {COLUMN_TYPES.has(articleType) && (
+            <div className={sec}>
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={columnMode}
+                  onChange={e => setColumnMode(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-brand-red shrink-0"
+                />
+                <span>
+                  <span className="font-sans text-[13px] text-white font-medium">Mod columnă (înaltă calitate, asincron)</span>
+                  <span className="block font-sans text-[11px] text-white/40 mt-0.5">
+                    Ciornă pe Opus + până la 3 treceri de rafinare a stilului, dincolo de limita de ~200s. Durează ~2–4 min; articolul apare aici când e gata.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+
           <button onClick={generate} disabled={generating || !topic.trim()}
             className="w-full flex items-center justify-center gap-3 py-4 bg-brand-red text-white font-sans text-[13px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             {generating
@@ -529,7 +631,7 @@ export default function EditorPage() {
                 {currentEditor.label} scrie {currentType.label.toLowerCase()}...
               </p>
               <p className="font-sans text-[11px] text-purple-300/40">
-                {wordCount} cuvinte · RO + EN · 4 desk-uri · ~90s
+                {columnMode && COLUMN_TYPES.has(articleType) ? `${wordCount} cuvinte · RO + EN · Opus + rafinare · ~2–4 min` : `${wordCount} cuvinte · RO + EN · 4 desk-uri · ~90s`}
               </p>
             </div>
           )}

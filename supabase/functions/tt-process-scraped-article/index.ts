@@ -1213,7 +1213,7 @@ Output ONLY this JSON object (no prose):
 type SupaClient = ReturnType<typeof createClient<any, any, any>>
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
-const SONNET_MODEL = 'claude-sonnet-4-5-20250929'
+const SONNET_MODEL = 'claude-sonnet-5'  // v73.1: migrated off claude-sonnet-4-5-20250929 (retires ≥2026-09-29) to the current Sonnet (retires ≥2027-06-30)
 const HAIKU_MODEL  = 'claude-haiku-4-5'
 
 const CALL_TIMEOUT_MS     = 45000
@@ -1246,6 +1246,8 @@ const EDITOR_SLUGS: Record<string,string> = {
 
 const EDITOR_TONE_DESCRIPTORS = `RECOMMENDED EDITOR — analyze this article's tone, subject, and angle. Choose the SINGLE BEST EDITOR from this list based on the article's actual content, not just its category. Output as: RECOMMENDED_EDITOR: editor_key
 
+SELECTION PRINCIPLE (read before choosing): match the article to the editor whose SUBJECT SPECIALTY fits it best. Almost every real story has an identifiable subject — health, science, technology, business, politics, culture, community, local heritage, international affairs — and belongs with that subject's editor, whose distinct voice the piece is written in. victor_simon is the LAST-RESORT generalist, NOT the default for anything that reads like wire copy: route to him ONLY when the item has no identifiable subject specialty at all. If in doubt between victor_simon and a topical editor, choose the topical editor.
+
 - andrei_popescu: Hard news with conflict, accountability, scandal, threat, refusal, damage. Investigative angle. Government/institution under scrutiny. Crime, corruption, political battles, military, security incidents.
 
 - lucian_bratu: Community-focused, cultural, Transylvanian regional stories. Articles that center on a place, a tradition, a local festival, a town's history. Cultural events, local heritage, civic life.
@@ -1258,13 +1260,13 @@ const EDITOR_TONE_DESCRIPTORS = `RECOMMENDED EDITOR — analyze this article's t
 
 - mihai_ionescu: Technical infrastructure, system architecture, software/protocol critique. Cybersecurity, enterprise systems, technical analysis of failures or successes.
 
-- victor_simon: Routine news, factual announcements, administrative updates, sports results, transport, weather, scheduled events. Wire-service material.
+- victor_simon: LAST-RESORT generalist for genuinely generic wire with NO identifiable subject specialty — a bare administrative notice, a one-line scheduled-event listing, a plain weather or transport bulletin with no people, no institution under scrutiny, and no analytical angle. Do NOT send an item here merely because it is short or routine: a routine cultural event still goes to lucian_bratu; a transport-infrastructure decision to mihai_ionescu; a community or human-interest local story to lucian_bratu; a document-driven local investigation to mihai_isac; a health or medical note to sofia_marinescu; a science or environment item to elena_vasilescu. Only when NONE of the topical editors fit does victor_simon take it.
 
 - mihai_isac: Daily news investigations, fresh verifiable information, document-driven stories with clear identifiers, accountability with a defined evidence trail.
 
 - marcus_webb: International/foreign-correspondent angle. Romanian story placed in European/global context, written for an Anglophone reader.
 
-- anamaria_florea: Community stories, local reporting, people-centered narratives. Articles about volunteers, rural teachers, small initiatives, social cases, community events. Stories where a specific person's experience anchors the reporting.`
+TIE-BREAK: when two editors could fit, choose the more SUBJECT-SPECIFIC one over the generalist. Spread the bylines the way a real newsroom does — do not funnel a whole day's wire to a single editor. The goal is that each article carries the distinct voice of the editor whose beat it belongs to.`
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1537,8 +1539,9 @@ Sanitizers strip residual stock phrases at runtime, but the model MUST NOT gener
 - At least ONE rhetorical callback to an earlier fact: "the same €2.3M gap mentioned by the treasurer" / "aceleași cifre pe care Curtea de Conturi le contestase".
 - NEVER use the same transition word twice in one article.
 
---- META-COMMENTARY BAN ---
+--- META-COMMENTARY & INSTRUCTION-ECHO BAN (critical anti-AI rule) ---
 Never describe the article ("this piece explores", "in this article", "în acest articol"). Just report.
+The EDITOR SIGNATURE and TYPE REGISTER you were given are INSTRUCTIONS about your method, angle and standards — never phrases to print. NEVER quote a cue as article text. If a cue names an example question or phrase ("who benefits" / "cine câștigă", "the analytical question" / "întrebarea analitică", "what this reading misses" / "ceea ce ratează această lectură", "the harder question remains" / "întrebarea mai dificilă rămâne"), apply its INTENT silently: investigate who benefits and state it with names and sums; OPEN on the finding, never on the question. An article that prints its own instructions reads as machine-written and is rejected.
 
 --- DEMONSTRATIVE OPENER LIMIT ---
 Sentences starting with "Acest/Această/Aceste/Aceasta/This/These/That" — max TWICE per article. Rewrite others with the specific noun, a pronoun, or restructure.
@@ -1880,7 +1883,8 @@ Mecanică:
 - Fraze de lungimi inegale. O frază scurtă lovește; una lungă explică.
 - Verdictul final este o propoziție care poate fi citată mâine. Fără "rămâne de văzut".
 - Persoana întâi este permisă DAR substanțială — nu sentiment, ci judecată.
-Interzis: "este momentul să", "se cuvine să", "cu siguranță", sentimentalism.`,
+Interzis: "este momentul să", "se cuvine să", "cu siguranță", sentimentalism.
+CRAFT DE VÂRF: o singură teză, apărată cu dovezi numite și un „prin urmare" clar; concesia reală întărește poziția, nu o dizolvă în „pe de o parte / pe de altă parte".`,
     en: `EDITORIAL REGISTER — THE ANGLOPHONE SERIOUS PRESS TRADITION
 Voice: the institutional editorial of the FT or The Economist, with the rhythm of a James Bennet or Bret Stephens column. Authority without bombast.
 Mechanics:
@@ -1891,7 +1895,8 @@ Mechanics:
 - Vary sentence length sharply.
 - The closing line is a verdict the reader can quote tomorrow. No "only time will tell".
 - First person permitted BUT substantive — never feeling, always judgment.
-Banned: "it is time to", "we must all", "without a doubt", sentimentalism.`,
+Banned: "it is time to", "we must all", "without a doubt", sentimentalism.
+TOP CRAFT: one thesis, defended with named evidence and a clear "therefore"; the real concession strengthens the position, never dissolves it into on-the-one-hand balance.`,
   },
 
   opinie: {
@@ -1902,8 +1907,10 @@ Mecanică:
 - Teza apare clar în primele 100 de cuvinte.
 - Persoana întâi DA, dar întotdeauna în slujba argumentului.
 - Concesie la cea mai puternică obiecție.
+- RITM uman (obligatoriu, altfel sună a AI): alternează fraze scurte, sub 8 cuvinte, cu fraze lungi, peste 25; paragrafe de lungimi vizibil inegale, niciodată egale unul după altul.
 - Final ferm, nu deschis.
-Interzis: sentimentalism, "ca cetățean / ca părinte / ca român", retorism gol.`,
+Interzis: sentimentalism, "ca cetățean / ca părinte / ca român", retorism gol.
+CRAFT DE VÂRF: o singură revendicare, o cotitură reală („dar/însă") care reîncadrează la mijloc, persoana întâi în slujba argumentului — niciodată echilibru impersonal.`,
     en: `OPINION / COLUMN REGISTER — SIGNED VOICE
 Voice: the serious columnist. Tradition: a Ross Douthat column, Roger Cohen at the Times, Janan Ganesh at the FT. First person owned but disciplined.
 Mechanics:
@@ -1911,29 +1918,43 @@ Mechanics:
 - The thesis appears clearly within the first 100 words.
 - First person YES, but always serving the argument.
 - Concession to the strongest objection.
+- HUMAN RHYTHM (mandatory, or it reads as AI): alternate short sentences under 8 words with long ones over 25; paragraphs of visibly unequal length, never equal back to back.
 - Firm close, not open.
-Banned: sentimentalism, "as a citizen / as a parent", empty rhetoric.`,
+Banned: sentimentalism, "as a citizen / as a parent", empty rhetoric.
+TOP CRAFT: one claim, a real turn ("but/yet") that reframes mid-piece, first person in service of the argument — never impersonal balance.`,
   },
 
   analiza: {
-    ro: `REGISTRU ANALIZĂ — TRADIȚIA ROMÂNEASCĂ DE ANALIZĂ POLICY ȘI POLITICĂ
-Voce: analiza profesionistă — Adevărul lung-format, CURS-Avangarde, Stelian Tănase, Cristian Pîrvulescu, secțiunile lungi din Spotmedia. Distantă, structurată, cu metodă.
+    ro: `REGISTRU ANALIZĂ — ANALIZĂ DE ZIAR SERIOS (JURNALISM, NU ESEU ACADEMIC)
+Voce: analiza de fond a unui ziar serios — The Upshot (NYT), FT Big Read, secțiunea de analiză a Economist, în tradiția analizei documentate românești. Structurată și metodică, DAR scrisă ca jurnalism viu de către un om, niciodată ca o lucrare academică.
 Mecanică:
-- Deschidere prin formularea exactă a întrebării analitice. Fără retorism.
-- Marcaje ale mișcării: "Întrebarea mai dificilă rămâne", "Ceea ce această lectură ratează".
-- Evidența ca un corp, nu fapte izolate.
-- Recunoaște limita analizei.
-- Nu dă verdict. Închide pe întrebarea mai precisă.
-Interzis: "este evident că", "concluzia se impune", "nimeni nu poate nega", persoana întâi.`,
-    en: `ANALYSIS REGISTER — THE ANGLOPHONE LONG-FORM POLICY TRADITION
-Voice: the Brookings working paper, the Foreign Affairs essay, an Atlantic policy piece. Measured, structured, methodologically honest.
+- Deschizi cu CEA MAI PUTERNICĂ constatare concretă: un fapt, o cifră, o comparație care surprinde cititorul. Intri DIRECT în subiect, cu oameni și cifre.
+- Construiești argumentul din dovezi legate între ele — fiecare secțiune adaugă un MECANISM (de ce se întâmplă), nu doar încă o cifră.
+- RITM OBLIGATORIU (altfel textul sună a AI): alternează fraze scurte (sub 8 cuvinte) cu fraze lungi (peste 25). O frază scurtă lovește; una lungă explică. Paragrafe de lungimi VIZIBIL inegale — pune un paragraf de 1-2 propoziții lângă unul de 5+. Niciodată paragrafe egale unul după altul.
+- Recunoști ce NU poate stabili analiza, dar ca observație în corpul textului, nu ca secțiune etichetată.
+- Închizi pe CONSECINȚĂ concretă: ce se schimbă, cine câștigă sau pierde (cu nume și sume), ce urmează. Un final care poate fi citat mâine.
+INTERZIS — TICURI DE AI (încălcarea = articol respins):
+- Auto-referință la articol: "această analiză", "această lectură", "ceea ce ratează această lectură", "o altă limită a analizei constă în".
+- Deschidere prin întrebare, prin "întrebarea (analitică) de la care pornește", sau prin enunțarea tezei/metodei.
+- "Întrebarea mai dificilă rămâne", "rămâne de văzut", închidere pe întrebare retorică.
+- Enumerări-schelet: "în primul rând / în al doilea rând / nu în ultimul rând".
+- "este evident că", "concluzia se impune", "nimeni nu poate nega", persoana întâi.
+CRAFT DE VÂRF: o tensiune centrală numită prin fapte, un MECANISM (de ce), o consecință concretă cu nume și sume — fără schelet și fără registru academic.`,
+    en: `ANALYSIS REGISTER — SERIOUS-NEWSPAPER ANALYSIS (JOURNALISM, NOT AN ACADEMIC ESSAY)
+Voice: The Upshot (NYT), the FT Big Read, an Economist analysis piece. Structured and methodical, BUT written as live journalism by a human — never as a working paper.
 Mechanics:
-- Open by stating the analytical question precisely.
-- Mark the moves: "The harder question is", "What this reading misses".
-- Evidence as a body of work, not a list.
-- Acknowledge what the analysis cannot determine.
-- Refuse the verdict. Close on the sharper question.
-Banned: "clearly", "the conclusion is obvious", first person.`,
+- Open with the STRONGEST concrete finding: a fact, a number, a comparison that surprises. Start INSIDE the story, with people and figures.
+- Build the argument from linked evidence — each section adds a MECHANISM (why it happens), not just another figure.
+- MANDATORY RHYTHM (or it reads as AI): alternate short sentences (under 8 words) with long ones (over 25). A short sentence hits; a long one explains. Paragraphs of VISIBLY unequal length — put a 1-2 sentence paragraph next to a 5+ sentence one. Never equal paragraphs back to back.
+- Acknowledge what the analysis cannot determine, but as an observation inside the prose, never as a labelled section.
+- Close on a concrete CONSEQUENCE: what changes, who wins or loses (with names and sums), what comes next. A close the reader can quote tomorrow.
+BANNED — AI TELLS (violation = article rejected):
+- Self-reference to the article: "this analysis", "this reading", "what this reading misses", "another limitation of the analysis is".
+- Opening with a question, with "the question this analysis starts from", or by stating the thesis/method.
+- "The harder question remains", "remains to be seen", closing on a rhetorical question.
+- Skeleton enumeration: "firstly / secondly / not lastly".
+- "clearly", "the conclusion is obvious", first person.
+TOP CRAFT: a central tension named through facts, a MECHANISM (why), a concrete consequence with names and sums — no scaffold, no academic register.`,
   },
 
   pamflet: {
@@ -1945,8 +1966,10 @@ Mecanică:
 - Citatele țintei reproduse exact.
 - Analogii incomode care nu-i flatează.
 - Inserție de detaliu absurd verificabil.
+- RITM uman (obligatoriu — pamfletul plat sună a AI): fraze de lungimi mult diferite, o propoziție-cuțit scurtă după o frază lungă și ornată; paragrafe vizibil inegale.
 - Finalul: aparent o sugestie binevoitoare, în fapt o sentință.
-Interzis: vulgaritate, insultă neverificabilă, atac la familie, ironie ușoară de tip Facebook, persoana întâi.`,
+Interzis: vulgaritate, insultă neverificabilă, atac la familie, ironie ușoară de tip Facebook, persoana întâi.
+CRAFT DE VÂRF (marele pamflet vs. sarcasm plat): un singur conceit care ESCALADEAZĂ, nu se repetă; ciocnire de registru (solemn peste mărunt); poanta nu se explică. GARANȚIE: lovești idei și conduită publică — niciodată persoana privată sau familia; fiecare ghimpe stă pe un fapt real, citabil.`,
     en: `PAMPHLET REGISTER — THE ANGLOPHONE SATIRICAL ESSAY TRADITION
 Voice: Swift on the Irish question, H.L. Mencken, Christopher Hitchens dismantling Kissinger, Private Eye. Irony as scalpel, not bludgeon.
 Mechanics:
@@ -1955,8 +1978,10 @@ Mechanics:
 - Quote the target verbatim and let the words convict.
 - Uncomfortable analogies.
 - One verifiable absurd specific.
+- HUMAN RHYTHM (mandatory — a flat pamphlet reads as AI): sharply unequal sentence lengths, a short knife of a sentence after a long ornate one; visibly unequal paragraphs.
 - The close: a charitable suggestion that is in fact a sentence.
-Banned: vulgarity, unverifiable insult, attacks on family, easy social-media snark, first person.`,
+Banned: vulgarity, unverifiable insult, attacks on family, easy social-media snark, first person.
+TOP CRAFT (real satire vs. flat snark): a single conceit that ESCALATES, never repeats; register clash (solemn over trivial); never explain the joke. GUARDRAIL: strike ideas and public conduct — never a private person or family; every barb rides on a real, citable fact.`,
   },
 
   blog: {
@@ -1970,7 +1995,8 @@ Mecanică:
 - Un detaliu personal concret.
 - Auto-ironie, niciodată autovictimizare.
 - Final care lasă cititorului ceva de făcut.
-Interzis: "iubiții mei cititori", clișee motivaționale, "viața ne învață".`,
+Interzis: "iubiții mei cititori", clișee motivaționale, "viața ne învață".
+CRAFT DE VÂRF: un cârlig la persoana întâi ancorat într-un moment concret; un singur fir; final care reîncadrează, nu care rezumă. GARANȚIE: orice detaliu personal e real sau vădit ipotetic — niciodată inventat ca fapt biografic.`,
     en: `BLOG REGISTER — THE ANGLOPHONE PERSONAL ESSAY TRADITION
 Voice: Tyler Cowen on Marginal Revolution, Maria Popova, an essay by Zadie Smith.
 WARNING: this is the PERSONAL ESSAY. If the topic doesn't require first person, choose NEWS or ANALYSIS.
@@ -1981,7 +2007,8 @@ Mechanics:
 - One concrete personal detail.
 - Self-irony, never self-pity.
 - A close that leaves the reader with something to do.
-Banned: "dear reader", motivational cliché, "life teaches us".`,
+Banned: "dear reader", motivational cliché, "life teaches us".
+TOP CRAFT: a first-person hook anchored in one concrete moment; a single throughline; a close that reframes, not summarises. GUARDRAIL: any personal detail is real or plainly hypothetical — never invented as biographical fact.`,
   },
 
   reportaj: {
@@ -1993,8 +2020,10 @@ Mecanică:
 - Citează minimum doi oameni obișnuiți cu numele complet.
 - Prezent narativ acolo unde aduce viața în text.
 - Tensiune narativă reală.
+- RITM uman (obligatoriu, altfel sună a AI): alternează fraze scurte, sub 8 cuvinte, cu fraze lungi, peste 25; paragrafe de lungimi vizibil inegale, niciodată egale unul după altul.
 - Întoarcerea finală la oamenii care trăiesc cu consecința.
-Interzis: "într-o zi obișnuită de toamnă", clișeu poetic, persoana întâi.`,
+Interzis: "într-o zi obișnuită de toamnă", clișeu poetic, persoana întâi.
+CRAFT DE VÂRF: deschidere-scenă (loc + om numit + un gest fizic), un personaj urmărit, dialog real țesut, închidere pe imagine — nu pe rezumat. GARANȚIE STRICTĂ: fiecare detaliu de scenă și senzorial vine DIN materialul real — nu inventa culoare; culoarea inventată e și tic de AI, și abatere deontologică.`,
     en: `REPORTAGE REGISTER — THE ANGLOPHONE LITERARY JOURNALISM TRADITION
 Voice: a New Yorker reported piece, a long Guardian feature, John Jeremiah Sullivan in GQ, Katherine Boo, Patrick Radden Keefe.
 Mechanics:
@@ -2003,8 +2032,10 @@ Mechanics:
 - Quote at least two ordinary people by full name.
 - Present tense where it brings the page alive.
 - Real narrative tension.
+- HUMAN RHYTHM (mandatory, or it reads as AI): alternate short sentences under 8 words with long ones over 25; paragraphs of visibly unequal length, never equal back to back.
 - Return at the close to the people who live with the consequence.
-Banned: "on an ordinary autumn morning", tourist-board picturesque, first person.`,
+Banned: "on an ordinary autumn morning", tourist-board picturesque, first person.
+TOP CRAFT: a scene open (place + a named person + a physical gesture), one character followed, real dialogue woven in, a close on an image — not a summary. STRICT GUARDRAIL: every scene and sensory detail comes FROM the real material — never invent colour; invented colour is both an AI tell and an ethics breach.`,
   },
 
   cultura: {
@@ -2015,8 +2046,9 @@ Mecanică:
 - Context istoric doar acolo unde luminează.
 - Numele artistului, opera, anul, materialul, formatul.
 - Tratează opera cu seriozitate pe proprii ei termeni. Critică, nu rezumat.
-- Final care deschide o întrebare nouă despre operă.
-Interzis: "capodopera", "geniu indiscutabil", "marele nostru", clișeu patriotic-cultural, persoana întâi.`,
+- Final pe o judecată critică precisă — o observație care rămâne cu cititorul. NICIODATĂ pe o întrebare retorică.
+Interzis: "capodopera", "geniu indiscutabil", "marele nostru", clișeu patriotic-cultural, persoana întâi.
+CRAFT DE VÂRF: o judecată critică precisă, opera tratată pe termenii ei, închidere pe judecată — niciodată pe întrebare retorică.`,
     en: `CULTURE REGISTER — THE ANGLOPHONE CRITICAL TRADITION
 Voice: a New York Review of Books essay, James Wood on a novel, Hilton Als at the theater, Jenny Diski on a memoir.
 Mechanics:
@@ -2024,8 +2056,9 @@ Mechanics:
 - Historical context only where it illuminates.
 - The artist's name, the work, the year, the material, the format.
 - Treat the work seriously on its own terms.
-- A close that opens a new question.
-Banned: "masterpiece", "undeniable genius", easy reverence, first person.`,
+- Close on a precise critical judgment — an observation that stays with the reader. NEVER on a rhetorical question.
+Banned: "masterpiece", "undeniable genius", easy reverence, first person.
+TOP CRAFT: a precise critical judgment, the work taken on its own terms, a close on judgment — never on a rhetorical question.`,
   },
 
   tehnologie: {
@@ -2037,6 +2070,7 @@ Mecanică:
 - Definește jargonul la prima folosire.
 - Urmărește decizia: de ce această alegere.
 - Numerele ca dovadă a consecinței.
+- RITM uman (obligatoriu, altfel sună a AI): alternează fraze scurte, sub 8 cuvinte, cu fraze lungi, peste 25; paragrafe de lungimi vizibil inegale, niciodată egale unul după altul.
 - Final pe ce încearcă protagonistul în continuare.
 Interzis: "revoluție digitală", "viitorul ne aparține", "transformare paradigmatică", entuziasm necritic, persoana întâi.`,
     en: `TECHNOLOGY REGISTER — ANGLOPHONE TECHNICAL JOURNALISM TRADITION
@@ -2047,6 +2081,7 @@ Mechanics:
 - Define jargon on first use.
 - Trace the decision: why this choice.
 - Numbers as evidence of consequence.
+- HUMAN RHYTHM (mandatory, or it reads as AI): alternate short sentences under 8 words with long ones over 25; paragraphs of visibly unequal length, never equal back to back.
 - Close on what the protagonist tries next.
 Banned: "digital revolution", "paradigm-shifting", uncritical enthusiasm, first person.`,
   },
@@ -2132,7 +2167,7 @@ Tradiția: Recorder, Cristian Tudor Popescu, Dan Tapalagă, RISE Project. Hard a
 CE FACE diferit:
 - Lucrează cu documentul ca probă: contractul (nr., dată, sumă, părți), decizia (autoritate emitentă, art. invocat), declarația de avere, votul nominal.
 - Numește persoana cu funcția exactă și instituția.
-- Întreabă "cine câștigă din asta" și răspunde cu nume, sume, dată.
+- Urmărește cine câștigă și răspunde cu nume, sume, dată — ca investigație în text, niciodată ca întrebare tipărită.
 - Tonul: rece, sec, fără ornament. Verbul puternic, fraza scurtă, atribuirea irefutabilă.
 - Concesie reală adversarului — dă-i răspunsul în text, nu îl construi de paie.
 INTERZIS: speculație fără document, "se zvonește", "surse spun" fără context, hiperbolă politică, entuziasm partizan.`,
@@ -2141,7 +2176,7 @@ Tradition: ProPublica's investigative method, NYT national desk on government ac
 WHAT THIS BYLINE DOES:
 - Treats the document as evidence: the contract, the ruling, the disclosure, the named vote.
 - Names the person by exact title and institution.
-- Asks "who benefits" and answers with names, sums, dates.
+- Traces who benefits and answers it with names, sums, dates — as reporting in the prose, never as a printed question.
 - Tone: cold, dry, unornamented. Strong verb, short sentence, irrefutable attribution.
 - A real concession to the opposing case.
 BANNED: speculation without a document, "sources whisper", anonymous quotes without justification, political hyperbole, partisan enthusiasm.`,
@@ -2352,6 +2387,15 @@ BANNED: sentimentalism ("an emotional story", "tears flowed"), generalizations a
 
 const ALLOWED_EDITOR_KEYS = Object.keys(EDITOR_VOICES)
 const DEFAULT_EDITOR_KEY = 'daniel_dobos'
+
+// v73.1 — INVITED editors write their OWN articles by hand. The scraper's
+// auto-router must NEVER assign a scraped article to them. They remain in
+// EDITOR_VOICES so a manually-set byline still renders, but they are excluded
+// from the pool the classifier may pick from and from fallback validation.
+// (Adriana Alexandru and Andreea Tomuța are invited too but never existed as
+// backend editor keys, so no entry is needed for them here.)
+const INVITED_EDITORS = new Set<string>(['anamaria_florea'])
+const SCRAPER_ROUTABLE_EDITORS = ALLOWED_EDITOR_KEYS.filter(k => !INVITED_EDITORS.has(k))
 
 const EDITOR_BY_CATEGORY: Record<string, string> = {
   politics: 'andrei_popescu', technology: 'mihai_ionescu', business: 'daniel_dobos',
@@ -2961,9 +3005,9 @@ function measureHumanness(text: string, lang: 'ro' | 'en'): HumannessReport {
   if (stdDev < 5) {
     flags.push(`LOW_BURSTINESS: stdDev=${stdDev.toFixed(1)}`)
     score -= 20
-  } else if (stdDev < 7) {
+  } else if (stdDev < 9) {  // v73.2: 7→9, catch flat-but-not-terrible rhythm
     flags.push(`MODERATE_BURSTINESS: stdDev=${stdDev.toFixed(1)}`)
-    score -= 10
+    score -= 12
   }
 
   let sameLen = 0
@@ -2983,9 +3027,9 @@ function measureHumanness(text: string, lang: 'ro' | 'en'): HumannessReport {
     const paraStdDev = Math.sqrt(
       paraLengths.reduce((a, b) => a + (b - paraMean) ** 2, 0) / paraLengths.length
     )
-    if (paraStdDev < 10) {
+    if (paraStdDev < 14) {  // v73.2: 10→14, catch near-equal paragraphs
       flags.push(`UNIFORM_PARAGRAPHS: stdDev=${paraStdDev.toFixed(1)}`)
-      score -= 10
+      score -= 12
     }
   }
 
@@ -3065,6 +3109,23 @@ function measureHumanness(text: string, lang: 'ro' | 'en'): HumannessReport {
     flags.push(`AI_VOCAB:${aiWordCount}`)
     score -= aiWordCount * 3
   }
+
+  // v73.2 — ESSAY-SCAFFOLD TELLS (shared with tt-generate-article's scorer): the
+  // "Întrebarea analitică de la care pornește această analiză…" family that the
+  // old scorer missed entirely. SUMMARY_CLOSER is already handled above.
+  const scaffoldPatterns = lang === 'ro'
+    ? [/[îi]ntrebarea (analitic[ăa]|de la care|mai dificil[ăa]|central[ăa])/i, /de la care porne[șs]te (aceast[ăa]\s+)?(analiz|lectur|abordar)/i, /ceea ce (aceast[ăa]\s+)?(analiz[ăa]|lectur[ăa]) (rateaz[ăa]|nu surprinde|omite)/i, /(aceast[ăa]) (analiz[ăa]|lectur[ăa]|abordare) (privește|porne[șs]te|examineaz[ăa]|exploreaz[ăa])/i, /o alt[ăa] limit[ăa] a analizei/i]
+    : [/the (analytical |central |harder )?question (this|from which|that this)/i, /what this (analysis|reading|piece) (misses|overlooks|fails to)/i, /this (analysis|reading|piece) (examines|explores|begins|starts|concerns|asks)/i, /another limitation of (the|this) analysis/i]
+  const scaffoldHits = scaffoldPatterns.reduce((n, re) => n + ((text.match(re) || []).length), 0)
+  if (scaffoldHits > 0) { flags.push(`ANALYTIC_SCAFFOLD:${scaffoldHits}`); score -= 20 }
+
+  const enumScaffold = lang === 'ro'
+    ? (/[îi]n primul r[âa]nd/i.test(text) && /[îi]n al doilea r[âa]nd/i.test(text))
+    : (/\bfirstly\b/i.test(text) && /\bsecondly\b/i.test(text))
+  if (enumScaffold) { flags.push('ENUM_SCAFFOLD'); score -= 12 }
+
+  const firstParaHum = (paragraphs[0] || '').trim()
+  if (firstParaHum.length > 0 && /\?\s*$/.test(firstParaHum)) { flags.push('QUESTION_OPENER'); score -= 10 }
 
   return {
     score: Math.max(0, Math.min(100, score)),
@@ -3407,7 +3468,14 @@ async function callSonnetForRevision(
   if (!apiKey) return { text: '', error: 'CLAUDE_API_KEY not set' }
   try {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 45000)
+    // v73.1 M4: hard-bound the revision at 20s (was 45000). This function is the
+    // SOLE caller of the humanness loop's Sonnet revision. Bounding it to 20s —
+    // together with the 20000ms budget gate below — guarantees a single article
+    // can never push past ~(120s own-elapsed + 20s revision + save) ≈ 145s,
+    // safely under the ~200s edge-function kill, even for the last article in a
+    // batch. The loop runs BEFORE the unguarded DB save, so this bound is what
+    // keeps a late rhythm pass from costing the article its save.
+    const timer = setTimeout(() => controller.abort(), 20000)
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -3473,6 +3541,14 @@ function buildHumannessRevisionPrompt(flags: string[], lang: 'ro' | 'en'): strin
       targeted.push(lang === 'ro'
         ? `AI_VOCAB (${f}): vocabular tipic AI prezent (semnificativ/considerabil/remarcabil/esențial/crucial/vital/paradigm/ecosistem/sinergie/reziliență). Înlocuiește cu termenii concreți potriviți contextului.`
         : `AI_VOCAB (${f}): typical AI vocabulary present (delve/landscape/robust/comprehensive/leverage/foster/seamless/holistic/paradigm/ecosystem/synergy). Replace with concrete terms suited to the context.`)
+    } else if (f.startsWith('ANALYTIC_SCAFFOLD') || f.startsWith('QUESTION_OPENER')) {
+      targeted.push(lang === 'ro'
+        ? 'SCHELET DE ESEU: elimină auto-referința la articol ("această analiză/lectură", "întrebarea de la care pornește", "ceea ce ratează această lectură") și orice deschidere prin întrebare. Rescrie primul paragraf ca să deschidă DIRECT cu cel mai puternic fapt concret, cu oameni și cifre.'
+        : 'ESSAY SCAFFOLD: remove self-reference to the article ("this analysis/reading", "the question this starts from", "what this reading misses") and any question opener. Rewrite the first paragraph to open DIRECTLY on the strongest concrete fact, with people and numbers.')
+    } else if (f.startsWith('ENUM_SCAFFOLD')) {
+      targeted.push(lang === 'ro'
+        ? 'ENUMERARE-SCHELET: elimină "în primul rând / în al doilea rând / nu în ultimul rând". Integrează ideile în proză continuă.'
+        : 'SKELETON ENUMERATION: remove "firstly / secondly / not lastly". Fold the ideas into continuous prose.')
     }
   }
   return targeted.length
@@ -3484,7 +3560,15 @@ async function humannessEnforceLoop(
   content: string, lang: 'ro' | 'en', budgetMs: number,
 ): Promise<{ content: string; before: number; after: number; applied: boolean }> {
   const before = measureHumanness(content, lang)
-  if (before.score >= 85 || budgetMs < 30000) {
+  // v73.1 M4: raise the fix threshold 85 → 90 and lower the budget floor
+  // 30000 → 20000. Rationale: a mildly-symmetric article scores 85–90 (one
+  // single -10/-15 flag such as UNIFORM_LENGTHS or MODERATE_BURSTINESS) and
+  // used to ship un-fixed; and under the twice-daily BATCH the 30s floor was
+  // exactly what ran out, so even sub-85 articles skipped the rhythm pass. The
+  // 20s floor is paired with the 20s revision cap above so the loop stays
+  // timeout-safe (see callSonnetForRevision). NOTE: the call site in processOne
+  // carries an IDENTICAL guard — both were updated together; keep them in sync.
+  if (before.score >= 90 || budgetMs < 20000) {
     return { content, before: before.score, after: before.score, applied: false }
   }
 
@@ -3887,7 +3971,7 @@ OUTPUT FORMAT (in this exact order — section headers in CAPS, one per line):
 CATEGORY: <one of: ${VALID_CATEGORIES.join('|')}>
 SUBCATEGORY: <one of: ${VALID_SUBCATEGORIES.join('|')}>
 COUNTY: <one of the county slugs or "national">
-RECOMMENDED_EDITOR: <one of: ${ALLOWED_EDITOR_KEYS.join('|')}>
+RECOMMENDED_EDITOR: <one of: ${SCRAPER_ROUTABLE_EDITORS.join('|')}>
 
 FACTS:
 1. WHO: ... | ACTION: ... | WHEN: ... | WHERE: ...
@@ -3935,7 +4019,9 @@ STRICT RULES:
   if (!COUNTIES.includes(county) && county !== 'national') county = null
 
   let editor = (edMatch?.[1] || '').toLowerCase()
-  if (!ALLOWED_EDITOR_KEYS.includes(editor)) editor = EDITOR_BY_CATEGORY[category] || DEFAULT_EDITOR_KEY
+  // v73.1 — reject not just unknown keys but also invited editors, so a stray
+  // classifier pick of an invited byline falls back to the category's staff editor.
+  if (!SCRAPER_ROUTABLE_EDITORS.includes(editor)) editor = EDITOR_BY_CATEGORY[category] || DEFAULT_EDITOR_KEY
 
   const research = factsMatch?.[1]?.trim() || txt
   return { research, category, subcategory, county, editor, ok: true }
@@ -4874,14 +4960,22 @@ JSON only, fără preambul: {"title":"...","content":"...","excerpt":"...","summ
     if (humanRo) console.log(`[scraper v64] humanness — RO ${humanRo.score}/100 ${humanRo.flags.length ? '['+humanRo.flags.join(',')+']' : 'OK'}`)
 
     // ─── PHASE 2.2 — Humanness enforcement loop (Sonnet) ───────────────────
+    // v73.1 M4: thresholds raised 85 → 90 and budget floor lowered 30000 →
+    // 20000 to match humannessEnforceLoop's internal guard (they MUST stay in
+    // sync — this call-site guard gates whether the loop is even entered). The
+    // 20s floor is safe because callSonnetForRevision is hard-capped at 20s, so
+    // the latest a single article can finish this stage is ~(120s + 20s) before
+    // the unguarded save — well under the ~200s edge kill. Net effect: the
+    // rhythm/asymmetry pass now runs on batch articles and on the 85–89 band
+    // that previously shipped un-fixed.
     const budgetRemainingEn = TOTAL_SOFT_LIMIT_MS - (Date.now() - t0)
-    if (humanEn.score < 85 && budgetRemainingEn > 30000) {
+    if (humanEn.score < 90 && budgetRemainingEn > 20000) {
       console.log(`[scraper v64] humanness-loop-en starting (score=${humanEn.score}, budget=${(budgetRemainingEn / 1000).toFixed(0)}s)`)
       const enLoop = await humannessEnforceLoop(contentEn, 'en', budgetRemainingEn)
       if (enLoop.applied) { contentEn = enLoop.content; console.log(`[scraper v64] humanness-loop-en lifted ${enLoop.before} → ${enLoop.after}`) }
     }
     const budgetRemainingRo = TOTAL_SOFT_LIMIT_MS - (Date.now() - t0)
-    if (humanRo && humanRo.score < 85 && budgetRemainingRo > 30000) {
+    if (humanRo && humanRo.score < 90 && budgetRemainingRo > 20000) {
       console.log(`[scraper v64] humanness-loop-ro starting (score=${humanRo.score}, budget=${(budgetRemainingRo / 1000).toFixed(0)}s)`)
       const roLoop = await humannessEnforceLoop(contentRo, 'ro', budgetRemainingRo)
       if (roLoop.applied) { contentRo = roLoop.content; console.log(`[scraper v64] humanness-loop-ro lifted ${roLoop.before} → ${roLoop.after}`) }
