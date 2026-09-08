@@ -21,12 +21,14 @@ const CAT_LABELS_RO: Record<string, string> = {
   news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
   business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+  administration: 'Administrație', infrastructure: 'Infrastructură',
 }
 
 const CAT_LABELS_EN: Record<string, string> = {
   news: 'News', politics: 'Politics', technology: 'Technology',
   business: 'Business', culture: 'Culture', travel: 'Travel',
   education: 'Education', sports: 'Sports', health: 'Health', opinion: 'Opinion',
+  administration: 'Administration', infrastructure: 'Infrastructure',
 }
 
 const SUBCAT_LABELS: Record<string, string> = {
@@ -35,7 +37,7 @@ const SUBCAT_LABELS: Record<string, string> = {
 
 export default function ArticleCard({
   slug, category, subcategory, county, title, timeAgo, image, excerpt,
-  variant = 'grid', className = '', lang = 'ro',
+  author, variant = 'grid', className = '', lang = 'ro',
 }: ArticleCardProps) {
   const labels = lang === 'en' ? CAT_LABELS_EN : CAT_LABELS_RO
   const catLabel = (category ? labels[category] || category : '').toUpperCase()
@@ -105,8 +107,12 @@ export default function ArticleCard({
               {title}
             </h3>
           </Link>
-          {timeAgo && (
-            <p className="text-[11px] font-sans text-muted-foreground mt-1">{timeAgo}</p>
+          {(author || timeAgo) && (
+            <p className="text-[11px] font-sans text-muted-foreground mt-1">
+              {author && <span className="font-medium text-foreground/75">{author}</span>}
+              {author && timeAgo && <span className="mx-1">·</span>}
+              {timeAgo}
+            </p>
           )}
         </div>
         {image && (
@@ -191,8 +197,12 @@ export default function ArticleCard({
             {title}
           </h3>
         </Link>
-        {timeAgo && (
-          <p className="text-[11px] font-sans text-muted-foreground mt-2">{timeAgo}</p>
+        {(author || timeAgo) && (
+          <p className="text-[11px] font-sans text-muted-foreground mt-2">
+            {author && <span className="font-medium text-foreground/75">{author}</span>}
+            {author && timeAgo && <span className="mx-1">·</span>}
+            {timeAgo}
+          </p>
         )}
         {excerpt && (
           <p className="text-[13px] font-sans text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">

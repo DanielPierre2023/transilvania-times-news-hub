@@ -41,11 +41,13 @@ import { getMostRead } from '@/lib/most-read'
 export const revalidate = 60
 
 const SITE_URL = 'https://transilvaniatimes.com'
+const THIN_WORD_THRESHOLD = 350  // articles shorter than this are noindexed (still live + followable)
 
 const CAT_LABELS_EN: Record<string, string> = {
   news: 'News', politics: 'Politics', technology: 'Technology',
   business: 'Business', culture: 'Culture', travel: 'Travel',
   education: 'Education', sports: 'Sports', health: 'Health', opinion: 'Opinion',
+  administration: 'Administration', infrastructure: 'Infrastructure',
 }
 
 interface MetaPost {
@@ -114,7 +116,7 @@ export async function generateMetadata(
     .from('blog_posts')
     .select(`
       title_ro, title_en, excerpt_ro, excerpt_en, cover_image, slug,
-      published_at, updated_at, category, tags_ro, tags_en,
+      published_at, updated_at, category, tags_ro, tags_en, word_count,
       authors ( slug )
     `)
     .eq('slug', slug)
@@ -137,6 +139,9 @@ export async function generateMetadata(
   return {
     title,
     description,
+    robots: post.word_count != null && post.word_count < THIN_WORD_THRESHOLD
+      ? { index: false, follow: true }
+      : undefined,
     alternates: {
       canonical: urlEn,
       languages: {

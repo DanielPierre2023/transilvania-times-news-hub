@@ -42,6 +42,7 @@ const CAT_LABELS_EN: Record<string, string> = {
   news: 'News', politics: 'Politics', technology: 'Technology',
   business: 'Business', culture: 'Culture', travel: 'Travel',
   education: 'Education', sports: 'Sports', health: 'Health', opinion: 'Opinion',
+  administration: 'Administration', infrastructure: 'Infrastructure',
 }
 
 function getLabel(cat: string | null) {
@@ -310,6 +311,7 @@ export default async function HomePageEN() {
               title={getTitle(post)}
               timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
               image={post.cover_image}
+              author={post.author_name}
               variant="grid"
               lang="en"
               className={i < 3 ? 'lg:border-r border-foreground/10' : ''}
@@ -429,6 +431,7 @@ export default async function HomePageEN() {
                 title={getTitle(post)}
                 timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
                 image={post.cover_image}
+                author={post.author_name}
                 variant="simple"
                 lang="en"
                 className={i < 2 ? 'lg:border-r border-foreground/10' : ''}

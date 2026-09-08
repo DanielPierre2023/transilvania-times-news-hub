@@ -11,6 +11,7 @@ import CoverImagePicker from './CoverImagePicker'
 const CATEGORIES = [
   'news', 'politics', 'technology', 'business',
   'culture', 'travel', 'education', 'sports', 'health', 'opinion',
+  'administration', 'infrastructure',
 ]
 const SUBCATEGORIES = ['regional', 'national', 'international']
 

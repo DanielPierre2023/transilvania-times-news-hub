@@ -69,6 +69,7 @@ const CATEGORIES = [
   { value: 'education', label: 'Educație' }, { value: 'sports', label: 'Sport' },
   { value: 'opinion', label: 'Opinie' }, { value: 'travel', label: 'Travel' },
   { value: 'community', label: 'Comunitate' },
+  { value: 'administration', label: 'Administrație' }, { value: 'infrastructure', label: 'Infrastructură' },
 ]
 
 const COUNTIES = [

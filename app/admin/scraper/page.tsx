@@ -38,6 +38,7 @@ interface RssSource {
 const SOURCE_CATEGORIES = [
   'auto-detect', 'news', 'politics', 'technology', 'business',
   'culture', 'travel', 'education', 'sports', 'health', 'opinion',
+  'administration', 'infrastructure',
 ] as const
 
 const SOURCE_LANGUAGES = [

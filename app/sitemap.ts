@@ -19,15 +19,14 @@ import type { MetadataRoute } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/database.types'
 import { COUNTIES } from '@/lib/counties'
+import { CATEGORY_SLUGS } from '@/lib/categories'
 
 export const revalidate = 3600
 
 const BASE_URL = 'https://transilvaniatimes.com'
+const THIN_WORD_THRESHOLD = 350  // articles shorter than this stay out of the sitemap (kept out of the index)
 
-const CATEGORIES = [
-  'news', 'politics', 'technology', 'business', 'culture',
-  'travel', 'education', 'sports', 'health', 'opinion',
-]
+const CATEGORIES = CATEGORY_SLUGS
 
 const STATIC_PAGES = [
   { path: '/',                            priority: 1.0, freq: 'hourly'  as const },
@@ -49,6 +48,14 @@ const STATIC_PAGES = [
   { path: '/cautare/',                    priority: 0.4, freq: 'monthly' as const },
   { path: '/politica-confidentialitate/', priority: 0.3, freq: 'yearly'  as const },
   { path: '/termeni-si-conditii/',        priority: 0.3, freq: 'yearly'  as const },
+  { path: '/politica-cookies/',           priority: 0.3, freq: 'yearly'  as const },
+  { path: '/informatii-legale/',          priority: 0.3, freq: 'yearly'  as const },
+  { path: '/publicitate/',                priority: 0.4, freq: 'monthly' as const },
+  { path: '/corectii/',                   priority: 0.3, freq: 'monthly' as const },
+  { path: '/en/about/',                   priority: 0.5, freq: 'monthly' as const },
+  { path: '/en/contact/',                 priority: 0.4, freq: 'yearly'  as const },
+  { path: '/en/privacy-policy/',          priority: 0.3, freq: 'yearly'  as const },
+  { path: '/en/terms/',                   priority: 0.3, freq: 'yearly'  as const },
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -140,7 +147,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     try {
       const { data } = await supabase
         .from('blog_posts')
-        .select('slug, updated_at, cover_image, content_en')
+        .select('slug, updated_at, cover_image, content_en, word_count')
         .eq('status', 'published')
         .not('slug', 'is', null)
         .order('updated_at', { ascending: false })
@@ -149,7 +156,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     } catch (e) { console.warn('[sitemap] articles skipped:', (e as Error).message); return null }
   })()
 
-  const articlesRo: MetadataRoute.Sitemap = (posts ?? []).map(post => ({
+  const indexable = (posts ?? []).filter(post => post.word_count == null || post.word_count >= THIN_WORD_THRESHOLD)
+
+  const articlesRo: MetadataRoute.Sitemap = indexable.map(post => ({
     url: `${BASE_URL}/blog/${post.slug}/`,
     lastModified: new Date(post.updated_at),
     changeFrequency: 'weekly' as const,
@@ -166,7 +175,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }))
 
   // ── Article pages — EN version (only for articles with EN content) ─────
-  const articlesEn: MetadataRoute.Sitemap = (posts ?? [])
+  const articlesEn: MetadataRoute.Sitemap = indexable
     .filter(post => Boolean(post.content_en))
     .map(post => ({
       url: `${BASE_URL}/en/blog/${post.slug}/`,

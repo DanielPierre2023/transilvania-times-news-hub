@@ -81,6 +81,7 @@ export async function GET() {
     news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
     business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
     education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+    administration: 'Administrație', infrastructure: 'Infrastructură',
   }
 
   const items = (posts ?? []).map(post => {

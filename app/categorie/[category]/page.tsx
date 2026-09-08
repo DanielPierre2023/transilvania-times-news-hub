@@ -15,6 +15,7 @@ const CAT_LABELS: Record<string, string> = {
   news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
   business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+  administration: 'Administrație', infrastructure: 'Infrastructură',
 }
 
 const SUBCAT_LABELS: Record<string, string> = {
@@ -206,6 +207,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
               image={post.cover_image}
               excerpt={post.excerpt_ro}
               timeAgo={timeAgo(post.published_at)}
+              author={post.author_name}
               variant="grid"
             />
           ))}

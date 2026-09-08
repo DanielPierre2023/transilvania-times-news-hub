@@ -32,6 +32,7 @@ const CAT_LABELS: Record<string, string> = {
   news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
   business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+  administration: 'Administrație', infrastructure: 'Infrastructură',
 }
 
 function getLabel(cat: string | null) {
@@ -355,6 +356,7 @@ export default async function HomePage() {
               title={getTitle(post)}
               timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
               image={post.cover_image}
+              author={post.author_name}
               variant="grid"
               className={i < 3 ? 'lg:border-r border-foreground/10' : ''}
             />
@@ -456,6 +458,7 @@ export default async function HomePage() {
                 title={getTitle(post)}
                 timeAgo={post.published_at ? fmtDate(post.published_at) : undefined}
                 image={post.cover_image}
+                author={post.author_name}
                 variant="simple"
                 className={i < 2 ? 'lg:border-r border-foreground/10 lg:pr-4' : ''}
               />

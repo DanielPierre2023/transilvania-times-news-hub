@@ -155,6 +155,8 @@ function CountyNavDropdown({ pathname }: { pathname: string | null }) {
 const NAV_LINKS = [
   { href: '/categorie/news/',       label: 'Știri',       labelEn: 'News' },
   { href: '/categorie/politics/',   label: 'Politică',    labelEn: 'Politics' },
+  { href: '/categorie/administration/',  label: 'Administrație',  labelEn: 'Administration' },
+  { href: '/categorie/infrastructure/',  label: 'Infrastructură', labelEn: 'Infrastructure' },
   { href: '/categorie/technology/', label: 'Tehnologie',  labelEn: 'Technology' },
   { href: '/categorie/business/',   label: 'Afaceri',     labelEn: 'Business' },
   { href: '/categorie/culture/',    label: 'Cultură',     labelEn: 'Culture' },
@@ -479,6 +481,8 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
                 {[
                   { href: '/categorie/news/',       label: 'Știri' },
                   { href: '/categorie/politics/',   label: 'Politică' },
+                  { href: '/categorie/administration/',  label: 'Administrație' },
+                  { href: '/categorie/infrastructure/',  label: 'Infrastructură' },
                   { href: '/categorie/technology/', label: 'Tehnologie' },
                   { href: '/categorie/business/',   label: 'Afaceri' },
                   { href: '/categorie/culture/',    label: 'Cultură' },
@@ -534,36 +538,42 @@ export default function LayoutShell({ children, breakingNews }: LayoutShellProps
             <p className="font-sans text-[11px] text-muted-foreground">
               © {new Date().getFullYear()} Transilvania Times. Toate drepturile rezervate.
             </p>
-            <div className="flex items-center gap-4">
-              <Link href="/politica-confidentialitate/"
-                className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                Confidențialitate
-              </Link>
-              <Link href="/termeni-si-conditii/"
-                className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                Termeni
-              </Link>
-              <Link href="/despre/"
-                className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                Despre
-              </Link>
-              <Link href="/standarde-editoriale/"
-                className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                Standarde
-              </Link>
-              <div className="flex items-center gap-3 ml-2">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {(isEnglish
+                ? [
+                    { href: '/en/about/',             label: 'About' },
+                    { href: '/en/contact/',           label: 'Contact' },
+                    { href: '/en/privacy-policy/',    label: 'Privacy' },
+                    { href: '/en/terms/',             label: 'Terms' },
+                    { href: '/standarde-editoriale/', label: 'Editorial Standards' },
+                    { href: '/corectii/',             label: 'Corrections' },
+                    { href: '/politica-cookies/',     label: 'Cookies' },
+                    { href: '/publicitate/',          label: 'Advertising' },
+                    { href: '/informatii-legale/',    label: 'Legal notice' },
+                  ]
+                : [
+                    { href: '/despre/',                     label: 'Despre' },
+                    { href: '/contact/',                    label: 'Contact' },
+                    { href: '/politica-confidentialitate/', label: 'Confidențialitate' },
+                    { href: '/termeni-si-conditii/',        label: 'Termeni' },
+                    { href: '/standarde-editoriale/',       label: 'Standarde' },
+                    { href: '/corectii/',                   label: 'Corecții' },
+                    { href: '/politica-cookies/',           label: 'Cookie-uri' },
+                    { href: '/publicitate/',                label: 'Publicitate' },
+                    { href: '/informatii-legale/',          label: 'Informații legale' },
+                  ]
+              ).map((l) => (
+                <Link key={l.href} href={l.href}
+                  className="font-sans text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                  {l.label}
+                </Link>
+              ))}
+              <div className="flex items-center gap-3 ml-1">
                 <a href="https://www.facebook.com/profile.php?id=61590215500569" target="_blank" rel="noopener noreferrer" aria-label="Facebook"
                   className="text-muted-foreground hover:text-brand-red transition-colors">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
                 </a>
-                <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" aria-label="Twitter"
-                  className="text-muted-foreground hover:text-brand-red transition-colors">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                </a>
-                <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" aria-label="Instagram"
-                  className="text-muted-foreground hover:text-brand-red transition-colors">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
-                </a>
+                {/* Placeholder X/Instagram links removed. Add them back here with the real profile URLs once the accounts exist. */}
               </div>
             </div>
           </div>

@@ -30,6 +30,7 @@ const CAT_LABELS: Record<string, string> = {
   news: 'Știri', politics: 'Politică', technology: 'Tehnologie',
   business: 'Afaceri', culture: 'Cultură', travel: 'Călătorii',
   education: 'Educație', sports: 'Sport', health: 'Sănătate', opinion: 'Opinie',
+  administration: 'Administrație', infrastructure: 'Infrastructură',
 }
 
 export async function generateMetadata(
