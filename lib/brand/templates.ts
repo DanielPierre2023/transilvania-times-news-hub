@@ -26,7 +26,7 @@ import {
   type Keyframe,
   type Rational,
   type TextStyle,
-} from '@/lib/timeline'
+} from '../timeline'
 import { safeBox, type BrandKit, type SafeAreaName } from './kit'
 
 export interface TemplateContext {

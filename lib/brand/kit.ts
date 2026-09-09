@@ -21,7 +21,7 @@
 // film and 49 px in a horizontal one from the same setting — the same bug,
 // twice, if it is allowed back in.
 
-import type { GradeSpec, LoudnessTarget, TextStyle } from '@/lib/timeline'
+import type { GradeSpec, LoudnessTarget, TextStyle } from '../timeline'
 
 export type SafeAreaName = 'none' | 'broadcast' | 'tiktok' | 'reels' | 'shorts' | 'feed'
 

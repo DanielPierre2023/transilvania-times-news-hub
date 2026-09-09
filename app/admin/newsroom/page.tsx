@@ -1447,7 +1447,10 @@ export default function NewsroomPage() {
       const articleTitle = art ? ((lang === 'ro' ? art.title_ro : art.title_en) || art.title_ro || art.title_en || '') : ''
       // A label that is a prefix of what is said is a sliced sentence, not a title.
       const labelIsSpokenFragment = label.length > 0 && say.startsWith(label.toLowerCase())
-      const chosen = articleTitle || (label && !labelIsSpokenFragment ? label : '')
+      // Prefer the matched article's own headline. With no match, derive from the
+      // spoken text — never the raw lower_third, which may be a sentence sliced
+      // mid-word — unless the label is a genuine short title of its own.
+      const chosen = articleTitle || (st.text ? (labelIsSpokenFragment || !label ? st.text : label) : label)
       const headline = truncateWords(chosen, LOWER_THIRD_MAX) || `Știrea ${i + 1}`
       out.push({ start, title: headline, category: src?.category, cover: src?.cover_image })
       acc += wc[(sections.greeting ? 1 : 0) + i]

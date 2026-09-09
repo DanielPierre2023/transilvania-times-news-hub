@@ -30,7 +30,17 @@ const NEEDS = {
   canvas: ['13-resample', '14-brand', '15-colour', '16-layers', '19-wordmark', '22-captions-parity', '30-grade-parity', '32-html-composition', '33-golden', '37-animated-compositions', '38-transitions', '40-shot-grade', '42-wipes', '43-ramp-render', '49-screen', '57-grade-style-parity'],
   postgres: ['50-migration', '52-queue'],
   ffmpeg: ['12-inspect', '13-resample', '15-colour', '16-layers', '17-sound', '19-wordmark', '30-grade-parity', '35-audio-chain', '39-beats', '43-ramp-render', '47-podcast', '56-audio-chunking', '57-grade-style-parity'],
+  // A hand-made corpus of reference clips (cal_static / cal_push / cal_pan …),
+  // measured against the vision layer. Not an installable package.
+  calibration: ['10-vision', '12-inspect'],
 }
+
+// Two kinds of prerequisite. INSTALLABLE ones (canvas, ffmpeg) are put on the
+// runner by the workflow, so under --strict a missing one is a real failure —
+// it means the apt/npm step silently did nothing. ENVIRONMENT ones (a Postgres
+// cluster we can run as root; the calibration corpus) are NOT things CI installs
+// or should; a suite needing one is always skipped, never failed.
+const ENVIRONMENT = new Set(['postgres', 'calibration'])
 
 function have(what) {
   if (what === 'ffmpeg') {
@@ -41,8 +51,18 @@ function have(what) {
   // discovered by the person pasting it, in production, which is the worst
   // possible place to find one.
   if (what === 'postgres') {
+    // The migration suites manage their OWN cluster via `su postgres`, which
+    // only works as root. A non-root CI job (ubuntu-latest runs as `runner`)
+    // cannot, so postgres counts as present only when we are root AND a server
+    // binary exists — otherwise these suites are environment-skipped, not failed.
+    const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
+    if (!isRoot) return false
     return spawnSync('pg_ctl', ['--version'], { stdio: 'ignore' }).status === 0 ||
            spawnSync('/usr/lib/postgresql/16/bin/pg_ctl', ['--version'], { stdio: 'ignore' }).status === 0
+  }
+  if (what === 'calibration') {
+    const cal = process.env.CAL_DIR || '/tmp/grade'
+    return fs.existsSync(path.join(cal, 'cal_static.mp4'))
   }
   try { require(path.join(ROOT, 'render-worker', 'node_modules', 'canvas')); return true }
   catch { return false }
@@ -60,10 +80,14 @@ const suites = fs.readdirSync(DIR)
   .filter(f => !only || f.includes(only))
   .sort()
 
-const has = { canvas: have('canvas'), ffmpeg: have('ffmpeg'), postgres: have('postgres') }
+const has = { canvas: have('canvas'), ffmpeg: have('ffmpeg'), postgres: have('postgres'), calibration: have('calibration') }
 const missing = Object.entries(has).filter(([, v]) => !v).map(([k]) => k)
 if (missing.length) {
-  console.log(`! not installed: ${missing.join(', ')} — suites needing them will be ${strict ? 'FAILED' : 'skipped'}\n`)
+  const inst = missing.filter(k => !ENVIRONMENT.has(k))
+  const env = missing.filter(k => ENVIRONMENT.has(k))
+  if (inst.length) console.log(`! not installed: ${inst.join(', ')} — suites needing them will be ${strict ? 'FAILED' : 'skipped'}`)
+  if (env.length) console.log(`! environment not provided: ${env.join(', ')} — suites needing them are skipped (CI does not run a root Postgres or ship the calibration corpus)`)
+  console.log('')
 }
 
 let totalPass = 0, totalFail = 0, failedSuites = [], skipped = []
@@ -73,8 +97,11 @@ for (const file of suites) {
   const name = file.replace(/\.cjs$/, '')
   const needs = Object.keys(NEEDS).filter(k => NEEDS[k].includes(name))
   const unmet = needs.filter(k => !has[k])
+  const unmetEnv = unmet.filter(k => ENVIRONMENT.has(k))
 
-  if (unmet.length && !strict) {
+  // Skip when an ENVIRONMENT prerequisite is absent (always — CI never provides
+  // it), or when an installable dep is absent and we are not in --strict.
+  if (unmetEnv.length || (unmet.length && !strict)) {
     skipped.push(`${name} (needs ${unmet.join(' + ')})`)
     console.log(`SKIP  ${name.padEnd(24)} needs ${unmet.join(' + ')}`)
     continue
