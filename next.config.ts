@@ -57,7 +57,7 @@ const nextConfig: NextConfig = {
       // from the browser; without them those calls are blocked by CSP.
       "connect-src 'self' data: blob: https://zimpimoierpsocnmnizm.supabase.co wss://zimpimoierpsocnmnizm.supabase.co https://api.open-meteo.com https://queue.fal.run https://fal.run https://v3.fal.media https://fal.media " +
         "https://transilvania-times-news-hub-production.up.railway.app " +
-        "https://pagead2.googlesyndication.com https://adservice.google.com",
+        "https://pagead2.googlesyndication.com https://adservice.google.com https://fundingchoicesmessages.google.com",
       "frame-src https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com",
     ].join('; ')
 
