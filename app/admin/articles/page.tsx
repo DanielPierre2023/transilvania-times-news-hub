@@ -119,7 +119,7 @@ export default function ArticlesPage() {
           <p className="font-sans text-[13px] text-white/40 mt-1">{total} articole total</p>
         </div>
         <Link
-          href="/admin/articles/new"
+           href="/admin/new"
           className="flex items-center gap-2 bg-brand-red text-white font-sans text-[12px] font-bold uppercase tracking-wider px-4 py-2.5 hover:bg-red-700 transition-colors"
         >
           <Plus className="w-4 h-4" />
