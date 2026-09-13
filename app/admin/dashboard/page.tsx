@@ -142,7 +142,7 @@ export default function DashboardPage() {
             <p className="font-sans text-[11px] text-white/70">Colectează articole noi din RSS</p>
           </div>
         </Link>
-        <Link href="/admin/articles/new"
+         <Link href="/admin/new"
           className="flex items-center gap-3 bg-[#1a1a1a] border border-white/[0.07] p-4 hover:border-white/20 transition-colors"
         >
           <FileText className="w-5 h-5 text-white/60 shrink-0" />
